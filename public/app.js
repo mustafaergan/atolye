@@ -90,7 +90,6 @@ const dom = {
   modeSelect: $('#modeSelect'),
   modelSelect: $('#modelSelect'),
   sessionList: $('#sessionList'),
-  folderName: $('#folderName'),
   sessionTitle: $('#sessionTitle'),
   sessionCwd: $('#sessionCwd'),
   conn: $('#connState'),
@@ -223,7 +222,7 @@ function rememberOpen() {
 function applyOpened(ev) {
   state.liveId = ev.liveId;
   state.sessionId = ev.sessionId;
-  if (ev.cwd && ev.cwd !== state.cwd) setCwdLabel(ev.cwd, true);
+  if (ev.cwd && !samePath(ev.cwd, state.cwd)) setCwdLabel(ev.cwd);
   rememberOpen();
   resetTranscript();
   if (ev.capabilities) setCapabilities(ev.capabilities);
@@ -237,7 +236,7 @@ function applyOpened(ev) {
   for (const e of ev.events || []) handleEvent(e);
   setBusy(ev.busy);
 
-  const s = state.sessions.find((x) => x.id === state.sessionId);
+  const s = sessionsOf(state.cwd).find((x) => x.id === state.sessionId);
   dom.sessionTitle.textContent = s?.title || ev.title || (state.sessionId ? 'Oturum' : 'Yeni oturum');
   renderSessions();
   scrollDown(true);
@@ -256,7 +255,7 @@ function handleEvent(ev) {
     case 'capabilities': return setCapabilities(ev);
     case 'error': setBusy(false); return notice(ev.message);
     case 'opened': return applyOpened(ev);
-    case 'live': state.running = ev.sessions || []; return renderSessions();
+    case 'live': return onLiveList(ev.sessions || []);
     case 'user_prompt':
       return renderUserBubble(ev.text, (ev.images || []).map((i) => `data:${i.mediaType};base64,${i.data}`));
     case 'session_ended': return;
@@ -915,82 +914,181 @@ function popupKey(e) {
   return false;
 }
 
-// ---------- Oturum listesi ----------
-async function loadSessions() {
-  try {
-    state.sessions = await fetch(`/api/sessions?dir=${encodeURIComponent(state.cwd)}`).then((r) => r.json());
-    if (!Array.isArray(state.sessions)) throw new Error(state.sessions?.error || 'Liste alınamadı');
-  } catch (err) {
-    state.sessions = [];
-    dom.sessionList.replaceChildren(el('div', { class: 'list-empty', text: `Oturumlar yüklenemedi: ${err.message}` }));
-    return;
+// ---------- Projeler ve oturum listesi ----------
+// Kenar çubuğunda birden fazla proje klasörü alt alta durur; her birinin
+// altında o klasörün oturumları listelenir. Farklı projelerdeki oturumlar
+// aynı anda çalışabilir.
+const samePath = (a, b) => pathKey(a) === pathKey(b);
+const pathKey = (p) => (p || '').replace(/[\\/]+$/, '').toLowerCase();
+const folderOf = (p) => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
+const SESSIONS_PER_PROJECT = 6;
+
+function readJson(key, fallback) {
+  try { return JSON.parse(store.get(key, '')) ?? fallback; } catch { return fallback; }
+}
+state.projects = readJson('atolye:projects', []);
+state.collapsed = new Set(readJson('atolye:collapsed', []));
+state.expanded = new Set(); // "daha fazla göster" açılan projeler
+state.sessionsByDir = new Map(); // pathKey -> oturumlar
+
+const sessionsOf = (dir) => state.sessionsByDir.get(pathKey(dir)) || [];
+const saveProjects = () => {
+  store.set('atolye:projects', JSON.stringify(state.projects));
+  store.set('atolye:collapsed', JSON.stringify([...state.collapsed]));
+};
+
+function addProject(dir, { load = true } = {}) {
+  if (!dir || state.projects.some((p) => samePath(p, dir))) return false;
+  state.projects.push(dir);
+  saveProjects();
+  if (load) loadSessions(dir);
+  return true;
+}
+
+function removeProject(dir) {
+  const running = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting)).length;
+  if (running && !confirm(`${folderOf(dir)} klasöründe çalışan ${running} oturum var. Yine de listeden kaldırılsın mı? (Çalışmaya devam ederler.)`)) return;
+  state.projects = state.projects.filter((p) => !samePath(p, dir));
+  saveProjects();
+  if (samePath(dir, state.cwd)) {
+    if (state.projects.length) newSession(state.projects[0]);
+    else openFolderDialog();
   }
   renderSessions();
 }
 
-const samePath = (a, b) => (a || '').replace(/[\\/]+$/, '').toLowerCase() === (b || '').replace(/[\\/]+$/, '').toLowerCase();
-const folderOf = (p) => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
-
-// Diskteki oturumlar + sunucuda çalışan oturumlar tek listede. Çalışanlar
-// "çalışıyor" / "onay bekliyor" işaretiyle en üstte gösterilir.
-function renderSessions() {
-  const runningBySession = new Map(state.running.filter((r) => r.sessionId).map((r) => [r.sessionId, r]));
-  const diskIds = new Set(state.sessions.map((s) => s.id));
-  const rows = [];
-
-  for (const r of state.running) {
-    if (r.sessionId && diskIds.has(r.sessionId) && samePath(r.cwd, state.cwd)) continue;
-    rows.push({ id: r.sessionId, liveId: r.liveId, title: r.title || 'Yeni oturum', lastModified: r.lastActivity, run: r, cwd: r.cwd });
+async function loadSessions(dir = state.cwd) {
+  let list;
+  try {
+    list = await fetch(`/api/sessions?dir=${encodeURIComponent(dir)}`).then((r) => r.json());
+    if (!Array.isArray(list)) throw new Error(list?.error || 'Liste alınamadı');
+  } catch (err) {
+    list = [];
+    notice(`${folderOf(dir)} oturumları yüklenemedi: ${err.message}`);
   }
-  for (const s of state.sessions) rows.push({ ...s, run: runningBySession.get(s.id), cwd: state.cwd });
+  state.sessionsByDir.set(pathKey(dir), list);
+  renderSessions();
+}
+
+const loadAllSessions = () => Promise.all(state.projects.map((p) => loadSessions(p)));
+
+// Arka planda çalışan bir oturum bitip bellekten silinince ya da yeni bir
+// oturum diske yazılınca ilgili projenin listesini tazele
+const refreshTimers = new Map();
+function refreshDirSoon(dir) {
+  const k = pathKey(dir);
+  clearTimeout(refreshTimers.get(k));
+  refreshTimers.set(k, setTimeout(() => loadSessions(dir), 600));
+}
+function onLiveList(sessions) {
+  const prev = state.running;
+  state.running = sessions;
+  const now = new Set(sessions.map((r) => `${r.liveId}:${r.sessionId}:${r.busy}`));
+  for (const r of prev) if (!now.has(`${r.liveId}:${r.sessionId}:${r.busy}`)) refreshDirSoon(r.cwd);
+  for (const r of sessions) {
+    if (addProject(r.cwd)) continue;
+    if (r.sessionId && !sessionsOf(r.cwd).some((s) => s.id === r.sessionId)) refreshDirSoon(r.cwd);
+  }
+  renderSessions();
+}
+
+function sessionRows(dir) {
+  const disk = sessionsOf(dir);
+  const diskIds = new Set(disk.map((s) => s.id));
+  const running = state.running.filter((r) => samePath(r.cwd, dir));
+  const runningBySession = new Map(running.filter((r) => r.sessionId).map((r) => [r.sessionId, r]));
+  const rows = [];
+  for (const r of running) {
+    if (r.sessionId && diskIds.has(r.sessionId)) continue;
+    rows.push({ id: r.sessionId, liveId: r.liveId, title: r.title || 'Yeni oturum', lastModified: r.lastActivity, run: r, cwd: dir });
+  }
+  for (const s of disk) rows.push({ ...s, run: runningBySession.get(s.id), cwd: dir });
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
 
   // Henüz mesaj yazılmamış yeni oturum da listede hemen görünsün
-  const currentListed = rows.some((r) => (state.liveId && (r.liveId === state.liveId || r.run?.liveId === state.liveId)) || (state.sessionId && r.id === state.sessionId));
-  if (!state.sessionId && !currentListed)
-    rows.unshift({ id: null, liveId: state.liveId, title: 'Yeni oturum', lastModified: Date.now(), cwd: state.cwd, draft: true });
-
-  if (!rows.length) {
-    dom.sessionList.replaceChildren(el('div', { class: 'list-empty', text: 'Bu klasörde henüz oturum yok.' }));
-    return;
+  if (samePath(dir, state.cwd) && !state.sessionId) {
+    const listed = rows.some((r) => state.liveId && (r.liveId === state.liveId || r.run?.liveId === state.liveId));
+    if (!listed) rows.unshift({ id: null, liveId: state.liveId, title: 'Yeni oturum', lastModified: Date.now(), cwd: dir, draft: true });
   }
-  dom.sessionList.replaceChildren(...rows.map((s) => {
-    const active = s.draft || (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
-    const status = s.run
-      ? s.run.waiting
-        ? el('span', { class: 's-badge wait', title: 'Onayınızı bekliyor', text: 'onay' })
-        : s.run.busy
-          ? el('span', { class: 's-badge run', title: 'Çalışıyor' }, el('span', { class: 'spin' }))
-          : null
-      : null;
-    const other = !samePath(s.cwd, state.cwd) ? el('span', { class: 's-folder', text: folderOf(s.cwd) }) : null;
-    const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
-      status,
-      el('span', { class: 's-title', text: s.title }),
-      other,
-      el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
-      s.id && !s.run?.busy ? el('span', { class: 's-actions' },
-        el('span', { title: 'Yeniden adlandır', onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
-        el('span', { title: 'Sil', onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
-    item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd }));
-    return item;
+  return rows;
+}
+
+function sessionRow(s) {
+  const active = s.draft || (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
+  const status = s.run
+    ? s.run.waiting
+      ? el('span', { class: 's-badge wait', title: 'Onayınızı bekliyor', text: 'onay' })
+      : s.run.busy
+        ? el('span', { class: 's-badge run', title: 'Çalışıyor' }, el('span', { class: 'spin' }))
+        : null
+    : null;
+  const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
+    status,
+    el('span', { class: 's-title', text: s.title }),
+    el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
+    s.id && !s.run?.busy ? el('span', { class: 's-actions' },
+      el('span', { title: 'Yeniden adlandır', onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
+      el('span', { title: 'Sil', onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
+  item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd }));
+  return item;
+}
+
+function renderSessions() {
+  for (const r of state.running) addProject(r.cwd);
+  if (state.cwd) addProject(state.cwd);
+
+  dom.sessionList.replaceChildren(...state.projects.map((dir) => {
+    const k = pathKey(dir);
+    const rows = sessionRows(dir);
+    const collapsed = state.collapsed.has(k);
+    const runningCount = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting)).length;
+    const isCurrent = samePath(dir, state.cwd);
+
+    const head = el('div', { class: `project-head ${isCurrent ? 'current' : ''}` },
+      el('button', { class: 'p-toggle', type: 'button', title: dir, 'aria-expanded': String(!collapsed),
+        onclick: () => { collapsed ? state.collapsed.delete(k) : state.collapsed.add(k); saveProjects(); renderSessions(); } },
+        el('span', { class: `p-chevron ${collapsed ? '' : 'open'}` }, icon(ICONS.chevron)),
+        icon(ICONS.folder),
+        el('span', { class: 'p-name', text: folderOf(dir) }),
+        collapsed && runningCount ? el('span', { class: 's-badge run', title: `${runningCount} oturum çalışıyor` }, el('span', { class: 'spin' })) : null),
+      el('span', { class: 'p-actions' },
+        el('button', { class: 'p-btn', type: 'button', title: `${folderOf(dir)} içinde yeni oturum`, onclick: () => newSession(dir) }, icon('<path d="M12 5v14M5 12h14"/>')),
+        el('button', { class: 'p-btn', type: 'button', title: 'Projeyi listeden kaldır', onclick: () => removeProject(dir) }, icon('<path d="M6 6l12 12M18 6L6 18"/>'))));
+
+    const group = el('div', { class: 'project' }, head);
+    if (collapsed) return group;
+    if (!rows.length) {
+      group.append(el('div', { class: 'list-empty', text: state.sessionsByDir.has(k) ? 'Henüz oturum yok' : 'Yükleniyor…' }));
+      return group;
+    }
+    const showAll = state.expanded.has(k);
+    // Aktif ve çalışan oturumlar sınırın dışında kalsa da görünür
+    const visible = showAll ? rows : rows.filter((r, i) => i < SESSIONS_PER_PROJECT || r.run || r.draft || r.id === state.sessionId);
+    group.append(...visible.map(sessionRow));
+    if (rows.length > visible.length || showAll) {
+      group.append(el('button', { class: 'more-btn', type: 'button',
+        text: showAll ? 'Daha az göster' : `${rows.length - visible.length} oturum daha`,
+        onclick: () => { showAll ? state.expanded.delete(k) : state.expanded.add(k); renderSessions(); } }));
+    }
+    return group;
   }));
-  const cur = state.sessions.find((s) => s.id === state.sessionId);
+
+  const cur = sessionsOf(state.cwd).find((s) => s.id === state.sessionId);
   if (cur) dom.sessionTitle.textContent = cur.title;
 }
 
 async function renameSession(s) {
   const title = prompt('Oturumun yeni adı:', s.title);
   if (!title?.trim()) return;
-  await fetch(`/api/sessions/${s.id}/rename`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title.trim(), dir: state.cwd }) });
-  loadSessions();
+  await fetch(`/api/sessions/${s.id}/rename`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title.trim(), dir: s.cwd }) });
+  loadSessions(s.cwd);
 }
 
 async function removeSession(s) {
   if (!confirm(`"${s.title}" oturumu kalıcı olarak silinsin mi?`)) return;
-  await fetch(`/api/sessions/${s.id}?dir=${encodeURIComponent(state.cwd)}`, { method: 'DELETE' });
-  if (s.id === state.sessionId) newSession();
-  else loadSessions();
+  await fetch(`/api/sessions/${s.id}?dir=${encodeURIComponent(s.cwd)}`, { method: 'DELETE' });
+  if (s.id === state.sessionId) newSession(s.cwd);
+  loadSessions(s.cwd);
 }
 
 function resetTranscript() {
@@ -1006,13 +1104,15 @@ function resetTranscript() {
 }
 
 // Yeni oturum açmak çalışan oturumu durdurmaz; o sunucuda sürer ve listeden geri açılabilir.
-function newSession() {
+function newSession(dir = state.cwd) {
+  if (typeof dir !== 'string') dir = state.cwd; // tıklama olayıyla çağrıldıysa
   state.sessionId = null;
   state.liveId = null;
+  setCwdLabel(dir);
   resetTranscript();
   dom.sessionTitle.textContent = 'Yeni oturum';
   renderSessions();
-  openLive({ isNew: true });
+  openLive({ isNew: true, cwd: dir });
   dom.input.focus();
   closeMenu();
 }
@@ -1023,10 +1123,11 @@ function openSession({ sessionId, liveId, cwd }) {
   // Seçimi hemen göster; sunucudan "opened" gelince ekran doldurulur
   state.liveId = liveId || null;
   state.sessionId = sessionId || null;
+  setCwdLabel(cwd || state.cwd);
   resetTranscript();
   renderSessions();
   setWorking('Oturum açılıyor…');
-  openLive({ sessionId, liveId, cwd: cwd || state.cwd });
+  openLive({ sessionId, liveId, cwd: state.cwd });
 }
 
 $('#newSessionBtn').onclick = newSession;
@@ -1037,9 +1138,12 @@ const dlg = $('#folderDialog');
 const pathInput = $('#pathInput');
 const dirList = $('#dirList');
 
+let browseReq = 0;
 async function browse(p) {
+  const req = ++browseReq;
   try {
     const res = await fetch(`/api/fs/list?path=${encodeURIComponent(p)}`).then((r) => r.json());
+    if (req !== browseReq) return; // daha yeni bir istek var, eski cevabı yazma
     if (res.error) throw new Error(res.error);
     pathInput.value = res.path;
     const items = [];
@@ -1048,28 +1152,29 @@ async function browse(p) {
     for (const d of res.dirs) items.push(el('button', { class: 'dir-item', type: 'button', ondblclick: () => browse(d.path), onclick: () => browse(d.path) }, icon(ICONS.folder), d.name));
     dirList.replaceChildren(...items);
   } catch (err) {
+    if (req !== browseReq) return;
     dirList.replaceChildren(el('div', { class: 'list-empty', text: err.message }));
   }
 }
-$('#folderBtn').onclick = () => { browse(state.cwd); dlg.showModal(); };
+function openFolderDialog() { browse(state.cwd); dlg.showModal(); }
+$('#folderBtn').onclick = openFolderDialog;
 $('#pathGo').onclick = () => browse(pathInput.value);
 pathInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); browse(pathInput.value); } });
+// Seçilen klasör projelere eklenir ve içinde yeni bir oturum açılır
 dlg.addEventListener('close', () => {
-  if (dlg.returnValue === 'ok' && pathInput.value && pathInput.value !== state.cwd) setCwd(pathInput.value);
+  if (dlg.returnValue !== 'ok' || !pathInput.value) return;
+  const dir = pathInput.value;
+  state.collapsed.delete(pathKey(dir));
+  addProject(dir);
+  newSession(dir);
 });
 
-function setCwdLabel(cwd, reload = false) {
+// Aktif oturumun klasörü: başlıkta gösterilir, yeni oturumlar varsayılan olarak burada açılır
+function setCwdLabel(cwd) {
   state.cwd = cwd;
   store.set('atolye:cwd', cwd);
-  dom.folderName.textContent = folderOf(cwd);
-  dom.folderName.parentElement.title = cwd;
   dom.sessionCwd.textContent = cwd;
-  if (reload) loadSessions();
-}
-
-function setCwd(cwd) {
-  setCwdLabel(cwd, true);
-  newSession();
+  addProject(cwd);
 }
 
 // ---------- Tema ve mobil menü ----------
@@ -1096,17 +1201,16 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
 (async function init() {
   state.config = await fetch('/api/config').then((r) => r.json());
   state.model = store.get('atolye:model', '');
-  setCwdLabel(store.get('atolye:cwd', '') || state.config.defaultCwd);
+  setCwdLabel(store.get('atolye:cwd', '') || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse en son bakılan oturuma dön
-  try {
-    const last = JSON.parse(store.get('atolye:open', 'null'));
-    if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; }
-  } catch { /* yoksay */ }
+  const last = readJson('atolye:open', null);
+  if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; }
   dom.gatewayInfo.textContent = state.config.gateway
     ? `Gateway: ${new URL(state.config.gateway).host}`
     : 'Gateway: Claude Code ayarlarından';
   dom.gatewayInfo.title = state.config.gateway || '';
-  await loadSessions();
+  renderSessions();
+  loadAllSessions();
   updateSendBtn();
   connect();
   dom.input.focus();

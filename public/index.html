@@ -27,13 +27,14 @@
         Yeni oturum
       </button>
 
-      <button class="folder-chip" id="folderBtn" title="Çalışma klasörünü değiştir">
-        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <span id="folderName">…</span>
-      </button>
-
-      <div class="section-label">Oturumlar</div>
-      <nav class="session-list" id="sessionList" aria-label="Oturumlar"></nav>
+      <div class="section-label">
+        <span>Projeler</span>
+        <button class="add-project" id="folderBtn" title="Proje klasörü ekle">
+          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13h6"/></svg>
+          Klasör ekle
+        </button>
+      </div>
+      <nav class="session-list" id="sessionList" aria-label="Projeler ve oturumlar"></nav>
 
       <div class="sidebar-foot" id="gatewayInfo"></div>
     </aside>
@@ -106,7 +107,7 @@
   <dialog id="folderDialog" class="dialog">
     <form method="dialog" class="dialog-inner">
       <div class="dialog-head">
-        <h2>Çalışma klasörü</h2>
+        <h2>Proje klasörü ekle</h2>
         <button class="icon-btn" value="cancel" aria-label="Kapat"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <div class="path-row">
@@ -116,7 +117,7 @@
       <div class="dir-list" id="dirList"></div>
       <div class="dialog-foot">
         <button class="btn ghost" value="cancel">Vazgeç</button>
-        <button class="btn primary" id="folderChoose" value="ok">Bu klasörü seç</button>
+        <button class="btn primary" id="folderChoose" value="ok">Ekle ve yeni oturum aç</button>
       </div>
     </form>
   </dialog>

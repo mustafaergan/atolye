@@ -19,6 +19,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 🤖 Model seçimi (gateway'in sunduğu modeller)
 - 🗂️ Oturum geçmişi: listeleme, devam etme, yeniden adlandırma, silme (Claude CLI oturumlarıyla ortak)
 - 🔄 **Arka planda çalışma**: başka oturuma geçmek ya da sayfayı yenilemek işi durdurmaz; geri dönünce kaldığı yerden (bekleyen izinler dahil) görünür. Çalışan oturumlar kenar çubuğunda işaretlenir, işi biten ve bakılmayan oturumlar 30 sn sonra bellekten silinir
+- 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma
 - 📁 Klasör seçici, `@dosya` önerisi, `/komut` menüsü (`/compact`, `/context`, kendi komutlarınız…)
 - 🖼️ Görsel ekleme (yapıştır, sürükle-bırak, dosya seç)
 - ⏹️ Durdurma (Esc), açık/koyu tema, mobil uyumlu düzen
