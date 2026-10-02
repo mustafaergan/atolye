@@ -456,6 +456,7 @@ function renderResult(msg) {
   }
   updateStatus(msg);
   loadSessions();
+  loadSpend(); // sunucu 1 dk önbelleklediği için her turda script çalışmaz
 }
 
 function updateStatus(result) {
@@ -1214,6 +1215,38 @@ $('#themeBtn').onclick = () => {
 $('#menuBtn').onclick = () => dom.app.classList.toggle('menu-open');
 function closeMenu() { dom.app.classList.remove('menu-open'); }
 
+// ---------- Harcama göstergesi (ATOLYE_SPEND_CMD ayarlıysa) ----------
+const spend = { wrap: $('#spendWrap'), btn: $('#spendBtn'), text: $('#spendText'), pop: $('#spendPop'), out: $('#spendOutput'), time: $('#spendTime') };
+let spendLoading = null;
+
+async function loadSpend(force = false) {
+  if (!state.config?.spendEnabled || spendLoading) return;
+  spend.wrap.hidden = false;
+  if (force) spend.text.textContent = 'Güncelleniyor…';
+  spendLoading = fetch(`/api/spend${force ? '?refresh=1' : ''}`).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+  const res = await spendLoading;
+  spendLoading = null;
+  spend.btn.classList.remove('warn', 'err');
+  if (!res.ok) {
+    spend.text.textContent = 'Harcama alınamadı';
+    spend.btn.classList.add('err');
+    spend.out.textContent = res.error || 'Bilinmeyen hata';
+    spend.time.textContent = '';
+    return;
+  }
+  spend.text.textContent = res.summary || 'Harcama';
+  if (res.percent >= 90) spend.btn.classList.add('err');
+  else if (res.percent >= 75) spend.btn.classList.add('warn');
+  spend.out.textContent = res.output;
+  spend.time.textContent = `Son güncelleme: ${new Date(res.at).toLocaleTimeString('tr-TR')}`;
+}
+
+spend.btn.onclick = (e) => { e.stopPropagation(); spend.pop.hidden = !spend.pop.hidden; };
+$('#spendRefresh').onclick = (e) => { e.stopPropagation(); loadSpend(true); };
+spend.pop.addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('click', () => { spend.pop.hidden = true; });
+setInterval(() => loadSpend(), 5 * 60_000);
+
 // Geliştirme için: ?debug ile açıldığında olaylar konsoldan elle verilebilir
 if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { handleEvent, state };
 
@@ -1231,6 +1264,7 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   dom.gatewayInfo.title = state.config.gateway || '';
   renderSessions();
   loadAllSessions();
+  loadSpend();
   updateSendBtn();
   connect();
   dom.input.focus();
