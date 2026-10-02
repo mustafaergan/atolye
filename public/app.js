@@ -950,6 +950,7 @@ function removeProject(dir) {
   if (running && !confirm(`${folderOf(dir)} klasöründe çalışan ${running} oturum var. Yine de listeden kaldırılsın mı? (Çalışmaya devam ederler.)`)) return;
   state.projects = state.projects.filter((p) => !samePath(p, dir));
   saveProjects();
+  if (samePath(dir, state.selectedProject) && !samePath(dir, state.cwd)) selectProject(state.cwd, { render: false });
   if (samePath(dir, state.cwd)) {
     if (state.projects.length) newSession(state.projects[0]);
     else openFolderDialog();
@@ -1042,12 +1043,20 @@ function renderSessions() {
     const rows = sessionRows(dir);
     const collapsed = state.collapsed.has(k);
     const runningCount = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting)).length;
-    const isCurrent = samePath(dir, state.cwd);
+    const isSelected = samePath(dir, state.selectedProject);
+    const toggle = (e) => {
+      e.stopPropagation();
+      collapsed ? state.collapsed.delete(k) : state.collapsed.add(k);
+      saveProjects();
+      renderSessions();
+    };
 
-    const head = el('div', { class: `project-head ${isCurrent ? 'current' : ''}` },
-      el('button', { class: 'p-toggle', type: 'button', title: dir, 'aria-expanded': String(!collapsed),
-        onclick: () => { collapsed ? state.collapsed.delete(k) : state.collapsed.add(k); saveProjects(); renderSessions(); } },
-        el('span', { class: `p-chevron ${collapsed ? '' : 'open'}` }, icon(ICONS.chevron)),
+    // Klasör adına tıklamak projeyi seçer (üstteki "Yeni oturum" burada açar); ok simgesi açar/kapatır
+    const head = el('div', { class: `project-head ${isSelected ? 'current' : ''}` },
+      el('button', { class: 'p-toggle', type: 'button', title: `${dir}\nSeçmek için tıklayın`, 'aria-pressed': String(isSelected),
+        onclick: () => { selectProject(dir); if (collapsed) { state.collapsed.delete(k); saveProjects(); renderSessions(); } } },
+        el('span', { class: `p-chevron ${collapsed ? '' : 'open'}`, role: 'button', title: collapsed ? 'Aç' : 'Kapat',
+          'aria-expanded': String(!collapsed), onclick: toggle }, icon(ICONS.chevron)),
         icon(ICONS.folder),
         el('span', { class: 'p-name', text: folderOf(dir) }),
         collapsed && runningCount ? el('span', { class: 's-badge run', title: `${runningCount} oturum çalışıyor` }, el('span', { class: 'spin' })) : null),
@@ -1130,7 +1139,17 @@ function openSession({ sessionId, liveId, cwd }) {
   openLive({ sessionId, liveId, cwd: state.cwd });
 }
 
-$('#newSessionBtn').onclick = newSession;
+$('#newSessionBtn').onclick = () => newSession(state.selectedProject || state.cwd);
+
+// Seçili proje: kenar çubuğunda vurgulanır, üstteki "Yeni oturum" düğmesi burada oturum açar.
+// Bir oturuma geçince o oturumun klasörü otomatik seçilir.
+function selectProject(dir, { render = true } = {}) {
+  state.selectedProject = dir;
+  store.set('atolye:selected', dir);
+  $('#newSessionFolder').textContent = folderOf(dir);
+  $('#newSessionBtn').title = `${dir} içinde yeni oturum aç`;
+  if (render) renderSessions();
+}
 for (const b of document.querySelectorAll('.suggestions button')) b.onclick = () => { dom.input.value = b.dataset.prompt; autoGrow(); send(); };
 
 // ---------- Klasör seçici ----------
@@ -1175,6 +1194,7 @@ function setCwdLabel(cwd) {
   store.set('atolye:cwd', cwd);
   dom.sessionCwd.textContent = cwd;
   addProject(cwd);
+  selectProject(cwd, { render: false });
 }
 
 // ---------- Tema ve mobil menü ----------
