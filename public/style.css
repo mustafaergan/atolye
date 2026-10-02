@@ -450,3 +450,37 @@ input[type="text"]:focus { outline: 2px solid var(--accent-soft); border-color: 
   padding: 0 6px; border-radius: 999px; line-height: 18px;
 }
 .s-folder { flex: none; font-size: 11px; color: var(--text-3); background: var(--surface-2); padding: 0 6px; border-radius: 6px; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Projeler (birden fazla klasör) */
+.sidebar .section-label { display: flex; align-items: center; justify-content: space-between; padding-right: 4px; }
+.add-project {
+  display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent;
+  font-size: 12px; color: var(--text-3); padding: 2px 6px; border-radius: 6px;
+}
+.add-project svg { width: 14px; height: 14px; }
+.add-project:hover { background: var(--surface-2); color: var(--text); }
+.session-list { gap: 6px; }
+.project { display: flex; flex-direction: column; gap: 1px; }
+.project-head { display: flex; align-items: center; border-radius: 8px; }
+.project-head:hover { background: var(--surface-2); }
+.p-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  border: 0; background: transparent; padding: 6px 4px 6px 6px; text-align: left;
+  font-size: 13px; font-weight: 600; color: var(--text-2);
+}
+.project-head.current .p-toggle { color: var(--text); }
+.p-toggle > svg { width: 15px; height: 15px; color: var(--text-3); }
+.p-chevron { display: grid; place-items: center; color: var(--text-3); }
+.p-chevron svg { width: 12px; height: 12px; transition: transform .15s; }
+.p-chevron.open svg { transform: rotate(90deg); }
+.p-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-actions { display: flex; opacity: 0; transition: opacity .1s; padding-right: 4px; }
+.project-head:hover .p-actions, .project-head:focus-within .p-actions { opacity: 1; }
+.p-btn { display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; border-radius: 6px; color: var(--text-3); }
+.p-btn:hover { background: var(--border); color: var(--text); }
+.p-btn svg { width: 14px; height: 14px; }
+.project .session-item { padding-left: 28px; }
+.project .list-empty { padding-left: 28px; font-size: 12.5px; }
+.more-btn { border: 0; background: transparent; text-align: left; font-size: 12px; color: var(--text-3); padding: 4px 8px 4px 28px; border-radius: 6px; }
+.more-btn:hover { color: var(--text); background: var(--surface-2); }
+@media (hover: none) { .p-actions { opacity: 1; } }
