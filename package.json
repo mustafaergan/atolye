@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/cli.js",
     "dev": "node --watch src/cli.js",
-    "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs"
+    "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs test/spend.test.mjs"
   },
   "engines": {
     "node": ">=18.18"
