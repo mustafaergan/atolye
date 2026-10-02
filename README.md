@@ -71,20 +71,26 @@ node src/cli.js --port 3211 --cwd C:\projeler\uygulamam --no-open
 | `ATOLYE_CWD` | Varsayılan çalışma klasörü |
 | `ATOLYE_NO_OPEN=1` | Tarayıcıyı otomatik açma |
 | `ATOLYE_DEBUG=1` | Claude Code'un stderr çıktısını konsola yaz |
-| `ATOLYE_SPEND_CMD` | Harcama/bütçe bilgisini yazdıran komut (aşağıya bakın) |
+| `ATOLYE_SPEND=0` | Harcama göstergesini kapat |
+| `ATOLYE_SPEND_PATH` | Harcama özeti yolu (varsayılan `/spend-summary`) |
 
-### Harcama göstergesi (isteğe bağlı)
+### Harcama göstergesi
 
-Kurumunuzun harcama/bütçe bilgisini yazdıran bir script'i varsa (ör. bir Claude Code skill'inin çalıştırdığı
-`spend.mjs`), `.env` içinde `ATOLYE_SPEND_CMD` ile verin. Atölye bu komutu `~/.claude/settings.json`
-içindeki `env` değerleriyle çalıştırır, çıktının özetini üst çubukta "Bağlı" yazısının yanında gösterir ve
-tıklayınca tamamını açar. Sonuç 1 dakika önbelleklenir; her turdan sonra ve 5 dakikada bir tazelenir.
-Çıktıda bir yüzde varsa %75 üzerinde sarı, %90 üzerinde kırmızı görünür.
+Bazı kurumsal gateway'ler, Claude Code token'ıyla çağrılabilen bir harcama özeti sunar:
 
-```env
-ATOLYE_SPEND_CMD=node "C:\yol\scripts\spend.mjs"
 ```
-| `ATOLYE_SPEND_CMD` | Harcama/bütçe bilgisini yazdıran komut; çıktının özeti üst çubukta gösterilir (aşağıya bakın) |
+POST <ANTHROPIC_BASE_URL kökü>/spend-summary      Authorization: Bearer <ANTHROPIC_AUTH_TOKEN>
+→ { "items": [ { "label": "Monthly Spend", "value": "$82.40" }, ... ] }
+```
+
+Atölye bunu **ayar gerektirmeden** dener (adres ve token `.env` ya da `~/.claude/settings.json` içinden okunur).
+Gateway destekliyorsa üst çubukta "Bağlı" yazısının yanında `harcanan / bütçe · %yüzde` özeti görünür,
+tıklayınca tüm kalemler tablo halinde açılır; desteklemiyorsa gösterge hiç görünmez. Sonuç 1 dakika
+önbelleklenir, her turdan sonra ve 5 dakikada bir tazelenir; %75 üzerinde sarı, %90 üzerinde kırmızıdır.
+
+Kurumsal ağlarda TLS denetimi sertifikaları genelde yalnızca işletim sisteminin deposunda olduğundan Atölye
+önce Node'u sistem sertifikalarıyla kullanır, bağlanamazsa isteği işletim sisteminin istemcisiyle
+(Windows'ta PowerShell, diğerlerinde curl) tekrarlar.
 
 ## Klavye kısayolları
 
@@ -112,7 +118,7 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 - `src/cli.js`: başlangıç, `.env` okuma, tarayıcıyı açma
 - `src/server.js`: Express + WebSocket, oturum listesi, klasör ve dosya API'leri
 - `src/manager.js`: tarayıcıdan bağımsız çalışan oturumlar, olay tamponu ve boşta kalanları kapatma
-- `src/spend.js`: isteğe bağlı harcama komutunu çalıştırma ve özetleme
+- `src/spend.js`: gateway harcama özetini çekme (sistem sertifikaları / PowerShell yedeği) ve özetleme
 - `src/session.js`: Agent SDK `query()` akışını açık tutan oturum sınıfı (izinler, durdurma, mod/model değişimi)
 - `public/`: derleme gerektirmeyen arayüz (HTML, CSS, JS)
 

@@ -15,7 +15,7 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import { SessionManager } from './manager.js';
-import { getSpend, spendCommand } from './spend.js';
+import { getSpend } from './spend.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions']);
@@ -51,7 +51,6 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       platform: process.platform,
       gateway: process.env.ANTHROPIC_BASE_URL || null,
       hasCredential: Boolean(process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY),
-      spendEnabled: Boolean(spendCommand()),
     });
   }));
 
