@@ -143,6 +143,12 @@ export class AgentSession {
     await this.q?.interrupt().catch(() => {});
   }
 
+  /** /context komutundaki veri: bağlamın kategorilere göre token dağılımı */
+  async contextUsage() {
+    if (!this.q || this.closed) throw new Error('Oturum kapalı');
+    return this.q.getContextUsage();
+  }
+
   async setPermissionMode(mode) {
     this.permissionMode = mode;
     await this.q?.setPermissionMode(mode);

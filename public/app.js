@@ -234,6 +234,7 @@ function applyOpened(ev) {
     else if (m.type === 'user') renderUserFromSdk(m, true);
   }
   for (const e of ev.events || []) handleEvent(e);
+  requestContext();
   setBusy(ev.busy);
 
   const s = sessionsOf(state.cwd).find((x) => x.id === state.sessionId);
@@ -255,6 +256,7 @@ function handleEvent(ev) {
     case 'capabilities': return setCapabilities(ev);
     case 'error': setBusy(false); return notice(ev.message);
     case 'opened': return applyOpened(ev);
+    case 'context': return onContext(ev);
     case 'live': return onLiveList(ev.sessions || []);
     case 'user_prompt':
       return renderUserBubble(ev.text, (ev.images || []).map((i) => `data:${i.mediaType};base64,${i.data}`));
@@ -279,6 +281,7 @@ function handleSdk(msg) {
       append(node);
     } else if (msg.subtype === 'compact_boundary') {
       notice('Konuşma özetlendi (compact). Eski mesajlar bağlamdan çıkarıldı.', 'info');
+      requestContext();
     } else if (msg.subtype === 'api_retry') {
       setWorking(`Gateway yanıt vermedi, yeniden deneniyor (${msg.attempt}. deneme)…`);
     } else if (msg.subtype === 'status' && msg.status === 'compacting') {
@@ -437,6 +440,7 @@ function renderResult(msg) {
   state.live.clear();
   state.liveByIndex.clear();
   if (typeof msg.total_cost_usd === 'number') state.cost = msg.total_cost_usd;
+  trackResult(msg);
   const secs = (msg.duration_ms / 1000).toFixed(1);
   const parts = [`${secs} sn`];
   if (msg.num_turns) parts.push(`${msg.num_turns} tur`);
@@ -454,23 +458,185 @@ function renderResult(msg) {
   } else {
     append(el('div', { class: 'result-line', text: parts.join(' · ') }));
   }
-  updateStatus(msg);
+  updateStatus();
+  requestContext();
   loadSessions();
   loadSpend(); // sunucu 1 dk önbelleklediği için her turda script çalışmaz
 }
 
-function updateStatus(result) {
+function updateStatus() {
   const bits = [];
   if (dom.statusline.dataset.model) bits.push(dom.statusline.dataset.model);
-  if (result?.modelUsage) {
-    const ctx = Object.values(result.modelUsage).reduce((a, u) => Math.max(a, u.contextWindow || 0), 0);
-    const u = result.usage || {};
-    const used = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0);
-    if (ctx && used) bits.push(`bağlam ~%${Math.min(100, Math.round((used / ctx) * 100))}`);
-  }
   if (state.cost) bits.push(`oturum ≈ $${state.cost.toFixed(3)}`);
   dom.statusline.replaceChildren(...bits.map((b) => el('span', { text: b })));
 }
+
+// ---------- Bağlam ve oturum metrikleri ----------
+// Bağlam verisi Claude Code'un /context komutundakiyle aynıdır (SDK getContextUsage).
+// Oturum metrikleri ise "result" mesajlarındaki SDK sayaçlarından toplanır.
+const ctx = {
+  btn: $('#ctxBtn'), fill: $('#ctxFill'), text: $('#ctxText'), pop: $('#ctxPop'),
+  sub: $('#ctxSub'), big: $('#ctxBig'), bar: $('#ctxBar'), note: $('#ctxNote'),
+  cats: $('#ctxCats'), details: $('#ctxDetails'), metrics: $('#ctxMetrics'),
+};
+const CTX_COLORS = ['#c96442', '#5b8def', '#3f9d6b', '#b07cd8', '#d6a13a', '#4bb3c2', '#d26a8f', '#8a8f3a', '#7a8794'];
+const CTX_NAMES = {
+  'System prompt': 'Sistem talimatları',
+  'System tools': 'Sistem araçları',
+  'MCP tools': 'MCP araçları',
+  'Custom agents': 'Özel ajanlar',
+  'Memory files': 'CLAUDE.md / bellek dosyaları',
+  Skills: 'Skill\'ler',
+  Messages: 'Mesajlar',
+  'Autocompact buffer': 'Otomatik özetleme payı',
+  'Free space': 'Boş alan',
+};
+const ctxName = (n) => CTX_NAMES[n] || n;
+const newMetrics = () => ({ turns: 0, durationMs: 0, usage: null, cost: 0 });
+state.context = null;
+state.metrics = newMetrics();
+
+const fmtTokens = (n) => {
+  if (n == null || !Number.isFinite(n)) return '–';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}K`;
+  return String(Math.round(n));
+};
+const fmtDuration = (ms) => {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} sn`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m} dk ${s % 60} sn` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
+};
+
+let ctxTimer = null;
+function requestContext() {
+  clearTimeout(ctxTimer);
+  ctxTimer = setTimeout(() => {
+    if (state.ws?.readyState === WebSocket.OPEN && state.liveId) state.ws.send(JSON.stringify({ type: 'get_context' }));
+  }, 400);
+}
+
+function trackResult(msg) {
+  const m = state.metrics;
+  m.turns += msg.num_turns || 0;
+  m.durationMs += msg.duration_ms || 0;
+  if (msg.modelUsage && Object.keys(msg.modelUsage).length) m.usage = msg.modelUsage; // SDK'da birikimli
+  if (typeof msg.total_cost_usd === 'number') m.cost = msg.total_cost_usd;
+}
+
+function onContext(ev) {
+  if (ev.liveId !== state.liveId) return;
+  if (ev.data?.error) {
+    // Yeni açılan oturumda Claude Code henüz hazır olmayabilir: birkaç kez yeniden dene
+    if (!state.context && (state.ctxRetries = (state.ctxRetries || 0) + 1) <= 4) setTimeout(requestContext, 2500);
+    return;
+  }
+  state.ctxRetries = 0;
+  state.context = ev.data;
+  renderContext();
+}
+
+function renderContext() {
+  const d = state.context;
+  if (!d) { ctx.btn.hidden = true; return; }
+  const max = d.maxTokens || d.rawMaxTokens || 0;
+  const pct = Math.max(0, Math.min(100, Math.round(d.percentage ?? (max ? (d.totalTokens / max) * 100 : 0))));
+  const level = pct >= 90 ? 'err' : pct >= 70 ? 'warn' : '';
+
+  ctx.btn.hidden = false;
+  ctx.btn.className = `ctx-btn ${level}`;
+  ctx.fill.setAttribute('stroke-dasharray', `${pct} 100`);
+  ctx.text.textContent = `%${pct}`;
+  ctx.btn.title = `Bağlam: ${fmtTokens(d.totalTokens)} / ${fmtTokens(max)} token (ayrıntı için tıklayın)`;
+
+  ctx.big.textContent = `%${pct}`;
+  ctx.sub.textContent = `${d.model || ''}${d.model ? ' · ' : ''}${fmtTokens(d.totalTokens)} / ${fmtTokens(max)} token`;
+
+  const cats = (d.categories || []).filter((c) => c.kind !== 'deferred' && c.tokens > 0);
+  const used = cats.filter((c) => c.kind === 'used');
+  const colorOf = new Map(used.map((c, i) => [c.name, CTX_COLORS[i % CTX_COLORS.length]]));
+  const share = (t) => (max ? (t / max) * 100 : 0);
+  ctx.bar.replaceChildren(...cats.filter((c) => c.kind !== 'free').map((c) =>
+    el('span', { title: `${ctxName(c.name)}: ${fmtTokens(c.tokens)}`, style: `width:${share(c.tokens)}%;background:${colorOf.get(c.name) || 'var(--border-strong)'}` })));
+  ctx.cats.replaceChildren(...cats.map((c) =>
+    el('div', { class: `ctx-cat ${c.kind === 'free' ? 'free' : ''}` },
+      el('span', { class: 'dot', style: `background:${c.kind === 'free' ? 'var(--surface-2)' : colorOf.get(c.name) || 'var(--border-strong)'}` }),
+      el('span', { class: 'n', text: ctxName(c.name), title: c.name }),
+      el('span', { class: 't', text: fmtTokens(c.tokens) }),
+      el('span', { class: 'p', text: `%${share(c.tokens).toFixed(1)}` }))));
+
+  ctx.note.className = `ctx-note ${level}`;
+  const notes = [];
+  if (d.isAutoCompactEnabled && d.autoCompactThreshold)
+    notes.push(`Otomatik özetleme ${fmtTokens(d.autoCompactThreshold)} token civarında devreye girer.`);
+  if (level) notes.push('Bağlam dolmak üzere; "Özetle" ile yer açabilirsiniz.');
+  ctx.note.textContent = notes.join(' ');
+
+  // Ayrıntılar: bellek dosyaları, MCP araçları, mesaj dağılımı
+  const sections = [];
+  const listSection = (title, rows, open = false) => {
+    if (!rows.length) return;
+    const s = el('details', { class: 'ctx-section' },
+      el('summary', {}, icon(ICONS.chevron), title),
+      el('div', { class: 'ctx-list' }, rows.map(([n, t, tip]) =>
+        el('div', { class: 'ctx-row' }, el('span', { class: 'n', text: n, title: tip || n }), el('span', { class: 't', text: fmtTokens(t) })))));
+    s.open = open;
+    sections.push(s);
+  };
+  listSection('CLAUDE.md ve bellek dosyaları', (d.memoryFiles || []).map((f) => [relPath(f.path), f.tokens, f.path]));
+  const mcp = new Map();
+  for (const t of d.mcpTools || []) {
+    const e = mcp.get(t.serverName) || { tokens: 0, count: 0 };
+    e.tokens += t.tokens; e.count++;
+    mcp.set(t.serverName, e);
+  }
+  listSection('MCP sunucuları', [...mcp].sort((a, b) => b[1].tokens - a[1].tokens).map(([n, e]) => [`${n} (${e.count} araç)`, e.tokens]));
+  const mb = d.messageBreakdown;
+  if (mb) {
+    listSection('Mesajların dağılımı', [
+      ['Araç sonuçları', mb.toolResultTokens], ['Araç çağrıları', mb.toolCallTokens],
+      ['Claude\'un mesajları', mb.assistantMessageTokens], ['Sizin mesajlarınız', mb.userMessageTokens],
+      ['Ekler', mb.attachmentTokens],
+    ].filter(([, t]) => t > 0).sort((a, b) => b[1] - a[1]));
+    listSection('En çok yer tutan araçlar', (mb.toolCallsByType || [])
+      .map((t) => [t.name, (t.callTokens || 0) + (t.resultTokens || 0)])
+      .sort((a, b) => b[1] - a[1]).slice(0, 8));
+  }
+  ctx.details.replaceChildren(...sections);
+  renderMetrics();
+}
+
+function renderMetrics() {
+  const m = state.metrics;
+  const sum = (k) => Object.values(m.usage || {}).reduce((a, u) => a + (u[k] || 0), 0);
+  const rows = [
+    ['Giriş', fmtTokens(sum('inputTokens'))],
+    ['Çıkış', fmtTokens(sum('outputTokens'))],
+    ['Önbellekten okunan', fmtTokens(sum('cacheReadInputTokens'))],
+    ['Önbelleğe yazılan', fmtTokens(sum('cacheCreationInputTokens'))],
+    ['Tur', String(m.turns)],
+    ['Süre', fmtDuration(m.durationMs)],
+    ['Tahmini maliyet', m.cost ? `≈ $${m.cost.toFixed(3)}` : '–'],
+  ];
+  const web = sum('webSearchRequests');
+  if (web) rows.push(['Web araması', String(web)]);
+  ctx.metrics.replaceChildren(...rows.map(([k, v]) => el('div', {}, el('span', { text: k }), el('b', { text: v }))));
+}
+
+ctx.btn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  ctx.pop.hidden = !ctx.pop.hidden;
+  if (!ctx.pop.hidden) requestContext();
+});
+ctx.pop.addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('click', () => { ctx.pop.hidden = true; });
+$('#ctxRefresh').onclick = () => requestContext();
+$('#ctxCompact').onclick = () => {
+  ctx.pop.hidden = true;
+  wsSend({ type: 'send', text: '/compact', images: [] });
+  setBusy(true);
+};
 
 // ---------- Araç kartları ----------
 function toolIcon(name) {
@@ -812,6 +978,7 @@ document.addEventListener('keydown', (e) => {
   const p = activePrompt();
   if (e.key === 'Escape') {
     if (!dom.popup.hidden) return hidePopup();
+    if (!ctx.pop.hidden) { ctx.pop.hidden = true; return; }
     if (p && !$('.q-block', p.card)) { answer(p.id, { behavior: 'deny' }); return; }
     if (state.busy) wsSend({ type: 'interrupt' });
   } else if (e.key === 'Enter' && p && !inField && !$('.q-block', p.card) && !e.target.closest?.('button')) {
@@ -1108,6 +1275,11 @@ function resetTranscript() {
   state.liveByIndex.clear();
   state.prompts.clear();
   state.cost = 0;
+  state.metrics = newMetrics();
+  state.context = null;
+  state.ctxRetries = 0;
+  ctx.btn.hidden = true;
+  ctx.pop.hidden = true;
   dom.empty.hidden = false;
   dom.statusline.replaceChildren();
   setBusy(false);

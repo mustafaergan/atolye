@@ -17,6 +17,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - ✅ Yapılacaklar listesi (TodoWrite) görünümü
 - 🔀 İzin modları: *Her işlemde sor*, *Düzenlemeleri kabul et*, *Plan modu*, *İzinleri atla* (Shift+Tab ile geçiş)
 - 🤖 Model seçimi (gateway'in sunduğu modeller)
+- 📊 **Bağlam ve metrikler**: mesaj kutusunda bağlam doluluk halkası; tıklayınca `/context` dökümü (sistem, araçlar, MCP, CLAUDE.md, mesajlar), oturumun token/süre/maliyet metrikleri ve tek tıkla `/compact`
 - 🗂️ Oturum geçmişi: listeleme, devam etme, yeniden adlandırma, silme (Claude CLI oturumlarıyla ortak)
 - 🔄 **Arka planda çalışma**: başka oturuma geçmek ya da sayfayı yenilemek işi durdurmaz; geri dönünce kaldığı yerden (bekleyen izinler dahil) görünür. Çalışan oturumlar kenar çubuğunda işaretlenir, işi biten ve bakılmayan oturumlar 30 sn sonra bellekten silinir
 - 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma

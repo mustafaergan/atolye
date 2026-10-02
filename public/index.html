@@ -83,6 +83,27 @@
 
       <footer class="composer-wrap">
         <div class="popup" id="popup" hidden></div>
+        <div class="ctx-pop" id="ctxPop" hidden>
+          <div class="ctx-head">
+            <div>
+              <div class="ctx-title">Bağlam</div>
+              <div class="ctx-sub" id="ctxSub"></div>
+            </div>
+            <div class="ctx-big" id="ctxBig">%0</div>
+          </div>
+          <div class="ctx-bar" id="ctxBar"></div>
+          <div class="ctx-note" id="ctxNote"></div>
+          <div class="ctx-cats" id="ctxCats"></div>
+          <div id="ctxDetails"></div>
+          <div class="ctx-section">
+            <div class="ctx-section-title">Bu oturum <span class="ctx-muted">(Atölye açtığından beri)</span></div>
+            <div class="ctx-metrics" id="ctxMetrics"></div>
+          </div>
+          <div class="ctx-actions">
+            <button class="btn" id="ctxCompact" type="button" title="Konuşmayı özetleyip bağlamı boşaltır">Özetle (/compact)</button>
+            <button class="btn ghost" id="ctxRefresh" type="button">Yenile</button>
+          </div>
+        </div>
         <div class="composer" id="composer">
           <div class="attachments" id="attachments"></div>
           <textarea id="input" rows="1" placeholder="Bir şey sorun ya da görev verin…  ( / komutlar, @ dosyalar )" autocomplete="off"></textarea>
@@ -108,6 +129,13 @@
             </div>
             <div class="right">
               <span class="hint" id="hint">Enter gönder · Shift+Enter yeni satır</span>
+              <button class="ctx-btn" id="ctxBtn" type="button" title="Bağlam kullanımı (ayrıntı için tıklayın)" hidden>
+                <svg class="ctx-ring" viewBox="0 0 36 36" aria-hidden="true">
+                  <circle class="ctx-track" cx="18" cy="18" r="15"/>
+                  <circle class="ctx-fill" id="ctxFill" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100"/>
+                </svg>
+                <span id="ctxText">%0</span>
+              </button>
               <button class="send-btn" id="sendBtn" aria-label="Gönder" title="Gönder">
                 <svg class="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
                 <svg class="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
