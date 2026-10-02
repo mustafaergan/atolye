@@ -7,6 +7,20 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 // Arayüze iletilen SDK mesaj tipleri. Geri kalanlar (hook, telemetri vb.) gürültü.
 const FORWARDED = new Set(['system', 'assistant', 'user', 'stream_event', 'result']);
 
+// "Bu oturumda hep izin ver" ile onaylanan araç grupları, oturum kimliğine göre.
+// WebSocket yeniden bağlansa ya da oturum devam ettirilse de korunur.
+const sessionAllowances = new Map(); // sessionId -> Set<grup>
+
+// Claude Code'un önerdiği kurallar komutun tamamına özel olduğundan, Claude her
+// seferinde farklı bir komut yazınca yeniden sorulur. Bu yüzden onayı araç
+// grubu düzeyinde tutuyoruz.
+const NEVER_ALWAYS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+function allowanceGroup(toolName) {
+  if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(toolName)) return 'edits';
+  if (/^(Bash|PowerShell)$/.test(toolName)) return 'shell';
+  return toolName;
+}
+
 export class AgentSession {
   /**
    * @param {object} opts
@@ -24,6 +38,7 @@ export class AgentSession {
     this.emit = emit;
     this.sessionId = resume || null;
     this.pending = new Map(); // izin/soru id -> { resolve, input, toolName }
+    this.allowed = (resume && sessionAllowances.get(resume)) || new Set();
     this.inbox = [];
     this.wake = null;
     this.closed = false;
@@ -69,6 +84,9 @@ export class AgentSession {
         if (msg.type === 'system' && msg.subtype === 'init') {
           this.sessionId = msg.session_id;
           this.permissionMode = msg.permissionMode;
+          const saved = sessionAllowances.get(this.sessionId);
+          if (saved && saved !== this.allowed) for (const g of saved) this.allowed.add(g);
+          sessionAllowances.set(this.sessionId, this.allowed);
         }
         if (msg.type === 'result') this.#setBusy(false);
         if (FORWARDED.has(msg.type)) this.emit({ type: 'sdk', msg });
@@ -142,18 +160,28 @@ export class AgentSession {
     const p = this.pending.get(id);
     if (!p) return;
     this.pending.delete(id);
-    const { toolName, input, suggestions } = p;
+    const { toolName, input } = p;
 
     if (decision.behavior === 'deny') {
       p.resolve({ behavior: 'deny', message: decision.message || 'Kullanıcı reddetti' });
     } else if (toolName === 'AskUserQuestion') {
       p.resolve({ behavior: 'allow', updatedInput: { ...input, answers: decision.answers || {} } });
     } else {
-      const result = { behavior: 'allow', updatedInput: input };
-      if (decision.always && suggestions?.length) result.updatedPermissions = suggestions;
-      p.resolve(result);
+      p.resolve({ behavior: 'allow', updatedInput: input });
     }
-    this.emit({ type: 'permission_resolved', id, behavior: decision.behavior });
+    this.emit({ type: 'permission_resolved', id, behavior: decision.behavior, always: Boolean(decision.always) });
+
+    if (decision.always && decision.behavior === 'allow' && !NEVER_ALWAYS.has(toolName)) {
+      const group = allowanceGroup(toolName);
+      this.allowed.add(group);
+      // Aynı gruptan bekleyen diğer istekleri de onayla (paralel araç çağrıları)
+      for (const [otherId, other] of this.pending) {
+        if (allowanceGroup(other.toolName) !== group) continue;
+        this.pending.delete(otherId);
+        other.resolve({ behavior: 'allow', updatedInput: other.input });
+        this.emit({ type: 'permission_resolved', id: otherId, behavior: 'allow', always: true });
+      }
+    }
 
     // Plan onaylandıysa seçilen moda geç (Claude Code'daki davranış)
     if (toolName === 'ExitPlanMode' && decision.behavior === 'allow' && decision.nextMode) {
@@ -161,10 +189,13 @@ export class AgentSession {
     }
   }
 
-  #askPermission(toolName, input, { signal, suggestions, blockedPath, decisionReason, title }) {
+  #askPermission(toolName, input, { signal, blockedPath, decisionReason, title }) {
+    if (!NEVER_ALWAYS.has(toolName) && this.allowed.has(allowanceGroup(toolName)))
+      return Promise.resolve({ behavior: 'allow', updatedInput: input });
+
     const id = randomUUID();
     return new Promise((resolve) => {
-      this.pending.set(id, { resolve, toolName, input, suggestions });
+      this.pending.set(id, { resolve, toolName, input });
       signal?.addEventListener('abort', () => {
         if (!this.pending.has(id)) return;
         this.pending.delete(id);
@@ -179,7 +210,8 @@ export class AgentSession {
         title,
         blockedPath,
         decisionReason,
-        canAlways: Boolean(suggestions?.length),
+        canAlways: !NEVER_ALWAYS.has(toolName),
+        alwaysGroup: allowanceGroup(toolName),
       });
     });
   }

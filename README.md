@@ -11,7 +11,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 🧠 Düşünme bloklarını açılır/kapanır gösterme
 - 🛠️ Araç kartları: dosya okuma, arama, komutlar, web, alt ajanlar (adımlarıyla birlikte)
 - ✏️ Düzenlemeler için **diff görünümü** (+/− satır sayıları)
-- 🛡️ **İzin onayı**: İzin ver / Bu oturumda hep izin ver / Reddet (sebep yazarak)
+- 🛡️ **İzin onayı**: İzin ver / Bu oturumda tüm komutlara (ya da düzenlemelere) izin ver / Reddet (sebep yazarak)
 - 📋 **Plan modu**: plan onayı ve sonrasında otomatik düzenleme moduna geçiş
 - ❓ Claude'un sorduğu sorular için seçenekli cevap kartları
 - ✅ Yapılacaklar listesi (TodoWrite) görünümü
