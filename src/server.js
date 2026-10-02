@@ -176,6 +176,14 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
         case 'set_model':
           await entry?.agent.setModel(m.model);
           break;
+        case 'get_context': {
+          // Sadece isteyen bağlantıya gider; olay tamponuna yazılmaz
+          if (!entry) break;
+          const liveId = entry.liveId;
+          const data = await entry.agent.contextUsage().catch((err) => ({ error: String(err?.message || err) }));
+          emit({ type: 'context', liveId, data });
+          break;
+        }
       }
     };
 

@@ -527,3 +527,58 @@ input[type="text"]:focus { outline: 2px solid var(--accent-soft); border-color: 
 .spend-table tr:last-child th, .spend-table tr:last-child td { border-bottom: 0; }
 .spend-table th { text-align: left; font-weight: 400; color: var(--text-2); }
 .spend-table td { text-align: right; font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
+
+/* Bağlam göstergesi */
+.ctx-btn {
+  display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent;
+  font-size: 12px; color: var(--text-3); padding: 4px 8px; border-radius: 8px; font-variant-numeric: tabular-nums;
+}
+.ctx-btn:hover { background: var(--surface-2); color: var(--text); }
+.ctx-ring { width: 16px; height: 16px; transform: rotate(-90deg); }
+.ctx-ring circle { fill: none; stroke-width: 5; }
+.ctx-track { stroke: var(--border); }
+.ctx-fill { stroke: var(--ok); stroke-linecap: round; transition: stroke-dasharray .3s; }
+.ctx-btn.warn { color: var(--warn); }
+.ctx-btn.warn .ctx-fill { stroke: var(--warn); }
+.ctx-btn.err { color: var(--err); }
+.ctx-btn.err .ctx-fill { stroke: var(--err); }
+
+.ctx-pop {
+  position: absolute; bottom: calc(100% - 4px); right: max(20px, calc((100% - 820px) / 2));
+  width: min(420px, calc(100% - 32px)); max-height: min(70vh, 640px); overflow-y: auto; z-index: 6;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; font-size: 13px;
+}
+.ctx-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ctx-title { font-weight: 600; font-size: 14px; }
+.ctx-sub { color: var(--text-3); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.ctx-big { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ctx-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--surface-2); gap: 1px; }
+.ctx-bar span { display: block; min-width: 2px; }
+.ctx-note { font-size: 12px; color: var(--text-3); }
+.ctx-note.warn { color: var(--warn); }
+.ctx-note.err { color: var(--err); }
+.ctx-cats { display: flex; flex-direction: column; gap: 4px; }
+.ctx-cat { display: grid; grid-template-columns: 10px 1fr auto 44px; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.ctx-cat .dot { width: 10px; height: 10px; border-radius: 3px; }
+.ctx-cat .n { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-cat .t { font-family: var(--mono); font-size: 12px; }
+.ctx-cat .p { text-align: right; color: var(--text-3); font-size: 12px; }
+.ctx-cat.free .n, .ctx-cat.free .t { color: var(--text-3); }
+.ctx-section { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ctx-section-title { font-weight: 600; font-size: 12.5px; }
+.ctx-muted { font-weight: 400; color: var(--text-3); }
+details.ctx-section > summary { cursor: pointer; list-style: none; font-weight: 600; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+details.ctx-section > summary::-webkit-details-marker { display: none; }
+details.ctx-section > summary svg { width: 12px; height: 12px; transition: transform .15s; color: var(--text-3); }
+details.ctx-section[open] > summary svg { transform: rotate(90deg); }
+.ctx-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.ctx-row { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+.ctx-row .n { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; min-width: 0; }
+.ctx-row .t { font-family: var(--mono); font-size: 12px; flex: none; }
+.ctx-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+.ctx-metrics div { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.ctx-metrics span { color: var(--text-2); }
+.ctx-metrics b { font-weight: 500; font-family: var(--mono); font-size: 12px; }
+.ctx-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.ctx-error { color: var(--err); font-size: 12.5px; }
