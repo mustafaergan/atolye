@@ -230,6 +230,8 @@ function handleEvent(ev) {
 }
 
 function handleSdk(msg) {
+  // Yeniden deneme / özetleme sonrası yanıt gelmeye başlayınca göstergeyi sıfırla
+  if (state.busy && (msg.type === 'stream_event' || msg.type === 'assistant')) setWorking('Çalışıyor…');
   if (msg.type === 'system') {
     if (msg.subtype === 'init') {
       const isNew = state.sessionId !== msg.session_id;
@@ -582,7 +584,7 @@ function renderPermission(ev) {
       el('h3', {}, icon(ICONS.shield), heading),
       decisionReason ? el('p', { class: 'why', text: decisionReason }) : null,
       blockedPath ? el('p', { class: 'why', text: `Erişilmek istenen yol: ${blockedPath}` }) : null,
-      el('div', { class: 'diff-file', text: toolSummary(toolName, input) }),
+      permissionSubtitle(toolName, input),
       toolInputBody(toolName, input),
       el('div', { class: 'actions' },
         el('button', { class: 'btn primary', type: 'button', text: 'İzin ver', onclick: () => answer(id, { behavior: 'allow' }) }),
@@ -596,6 +598,12 @@ function renderPermission(ev) {
   state.prompts.set(id, card);
   append(card);
   scrollDown(true);
+}
+
+// Komutlarda komutun kendisi zaten kutuda gösterildiği için sadece açıklamayı yaz
+function permissionSubtitle(toolName, input) {
+  const text = toolName === 'Bash' || toolName === 'PowerShell' ? input.description : toolSummary(toolName, input);
+  return text ? el('div', { class: 'diff-file', text }) : null;
 }
 
 function renderQuestion(ev) {
@@ -671,7 +679,9 @@ function setWorking(text) {
     w = el('div', { class: 'working' }, el('span', { class: 'spark' }, icon(ICONS.spark)), el('span', { class: 'w-text' }));
     dom.messages.append(w);
   }
-  $('.w-text', w).textContent = text;
+  const label = $('.w-text', w);
+  if (label.textContent === text) return;
+  label.textContent = text;
   dom.empty.hidden = true;
   scrollDown();
 }
