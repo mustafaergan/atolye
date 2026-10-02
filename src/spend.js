@@ -1,35 +1,113 @@
-// İsteğe bağlı harcama göstergesi. Kurumların kendi harcama/bütçe script'leri
-// olabildiği için Atölye belirli bir kaynağa bağlı değildir: ATOLYE_SPEND_CMD
-// ile verilen komutu çalıştırır ve çıktısını üst çubukta gösterir.
+// İsteğe bağlı harcama göstergesi. Bazı kurumsal gateway'ler, Claude Code
+// token'ıyla çağrılabilen bir harcama özeti sunar:
 //
-//   ATOLYE_SPEND_CMD=node "C:\yol\scripts\spend.mjs"
+//   POST <ANTHROPIC_BASE_URL kökü>/spend-summary   (Authorization: Bearer <token>)
+//   → { "items": [ { "label": "...", "value": "..." }, ... ] }
 //
-// Komut, Claude Code'un bir skill'i çalıştırdığı ortama benzer şekilde
-// ~/.claude/settings.json içindeki "env" değerleriyle (gateway, token) çalışır.
+// Atölye bunu kendiliğinden dener; gateway desteklemiyorsa gösterge gizlenir.
+// Yol ATOLYE_SPEND_PATH ile değiştirilebilir, ATOLYE_SPEND=0 ile kapatılabilir.
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { exec } from 'node:child_process';
+import tls from 'node:tls';
+import { execFile } from 'node:child_process';
 
 const CACHE_MS = 60_000;
-const TIMEOUT_MS = 45_000; // bazı script'ler isteği PowerShell üzerinden 30 sn zaman aşımıyla yapar
-let cache = null; // { at, value }
+const UNSUPPORTED_RETRY_MS = 10 * 60_000;
+const TIMEOUT_MS = 30_000;
+let cache = null; // { at, ttl, value }
 let running = null;
 
-export const spendCommand = () => process.env.ATOLYE_SPEND_CMD?.trim() || null;
-
-async function settingsEnv() {
+// Kurumsal ağlarda TLS denetimi yapan sertifikalar genelde sadece işletim
+// sisteminin deposundadır. Destekleyen Node sürümlerinde onları da güven listesine ekle.
+let systemCaAdded = false;
+function trustSystemCertificates() {
+  if (systemCaAdded) return;
+  systemCaAdded = true;
   try {
-    const raw = await fs.readFile(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8');
-    const env = JSON.parse(raw)?.env;
-    return env && typeof env === 'object' ? env : {};
+    if (typeof tls.getCACertificates !== 'function' || typeof tls.setDefaultCACertificates !== 'function') return;
+    const merged = [...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])];
+    tls.setDefaultCACertificates(merged);
   } catch {
-    return {};
+    /* eski Node: aşağıdaki işletim sistemi yedeği devreye girer */
   }
 }
 
-const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+// Claude Code'un ayar dosyaları (spend skill'inin baktığı sırayla) + ortam değişkenleri
+async function credentials() {
+  const home = os.homedir();
+  const dir = process.env.CLAUDE_CONFIG_DIR;
+  const xdg = process.env.XDG_CONFIG_HOME;
+  const candidates = [
+    dir && path.join(dir, 'settings.local.json'),
+    dir && path.join(dir, 'settings.json'),
+    path.join(home, '.claude', 'settings.local.json'),
+    path.join(home, '.claude', 'settings.json'),
+    xdg && path.join(xdg, 'claude', 'settings.json'),
+  ].filter(Boolean);
 
+  let env = {};
+  for (const p of candidates) {
+    try {
+      const e = JSON.parse(await fs.readFile(p, 'utf8'))?.env || {};
+      if (e.ANTHROPIC_AUTH_TOKEN && e.ANTHROPIC_BASE_URL) { env = e; break; }
+      if (!Object.keys(env).length) env = e;
+    } catch {
+      /* dosya yok ya da okunamadı */
+    }
+  }
+  return {
+    token: process.env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_AUTH_TOKEN,
+    baseUrl: process.env.ANTHROPIC_BASE_URL || env.ANTHROPIC_BASE_URL,
+  };
+}
+
+async function postWithFetch(url, token) {
+  trustSystemCertificates();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  return { status: res.status, body: await res.text() };
+}
+
+// Yedek: işletim sisteminin kendi HTTP istemcisi (Windows'ta PowerShell/Schannel,
+// diğerlerinde curl). Token komut satırına değil, ortam değişkenine konur.
+export function postWithSystem(url, token) {
+  const env = { ...process.env, ATOLYE_SPEND_TOKEN: token, ATOLYE_SPEND_URL: url };
+  const [cmd, args] = process.platform === 'win32'
+    ? ['powershell', ['-NonInteractive', '-NoProfile', '-Command',
+        "try { $r = Invoke-WebRequest -Uri $env:ATOLYE_SPEND_URL -Method POST -UseBasicParsing -ErrorAction Stop " +
+        "-Headers @{ Authorization = 'Bearer ' + $env:ATOLYE_SPEND_TOKEN; 'content-type' = 'application/json' }; " +
+        "'STATUS:' + $r.StatusCode; $r.Content } " +
+        "catch { if ($_.Exception.Response) { 'STATUS:' + [int]$_.Exception.Response.StatusCode } else { throw } }"]]
+    : ['sh', ['-c', 'curl -s -X POST -H "Authorization: Bearer $ATOLYE_SPEND_TOKEN" -H "content-type: application/json" -w "\nSTATUS:%{http_code}" "$ATOLYE_SPEND_URL"']];
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { env, timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+      const out = String(stdout || '').replace(/\r\n/g, '\n');
+      const statusLine = out.split('\n').find((l) => l.startsWith('STATUS:'));
+      if (!statusLine) return reject(new Error(String(stderr || err?.message || 'İstek başarısız').trim().slice(0, 400)));
+      const body = out.split('\n').filter((l) => !l.startsWith('STATUS:')).join('\n').trim();
+      resolve({ status: Number(statusLine.slice(7)), body });
+    });
+  });
+}
+
+async function post(url, token) {
+  try {
+    return await postWithFetch(url, token);
+  } catch (err) {
+    // HTTP cevabı alınamadıysa (TLS/proxy sorunu) işletim sistemi istemcisiyle tekrar dene
+    try {
+      return await postWithSystem(url, token);
+    } catch {
+      throw err;
+    }
+  }
+}
+
+// ---------- Özet ----------
 // "82%" ve Türkçe yazımdaki "%82" biçimlerinin ikisi de
 const PERCENT = /(\d{1,3}(?:[.,]\d+)?)\s?%|%\s?(\d{1,3}(?:[.,]\d+)?)/;
 const percentOf = (s) => {
@@ -48,74 +126,73 @@ const amountOf = (s) => {
 };
 const isMoney = (s) => /[$€₺£]|\b(usd|eur|tl|try)\b/i.test(s);
 
-// Tablo biçimi: başlık, ardından "────" çizgisi, ardından "etiket   değer" satırları
-export function parseItems(text) {
-  const lines = text.split(/\r?\n/);
-  const sep = lines.findIndex((l) => /^\s*[─━\-=]{3,}\s*$/.test(l));
-  const body = sep >= 0 ? lines.slice(sep + 1) : lines;
-  const items = [];
-  for (const l of body) {
-    const m = l.trim().match(/^(.+?)\s{2,}(.+)$/);
-    if (m) items.push({ label: m[1].trim(), value: m[2].trim() });
+/** Üst çubuk için kısa özet: "harcanan / bütçe · %yüzde" */
+export function summarize(items) {
+  const moneyItem = (re) => items.find((i) => re.test(i.label) && isMoney(i.value));
+  const spent = moneyItem(/spen[dt]|used|usage|cost|harca|kullan/i);
+  const budget = moneyItem(/budget|limit|quota|b[uü]t[cç]e|kota/i);
+  const pctItem = items.find((i) => PERCENT.test(i.value));
+  let percent = pctItem ? percentOf(pctItem.value) : null;
+  if (percent == null && spent && budget) {
+    const a = amountOf(spent.value), b = amountOf(budget.value);
+    if (a != null && b) percent = Math.round((a / b) * 1000) / 10;
   }
-  return { title: sep > 0 ? lines.slice(0, sep).join(' ').trim() : null, items };
+  const money = spent || items.find((i) => isMoney(i.value));
+  const parts = [];
+  if (money) parts.push(budget && budget !== money ? `${money.value} / ${budget.value}` : money.value);
+  if (percent != null) parts.push(`%${percent}`);
+  if (!parts.length) parts.push(...items.slice(0, 2).map((i) => i.value));
+  return { summary: parts.join(' · ').slice(0, 60), percent };
 }
 
-// Üst çubuk için kısa özet: harcanan / bütçe · yüzde
-export function summarize(text) {
-  const { title, items } = parseItems(text);
-  if (items.length) {
-    const moneyItem = (re) => items.find((i) => re.test(i.label) && isMoney(i.value));
-    const spent = moneyItem(/spen[dt]|used|usage|cost|harca|kullan/i);
-    const budget = moneyItem(/budget|limit|quota|b[uü]t[cç]e|kota/i);
-    const pctItem = items.find((i) => PERCENT.test(i.value));
-    let percent = pctItem ? percentOf(pctItem.value) : null;
-    if (percent == null && spent && budget) {
-      const a = amountOf(spent.value), b = amountOf(budget.value);
-      if (a != null && b) percent = Math.round((a / b) * 1000) / 10;
-    }
-    const money = spent || items.find((i) => isMoney(i.value));
-    const parts = [];
-    if (money) parts.push(budget && budget !== money ? `${money.value} / ${budget.value}` : money.value);
-    if (percent != null) parts.push(`%${percent}`);
-    if (!parts.length) parts.push(...items.slice(0, 2).map((i) => i.value));
-    return { title, items, summary: parts.join(' · ').slice(0, 60), percent };
+export function parseResponse(body) {
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    throw new Error('Cevap JSON olarak okunamadı');
+  }
+  const items = Array.isArray(data?.items)
+    ? data.items.map((i) => ({ label: String(i?.label ?? ''), value: String(i?.value ?? '') })).filter((i) => i.label || i.value)
+    : [];
+  if (!items.length) throw new Error('Beklenmeyen cevap biçimi ({ items: [...] } bekleniyordu)');
+  return items;
+}
+
+async function fetchSpend() {
+  if (process.env.ATOLYE_SPEND === '0') return { value: { enabled: false }, ttl: Infinity };
+  const { token, baseUrl } = await credentials();
+  if (!token || !baseUrl) return { value: { enabled: false }, ttl: UNSUPPORTED_RETRY_MS };
+
+  let url;
+  try {
+    const origin = new URL(baseUrl).origin;
+    // Özel gateway yoksa (doğrudan Anthropic API'si) böyle bir uç nokta yok; token'ı boşuna gönderme
+    if (/(^|\.)anthropic\.com$/i.test(new URL(origin).hostname)) return { value: { enabled: false }, ttl: Infinity };
+    url = new URL(process.env.ATOLYE_SPEND_PATH || '/spend-summary', origin).href;
+  } catch {
+    return { value: { enabled: false }, ttl: UNSUPPORTED_RETRY_MS };
   }
 
-  // Bilinmeyen biçim: tutar ya da yüzde içeren ilk satır
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const line = lines.find((l) => isMoney(l)) || lines.find((l) => /%/.test(l)) || lines[0] || '';
-  return {
-    title: null,
-    items: [],
-    summary: line.replace(/^[^\p{L}\p{N}$€₺]+/u, '').slice(0, 60),
-    percent: percentOf(text),
-  };
+  try {
+    const { status, body } = await post(url, token);
+    // Bu gateway'de böyle bir uç nokta yok: göstergeyi gizle, arada bir yeniden dene
+    if (status === 404 || status === 405 || status === 501) return { value: { enabled: false }, ttl: UNSUPPORTED_RETRY_MS };
+    if (status < 200 || status >= 300) throw new Error(`HTTP ${status}${body ? `: ${body.slice(0, 300)}` : ''}`);
+    const items = parseResponse(body);
+    return { value: { enabled: true, ok: true, title: 'Claude Code harcama', items, ...summarize(items), at: Date.now() }, ttl: CACHE_MS };
+  } catch (err) {
+    return { value: { enabled: true, ok: false, error: String(err?.message || err).slice(0, 1000) }, ttl: CACHE_MS };
+  }
 }
 
 export async function getSpend({ force = false } = {}) {
-  const cmd = spendCommand();
-  if (!cmd) return { enabled: false };
-  if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.value;
+  if (!force && cache && Date.now() - cache.at < cache.ttl) return cache.value;
   if (running) return running;
-
-  running = (async () => {
-    const env = { ...(await settingsEnv()), ...process.env };
-    const value = await new Promise((resolve) => {
-      exec(cmd, { env, cwd: os.homedir(), timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
-        const output = stripAnsi(String(stdout || '')).trim();
-        // Script hata verdiğinde (sıfırdan farklı çıkış kodu ya da "ERROR:" satırı) çıktısı hata mesajıdır
-        if (err || /^ERROR:/m.test(output)) {
-          const detail = output || stripAnsi(String(stderr || err?.message || '')).trim();
-          resolve({ enabled: true, ok: false, error: (err?.killed ? 'Zaman aşımı. ' : '') + detail.slice(0, 2000) });
-          return;
-        }
-        resolve({ enabled: true, ok: true, output: output.slice(0, 8000), ...summarize(output), at: Date.now() });
-      });
-    });
-    cache = { at: Date.now(), value };
+  running = fetchSpend().then(({ value, ttl }) => {
+    cache = { at: Date.now(), ttl, value };
     return value;
-  })();
+  });
   try {
     return await running;
   } finally {

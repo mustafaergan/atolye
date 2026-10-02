@@ -1223,12 +1223,14 @@ const spend = {
 let spendLoading = null;
 
 async function loadSpend(force = false) {
-  if (!state.config?.spendEnabled || spendLoading) return;
-  spend.wrap.hidden = false;
+  if (spendLoading) return;
   if (force) spend.text.textContent = 'Güncelleniyor…';
-  spendLoading = fetch(`/api/spend${force ? '?refresh=1' : ''}`).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+  spendLoading = fetch(`/api/spend${force ? '?refresh=1' : ''}`).then((r) => r.json()).catch((err) => ({ enabled: true, ok: false, error: err.message }));
   const res = await spendLoading;
   spendLoading = null;
+  // Gateway harcama özeti sunmuyorsa gösterge hiç görünmez
+  spend.wrap.hidden = !res.enabled;
+  if (!res.enabled) return;
   spend.btn.classList.remove('warn', 'err');
   if (!res.ok) {
     spend.text.textContent = 'Harcama alınamadı';
@@ -1243,16 +1245,9 @@ async function loadSpend(force = false) {
   spend.text.textContent = res.summary || 'Harcama';
   if (res.percent >= 90) spend.btn.classList.add('err');
   else if (res.percent >= 75) spend.btn.classList.add('warn');
-  // Tablo biçimindeki çıktı (etiket → değer) düzgün bir tablo olarak, diğerleri düz metin olarak
-  if (res.items?.length) {
-    spend.table.replaceChildren(...res.items.map((i) => el('tr', {}, el('th', { text: i.label }), el('td', { text: i.value }))));
-    spend.table.hidden = false;
-    spend.out.hidden = true;
-  } else {
-    spend.out.textContent = res.output;
-    spend.out.hidden = false;
-    spend.table.hidden = true;
-  }
+  spend.table.replaceChildren(...(res.items || []).map((i) => el('tr', {}, el('th', { text: i.label }), el('td', { text: i.value }))));
+  spend.table.hidden = false;
+  spend.out.hidden = true;
   spend.title.textContent = res.title || 'Harcama';
   spend.time.textContent = `Son güncelleme: ${new Date(res.at).toLocaleTimeString('tr-TR')}`;
 }
