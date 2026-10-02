@@ -484,3 +484,15 @@ input[type="text"]:focus { outline: 2px solid var(--accent-soft); border-color: 
 .more-btn { border: 0; background: transparent; text-align: left; font-size: 12px; color: var(--text-3); padding: 4px 8px 4px 28px; border-radius: 6px; }
 .more-btn:hover { color: var(--text); background: var(--surface-2); }
 @media (hover: none) { .p-actions { opacity: 1; } }
+
+/* Seçili proje ve "Yeni oturum · klasör" */
+.new-btn .new-folder {
+  margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-3);
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.new-btn .new-folder:not(:empty)::before { content: "· "; }
+.project-head.current { background: var(--accent-soft); }
+.project-head.current .p-toggle { color: var(--text); }
+.project-head.current .p-toggle > svg { color: var(--accent); }
+.p-chevron { width: 18px; height: 18px; border-radius: 4px; }
+.p-chevron:hover { background: var(--border); color: var(--text); }
