@@ -219,7 +219,7 @@ function handleEvent(ev) {
     case 'busy': return setBusy(ev.busy);
     case 'permission': return renderPermission(ev);
     case 'question': return renderQuestion(ev);
-    case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior);
+    case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
     case 'mode': return setMode(ev.mode, false);
     case 'model': return;
     case 'capabilities': return setCapabilities(ev);
@@ -561,7 +561,7 @@ function applyToolResult(block, structured) {
 
 // ---------- İzin kartları ----------
 function renderPermission(ev) {
-  const { id, toolName, input = {}, title, decisionReason, blockedPath, canAlways } = ev;
+  const { id, toolName, input = {}, title, decisionReason, blockedPath, canAlways, alwaysGroup } = ev;
   const card = el('div', { class: 'prompt-card', 'data-id': id });
 
   if (toolName === 'ExitPlanMode') {
@@ -588,7 +588,7 @@ function renderPermission(ev) {
       toolInputBody(toolName, input),
       el('div', { class: 'actions' },
         el('button', { class: 'btn primary', type: 'button', text: 'İzin ver', onclick: () => answer(id, { behavior: 'allow' }) }),
-        canAlways ? el('button', { class: 'btn', type: 'button', text: 'Bu oturumda hep izin ver',
+        canAlways ? el('button', { class: 'btn', type: 'button', text: ALWAYS_LABEL[alwaysGroup] || 'Bu oturumda hep izin ver',
           onclick: () => answer(id, { behavior: 'allow', always: true }) }) : null,
         el('button', { class: 'btn ghost', type: 'button', text: 'Reddet',
           onclick: () => answer(id, { behavior: 'deny', message: note.value.trim() || undefined }) }),
@@ -599,6 +599,11 @@ function renderPermission(ev) {
   append(card);
   scrollDown(true);
 }
+
+const ALWAYS_LABEL = {
+  shell: 'Bu oturumda tüm komutlara izin ver',
+  edits: 'Bu oturumda tüm düzenlemelere izin ver',
+};
 
 // Komutlarda komutun kendisi zaten kutuda gösterildiği için sadece açıklamayı yaz
 function permissionSubtitle(toolName, input) {
@@ -649,13 +654,13 @@ function answer(id, decision) {
   wsSend({ type: 'answer', id, decision });
 }
 
-function resolvePrompt(id, behavior) {
+function resolvePrompt(id, behavior, always = false) {
   const card = state.prompts.get(id);
   if (!card) return;
   state.prompts.delete(id);
   card.classList.add('resolved');
   for (const b of card.querySelectorAll('button, input')) b.disabled = true;
-  const label = behavior === 'allow' ? 'İzin verildi' : behavior === 'deny' ? 'Reddedildi' : 'İptal edildi';
+  const label = behavior === 'allow' ? (always ? 'Bu oturum boyunca izin verildi' : 'İzin verildi') : behavior === 'deny' ? 'Reddedildi' : 'İptal edildi';
   $('.actions', card)?.replaceChildren(el('span', { class: 'result-note', text: label }));
   $('.deny-note', card)?.remove();
 }

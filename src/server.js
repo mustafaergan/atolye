@@ -32,7 +32,10 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     next();
   });
   app.use(express.json({ limit: '25mb' }));
-  app.use(express.static(path.join(ROOT, 'public')));
+  // Güncellemeden sonra tarayıcının eski dosyaları göstermemesi için her seferinde doğrulat
+  app.use(express.static(path.join(ROOT, 'public'), {
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+  }));
   app.use('/vendor/marked', express.static(path.join(ROOT, 'node_modules/marked/lib')));
   app.use('/vendor/dompurify', express.static(path.join(ROOT, 'node_modules/dompurify/dist')));
 
