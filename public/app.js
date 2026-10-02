@@ -945,12 +945,17 @@ function renderSessions() {
   for (const s of state.sessions) rows.push({ ...s, run: runningBySession.get(s.id), cwd: state.cwd });
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
 
+  // Henüz mesaj yazılmamış yeni oturum da listede hemen görünsün
+  const currentListed = rows.some((r) => (state.liveId && (r.liveId === state.liveId || r.run?.liveId === state.liveId)) || (state.sessionId && r.id === state.sessionId));
+  if (!state.sessionId && !currentListed)
+    rows.unshift({ id: null, liveId: state.liveId, title: 'Yeni oturum', lastModified: Date.now(), cwd: state.cwd, draft: true });
+
   if (!rows.length) {
     dom.sessionList.replaceChildren(el('div', { class: 'list-empty', text: 'Bu klasörde henüz oturum yok.' }));
     return;
   }
   dom.sessionList.replaceChildren(...rows.map((s) => {
-    const active = (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
+    const active = s.draft || (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
     const status = s.run
       ? s.run.waiting
         ? el('span', { class: 's-badge wait', title: 'Onayınızı bekliyor', text: 'onay' })
@@ -967,7 +972,7 @@ function renderSessions() {
       s.id && !s.run?.busy ? el('span', { class: 's-actions' },
         el('span', { title: 'Yeniden adlandır', onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
         el('span', { title: 'Sil', onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
-    item.onclick = () => openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd });
+    item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd }));
     return item;
   }));
   const cur = state.sessions.find((s) => s.id === state.sessionId);
@@ -1006,6 +1011,7 @@ function newSession() {
   state.liveId = null;
   resetTranscript();
   dom.sessionTitle.textContent = 'Yeni oturum';
+  renderSessions();
   openLive({ isNew: true });
   dom.input.focus();
   closeMenu();
@@ -1014,7 +1020,11 @@ function newSession() {
 function openSession({ sessionId, liveId, cwd }) {
   closeMenu();
   if ((liveId && liveId === state.liveId) || (!liveId && sessionId && sessionId === state.sessionId)) return;
+  // Seçimi hemen göster; sunucudan "opened" gelince ekran doldurulur
+  state.liveId = liveId || null;
+  state.sessionId = sessionId || null;
   resetTranscript();
+  renderSessions();
   setWorking('Oturum açılıyor…');
   openLive({ sessionId, liveId, cwd: cwd || state.cwd });
 }
