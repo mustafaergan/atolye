@@ -1216,7 +1216,10 @@ $('#menuBtn').onclick = () => dom.app.classList.toggle('menu-open');
 function closeMenu() { dom.app.classList.remove('menu-open'); }
 
 // ---------- Harcama göstergesi (ATOLYE_SPEND_CMD ayarlıysa) ----------
-const spend = { wrap: $('#spendWrap'), btn: $('#spendBtn'), text: $('#spendText'), pop: $('#spendPop'), out: $('#spendOutput'), time: $('#spendTime') };
+const spend = {
+  wrap: $('#spendWrap'), btn: $('#spendBtn'), text: $('#spendText'), pop: $('#spendPop'),
+  out: $('#spendOutput'), table: $('#spendTable'), title: $('#spendTitle'), time: $('#spendTime'),
+};
 let spendLoading = null;
 
 async function loadSpend(force = false) {
@@ -1231,13 +1234,26 @@ async function loadSpend(force = false) {
     spend.text.textContent = 'Harcama alınamadı';
     spend.btn.classList.add('err');
     spend.out.textContent = res.error || 'Bilinmeyen hata';
+    spend.out.hidden = false;
+    spend.table.hidden = true;
+    spend.title.textContent = 'Harcama alınamadı';
     spend.time.textContent = '';
     return;
   }
   spend.text.textContent = res.summary || 'Harcama';
   if (res.percent >= 90) spend.btn.classList.add('err');
   else if (res.percent >= 75) spend.btn.classList.add('warn');
-  spend.out.textContent = res.output;
+  // Tablo biçimindeki çıktı (etiket → değer) düzgün bir tablo olarak, diğerleri düz metin olarak
+  if (res.items?.length) {
+    spend.table.replaceChildren(...res.items.map((i) => el('tr', {}, el('th', { text: i.label }), el('td', { text: i.value }))));
+    spend.table.hidden = false;
+    spend.out.hidden = true;
+  } else {
+    spend.out.textContent = res.output;
+    spend.out.hidden = false;
+    spend.table.hidden = true;
+  }
+  spend.title.textContent = res.title || 'Harcama';
   spend.time.textContent = `Son güncelleme: ${new Date(res.at).toLocaleTimeString('tr-TR')}`;
 }
 
