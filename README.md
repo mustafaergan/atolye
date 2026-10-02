@@ -18,6 +18,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 🔀 İzin modları: *Her işlemde sor*, *Düzenlemeleri kabul et*, *Plan modu*, *İzinleri atla* (Shift+Tab ile geçiş)
 - 🤖 Model seçimi (gateway'in sunduğu modeller)
 - 🗂️ Oturum geçmişi: listeleme, devam etme, yeniden adlandırma, silme (Claude CLI oturumlarıyla ortak)
+- 🔄 **Arka planda çalışma**: başka oturuma geçmek ya da sayfayı yenilemek işi durdurmaz; geri dönünce kaldığı yerden (bekleyen izinler dahil) görünür. Çalışan oturumlar kenar çubuğunda işaretlenir, işi biten ve bakılmayan oturumlar 30 sn sonra bellekten silinir
 - 📁 Klasör seçici, `@dosya` önerisi, `/komut` menüsü (`/compact`, `/context`, kendi komutlarınız…)
 - 🖼️ Görsel ekleme (yapıştır, sürükle-bırak, dosya seç)
 - ⏹️ Durdurma (Esc), açık/koyu tema, mobil uyumlu düzen
@@ -95,6 +96,7 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 
 - `src/cli.js`: başlangıç, `.env` okuma, tarayıcıyı açma
 - `src/server.js`: Express + WebSocket, oturum listesi, klasör ve dosya API'leri
+- `src/manager.js`: tarayıcıdan bağımsız çalışan oturumlar, olay tamponu ve boşta kalanları kapatma
 - `src/session.js`: Agent SDK `query()` akışını açık tutan oturum sınıfı (izinler, durdurma, mod/model değişimi)
 - `public/`: derleme gerektirmeyen arayüz (HTML, CSS, JS)
 
