@@ -14,13 +14,14 @@ import {
   deleteSession,
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
-import { AgentSession } from './session.js';
+import { SessionManager } from './manager.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions']);
 
 export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   const app = express();
+  const manager = new SessionManager();
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
   const isAllowedOrigin = (origin) =>
     !origin || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
@@ -79,6 +80,7 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   app.delete('/api/sessions/:id', wrap(async (req, res) => {
     const dir = req.query.dir ? String(req.query.dir) : undefined;
+    manager.closeBySessionId(req.params.id);
     await deleteSession(req.params.id, { dir });
     res.json({ ok: true });
   }));
@@ -116,59 +118,78 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   });
 
   wss.on('connection', (ws) => {
-    let session = null;
+    // Bu bağlantının o an izlediği oturum. Bağlantı kapansa da oturum çalışmaya devam eder.
+    let entry = null;
+    let unsubscribe = null;
     const emit = (event) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
     };
+    const stopLive = manager.onChange((sessions) => emit({ type: 'live', sessions }));
+    emit({ type: 'live', sessions: manager.list() });
 
-    ws.on('message', async (raw) => {
+    const detach = () => {
+      unsubscribe?.();
+      unsubscribe = null;
+      entry = null;
+    };
+
+    const handle = async (m) => {
+      switch (m.type) {
+        case 'open': {
+          const cwd = path.resolve(String(m.cwd || defaultCwd));
+          const stat = await fs.stat(cwd).catch(() => null);
+          if (!stat?.isDirectory()) throw new Error(`Klasör bulunamadı: ${cwd}`);
+          detach();
+          const next = await manager.open({
+            liveId: m.new ? null : m.liveId,
+            sessionId: m.new ? null : m.sessionId,
+            cwd,
+            mode: MODES.has(m.mode) ? m.mode : 'default',
+            model: m.model || undefined,
+          });
+          const history = next.historyCount
+            ? await getSessionMessages(next.agent.sessionId, { dir: next.cwd, limit: next.historyCount }).catch(() => [])
+            : [];
+          if (!manager.entries.has(next.liveId)) throw new Error('Oturum kapandı, yeniden açın');
+          entry = next;
+          unsubscribe = manager.subscribe(entry, emit, history);
+          break;
+        }
+        case 'send':
+          if (!entry || entry.agent.closed) throw new Error('Aktif oturum yok');
+          manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : []);
+          break;
+        case 'interrupt':
+          await entry?.agent.interrupt();
+          break;
+        case 'answer':
+          entry?.agent.answer(m.id, m.decision || { behavior: 'deny' });
+          break;
+        case 'set_mode':
+          if (MODES.has(m.mode)) await entry?.agent.setPermissionMode(m.mode);
+          break;
+        case 'set_model':
+          await entry?.agent.setModel(m.model);
+          break;
+      }
+    };
+
+    // Mesajları sırayla işle: hızlı oturum değişimlerinde "open" istekleri karışmasın
+    let chain = Promise.resolve();
+    ws.on('message', (raw) => {
       let m;
       try {
         m = JSON.parse(raw);
       } catch {
         return;
       }
-      try {
-        switch (m.type) {
-          case 'start': {
-            session?.close();
-            const cwd = path.resolve(String(m.cwd || defaultCwd));
-            const stat = await fs.stat(cwd).catch(() => null);
-            if (!stat?.isDirectory()) throw new Error(`Klasör bulunamadı: ${cwd}`);
-            session = new AgentSession({
-              cwd,
-              resume: m.resume || undefined,
-              model: m.model || undefined,
-              permissionMode: MODES.has(m.mode) ? m.mode : 'default',
-              emit,
-            });
-            session.start();
-            emit({ type: 'started', cwd, resume: m.resume || null });
-            break;
-          }
-          case 'send':
-            if (!session || session.closed) throw new Error('Aktif oturum yok');
-            session.send(String(m.text || ''), Array.isArray(m.images) ? m.images : []);
-            break;
-          case 'interrupt':
-            await session?.interrupt();
-            break;
-          case 'answer':
-            session?.answer(m.id, m.decision || { behavior: 'deny' });
-            break;
-          case 'set_mode':
-            if (MODES.has(m.mode)) await session?.setPermissionMode(m.mode);
-            break;
-          case 'set_model':
-            await session?.setModel(m.model);
-            break;
-        }
-      } catch (err) {
-        emit({ type: 'error', message: String(err?.message || err) });
-      }
+      chain = chain.then(() => handle(m)).catch((err) => emit({ type: 'error', message: String(err?.message || err) }));
     });
 
-    ws.on('close', () => session?.close());
+    ws.on('close', () => {
+      stopLive();
+      detach();
+    });
   });
 
   return new Promise((resolve, reject) => {

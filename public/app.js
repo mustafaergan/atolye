@@ -60,8 +60,10 @@ const MODE_CYCLE = ['default', 'acceptEdits', 'plan'];
 const state = {
   config: null,
   cwd: '',
-  sessionId: null,      // aktif oturum
-  sessions: [],
+  sessionId: null,      // aktif oturumun Claude Code kimliği (ilk mesajdan sonra oluşur)
+  liveId: null,         // sunucuda çalışan oturumun kimliği
+  sessions: [],         // diskteki oturumlar
+  running: [],          // sunucuda çalışan oturumlar
   ws: null,
   connected: false,
   busy: false,
@@ -75,7 +77,6 @@ const state = {
   streamMsgId: null,
   prompts: new Map(),   // izin/soru id -> kart
   cost: 0,
-  pendingStart: null,
 };
 
 // ---------- DOM ----------
@@ -183,7 +184,8 @@ function connect() {
   ws.onopen = () => {
     state.connected = true;
     setConn('ok', 'Bağlı');
-    startSession(state.sessionId);
+    // Sayfa yenilense ya da bağlantı kopsa da sunucudaki oturuma geri bağlan
+    openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId });
   };
   ws.onclose = () => {
     state.connected = false;
@@ -208,8 +210,37 @@ function wsSend(obj) {
   else notice('Sunucuya bağlı değil. Yeniden bağlanılıyor…');
 }
 
-function startSession(resume) {
-  wsSend({ type: 'start', cwd: state.cwd, resume: resume || null, mode: state.mode, model: state.model || null });
+function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd }) {
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null });
+}
+
+function rememberOpen() {
+  store.set('atolye:open', JSON.stringify({ liveId: state.liveId, sessionId: state.sessionId, cwd: state.cwd }));
+}
+
+// Sunucu oturumu açtığında ekranı baştan kurar: önce diskteki eski geçmiş,
+// sonra bu çalışmada oluşan olaylar (akış, araçlar, bekleyen izinler).
+function applyOpened(ev) {
+  state.liveId = ev.liveId;
+  state.sessionId = ev.sessionId;
+  if (ev.cwd && ev.cwd !== state.cwd) setCwdLabel(ev.cwd, true);
+  rememberOpen();
+  resetTranscript();
+  if (ev.capabilities) setCapabilities(ev.capabilities);
+  setMode(ev.mode, false);
+  if (ev.model) { state.model = ev.model; dom.modelSelect.value = ev.model; }
+
+  for (const m of ev.history || []) {
+    if (m.type === 'assistant') renderAssistant(m, true);
+    else if (m.type === 'user') renderUserFromSdk(m, true);
+  }
+  for (const e of ev.events || []) handleEvent(e);
+  setBusy(ev.busy);
+
+  const s = state.sessions.find((x) => x.id === state.sessionId);
+  dom.sessionTitle.textContent = s?.title || ev.title || (state.sessionId ? 'Oturum' : 'Yeni oturum');
+  renderSessions();
+  scrollDown(true);
 }
 
 // ---------- Olaylar ----------
@@ -224,8 +255,11 @@ function handleEvent(ev) {
     case 'model': return;
     case 'capabilities': return setCapabilities(ev);
     case 'error': setBusy(false); return notice(ev.message);
+    case 'opened': return applyOpened(ev);
+    case 'live': state.running = ev.sessions || []; return renderSessions();
+    case 'user_prompt':
+      return renderUserBubble(ev.text, (ev.images || []).map((i) => `data:${i.mediaType};base64,${i.data}`));
     case 'session_ended': return;
-    case 'started': return;
   }
 }
 
@@ -239,7 +273,7 @@ function handleSdk(msg) {
       setMode(msg.permissionMode, false);
       dom.statusline.dataset.model = msg.model;
       updateStatus();
-      if (isNew) { highlightSession(); store.set(`atolye:last:${state.cwd}`, msg.session_id); }
+      if (isNew) { rememberOpen(); renderSessions(); }
     } else if (msg.subtype === 'local_command_output') {
       const node = el('div', { class: 'msg-text' });
       renderMarkdown(node, msg.content);
@@ -738,7 +772,8 @@ function send() {
   if (!text && !state.attachments.length) return;
   if (text === '/clear' || text === '/new') { newSession(); dom.input.value = ''; autoGrow(); return; }
   const images = state.attachments.map(({ mediaType, data }) => ({ mediaType, data }));
-  renderUserBubble(text, state.attachments.map((a) => a.url));
+  // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
+  // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
   wsSend({ type: 'send', text: text || 'Bu görsele bak.', images });
   dom.input.value = '';
   state.attachments = [];
@@ -893,27 +928,50 @@ async function loadSessions() {
   renderSessions();
 }
 
+const samePath = (a, b) => (a || '').replace(/[\\/]+$/, '').toLowerCase() === (b || '').replace(/[\\/]+$/, '').toLowerCase();
+const folderOf = (p) => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
+
+// Diskteki oturumlar + sunucuda çalışan oturumlar tek listede. Çalışanlar
+// "çalışıyor" / "onay bekliyor" işaretiyle en üstte gösterilir.
 function renderSessions() {
-  if (!state.sessions.length) {
+  const runningBySession = new Map(state.running.filter((r) => r.sessionId).map((r) => [r.sessionId, r]));
+  const diskIds = new Set(state.sessions.map((s) => s.id));
+  const rows = [];
+
+  for (const r of state.running) {
+    if (r.sessionId && diskIds.has(r.sessionId) && samePath(r.cwd, state.cwd)) continue;
+    rows.push({ id: r.sessionId, liveId: r.liveId, title: r.title || 'Yeni oturum', lastModified: r.lastActivity, run: r, cwd: r.cwd });
+  }
+  for (const s of state.sessions) rows.push({ ...s, run: runningBySession.get(s.id), cwd: state.cwd });
+  rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
+
+  if (!rows.length) {
     dom.sessionList.replaceChildren(el('div', { class: 'list-empty', text: 'Bu klasörde henüz oturum yok.' }));
     return;
   }
-  dom.sessionList.replaceChildren(...state.sessions.map((s) => {
-    const item = el('button', { class: `session-item ${s.id === state.sessionId ? 'active' : ''}`, type: 'button', 'data-id': s.id, title: s.title },
+  dom.sessionList.replaceChildren(...rows.map((s) => {
+    const active = (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
+    const status = s.run
+      ? s.run.waiting
+        ? el('span', { class: 's-badge wait', title: 'Onayınızı bekliyor', text: 'onay' })
+        : s.run.busy
+          ? el('span', { class: 's-badge run', title: 'Çalışıyor' }, el('span', { class: 'spin' }))
+          : null
+      : null;
+    const other = !samePath(s.cwd, state.cwd) ? el('span', { class: 's-folder', text: folderOf(s.cwd) }) : null;
+    const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
+      status,
       el('span', { class: 's-title', text: s.title }),
+      other,
       el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
-      el('span', { class: 's-actions' },
+      s.id && !s.run?.busy ? el('span', { class: 's-actions' },
         el('span', { title: 'Yeniden adlandır', onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
-        el('span', { title: 'Sil', onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))));
-    item.onclick = () => openSession(s.id);
+        el('span', { title: 'Sil', onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
+    item.onclick = () => openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd });
     return item;
   }));
   const cur = state.sessions.find((s) => s.id === state.sessionId);
   if (cur) dom.sessionTitle.textContent = cur.title;
-}
-
-function highlightSession() {
-  for (const n of dom.sessionList.querySelectorAll('.session-item')) n.classList.toggle('active', n.dataset.id === state.sessionId);
 }
 
 async function renameSession(s) {
@@ -927,7 +985,7 @@ async function removeSession(s) {
   if (!confirm(`"${s.title}" oturumu kalıcı olarak silinsin mi?`)) return;
   await fetch(`/api/sessions/${s.id}?dir=${encodeURIComponent(state.cwd)}`, { method: 'DELETE' });
   if (s.id === state.sessionId) newSession();
-  loadSessions();
+  else loadSessions();
 }
 
 function resetTranscript() {
@@ -942,36 +1000,23 @@ function resetTranscript() {
   setBusy(false);
 }
 
+// Yeni oturum açmak çalışan oturumu durdurmaz; o sunucuda sürer ve listeden geri açılabilir.
 function newSession() {
   state.sessionId = null;
+  state.liveId = null;
   resetTranscript();
   dom.sessionTitle.textContent = 'Yeni oturum';
-  highlightSession();
-  startSession(null);
+  openLive({ isNew: true });
   dom.input.focus();
   closeMenu();
 }
 
-async function openSession(id) {
-  if (id === state.sessionId && dom.messages.children.length) return closeMenu();
-  state.sessionId = id;
-  resetTranscript();
-  highlightSession();
-  const s = state.sessions.find((x) => x.id === id);
-  dom.sessionTitle.textContent = s?.title || 'Oturum';
+function openSession({ sessionId, liveId, cwd }) {
   closeMenu();
-  try {
-    const msgs = await fetch(`/api/sessions/${id}/messages?dir=${encodeURIComponent(state.cwd)}`).then((r) => r.json());
-    if (!Array.isArray(msgs)) throw new Error(msgs?.error || 'Geçmiş alınamadı');
-    for (const m of msgs) {
-      if (m.type === 'assistant') renderAssistant(m, true);
-      else if (m.type === 'user') renderUserFromSdk(m, true);
-    }
-  } catch (err) {
-    notice(`Oturum geçmişi yüklenemedi: ${err.message}`);
-  }
-  scrollDown(true);
-  startSession(id);
+  if ((liveId && liveId === state.liveId) || (!liveId && sessionId && sessionId === state.sessionId)) return;
+  resetTranscript();
+  setWorking('Oturum açılıyor…');
+  openLive({ sessionId, liveId, cwd: cwd || state.cwd });
 }
 
 $('#newSessionBtn').onclick = newSession;
@@ -1003,14 +1048,18 @@ dlg.addEventListener('close', () => {
   if (dlg.returnValue === 'ok' && pathInput.value && pathInput.value !== state.cwd) setCwd(pathInput.value);
 });
 
-function setCwd(cwd) {
+function setCwdLabel(cwd, reload = false) {
   state.cwd = cwd;
   store.set('atolye:cwd', cwd);
-  dom.folderName.textContent = cwd.split(/[\\/]/).filter(Boolean).pop() || cwd;
+  dom.folderName.textContent = folderOf(cwd);
   dom.folderName.parentElement.title = cwd;
   dom.sessionCwd.textContent = cwd;
+  if (reload) loadSessions();
+}
+
+function setCwd(cwd) {
+  setCwdLabel(cwd, true);
   newSession();
-  loadSessions();
 }
 
 // ---------- Tema ve mobil menü ----------
@@ -1037,11 +1086,12 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
 (async function init() {
   state.config = await fetch('/api/config').then((r) => r.json());
   state.model = store.get('atolye:model', '');
-  const cwd = store.get('atolye:cwd', '') || state.config.defaultCwd;
-  state.cwd = cwd;
-  dom.folderName.textContent = cwd.split(/[\\/]/).filter(Boolean).pop() || cwd;
-  dom.folderName.parentElement.title = cwd;
-  dom.sessionCwd.textContent = cwd;
+  setCwdLabel(store.get('atolye:cwd', '') || state.config.defaultCwd);
+  // Sayfa yenilendiyse en son bakılan oturuma dön
+  try {
+    const last = JSON.parse(store.get('atolye:open', 'null'));
+    if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; }
+  } catch { /* yoksay */ }
   dom.gatewayInfo.textContent = state.config.gateway
     ? `Gateway: ${new URL(state.config.gateway).host}`
     : 'Gateway: Claude Code ayarlarından';
