@@ -77,10 +77,28 @@ $InstallDir = Resolve-InstallDir
 $LogFile = Join-Path $InstallDir 'atolye.log'
 $ScriptPath = Join-Path $InstallDir 'atolye.ps1'
 # Testlerde gerçek Masaüstü/Başlangıç klasörlerine dokunmamak için değiştirilebilir
-$DesktopDir = if ($env:ATOLYE_DESKTOP_DIR) { $env:ATOLYE_DESKTOP_DIR } else { [Environment]::GetFolderPath('Desktop') }
-$StartupDir = if ($env:ATOLYE_STARTUP_DIR) { $env:ATOLYE_STARTUP_DIR } else { [Environment]::GetFolderPath('Startup') }
-$DesktopLink = Join-Path $DesktopDir "$AppName.lnk"
-$StartupLink = Join-Path $StartupDir "$AppName.lnk"
+# Windows, klasör yoksa ya da grup ilkesiyle kapatılmışsa GetFolderPath için boş yol döndürür.
+# Önce oluşturmayı dener, sonra bilinen varsayılan yola düşer; o da olmazsa $null döner ve
+# ilgili adım (kısayol / otomatik başlatma) uyarıyla atlanır.
+function Resolve-SpecialDir($override, $folder, $fallback) {
+  if ($override) { return $override }
+  $p = $null
+  try { $p = [Environment]::GetFolderPath($folder, [Environment+SpecialFolderOption]::Create) } catch { }
+  if (-not $p -and $fallback) {
+    try {
+      if (-not (Test-Path $fallback)) { New-Item -ItemType Directory -Force $fallback | Out-Null }
+      $p = $fallback
+    } catch { $p = $null }
+  }
+  if ($p) { return $p }
+  return $null
+}
+# Join-Path, erişilemeyen sürücülerde (ör. yönlendirilmiş ağ klasörü) hata verir; bu yüzden düz birleştirme
+$DesktopDir = Resolve-SpecialDir $env:ATOLYE_DESKTOP_DIR 'Desktop' $(if ($HOME) { [IO.Path]::Combine($HOME, 'Desktop') })
+$StartupDir = Resolve-SpecialDir $env:ATOLYE_STARTUP_DIR 'Startup' $(if ($env:APPDATA) { [IO.Path]::Combine($env:APPDATA, 'Microsoft\Windows\Start Menu\Programs\Startup') })
+$DesktopLink = if ($DesktopDir) { [IO.Path]::Combine($DesktopDir, "$AppName.lnk") } else { $null }
+$StartupLink = if ($StartupDir) { [IO.Path]::Combine($StartupDir, "$AppName.lnk") } else { $null }
+function Test-Link($p) { try { return [bool]($p -and (Test-Path $p)) } catch { return $false } }
 
 function Get-Port {
   $envFile = Join-Path $InstallDir '.env'
@@ -244,13 +262,30 @@ function Stop-Atolye {
 }
 
 function Enable-Autostart {
-  New-Shortcut $StartupLink '-Komut baslat -TarayiciAcma' "$AppName (Windows açılışında arka planda başlar)"
-  Write-Ok 'Windows açılışında otomatik başlatma açık'
+  if (-not $StartupLink) { Write-Warn 'Windows Başlangıç klasörü bulunamadı; otomatik başlatma atlandı (Atölye kısayoldan açılabilir).'; return }
+  try {
+    New-Shortcut $StartupLink '-Komut baslat -TarayiciAcma' "$AppName (Windows açılışında arka planda başlar)"
+    Write-Ok 'Windows açılışında otomatik başlatma açık'
+  } catch {
+    Write-Warn "Otomatik başlatma ayarlanamadı: $($_.Exception.Message)"
+  }
 }
 
 function Disable-Autostart {
-  if (Test-Path $StartupLink) { Remove-Item $StartupLink -Force }
+  if (Test-Link $StartupLink) { Remove-Item $StartupLink -Force }
   Write-Ok 'Windows açılışında otomatik başlatma kapalı'
+}
+
+function Install-DesktopShortcut {
+  if (-not $DesktopLink) { Write-Warn "Masaüstü klasörü bulunamadı; kısayol atlandı. Atölye'yi '$ScriptPath baslat' ile açabilirsiniz."; return $false }
+  try {
+    New-Shortcut $DesktopLink '-Komut baslat' "$AppName'yi aç"
+    Write-Ok "Masaüstü kısayolu: $DesktopLink"
+    return $true
+  } catch {
+    Write-Warn "Masaüstü kısayolu oluşturulamadı: $($_.Exception.Message)"
+    return $false
+  }
 }
 
 function Install-Atolye {
@@ -261,12 +296,15 @@ function Install-Atolye {
   Install-Files
   Install-Packages
   Install-EnvFile
-  New-Shortcut $DesktopLink '-Komut baslat' "$AppName'yi aç"
-  Write-Ok "Masaüstü kısayolu: $DesktopLink"
+  $hasDesktop = Install-DesktopShortcut
   Enable-Autostart
   Start-Atolye
   Write-Host ''
-  Write-Host "  Kurulum tamam. Atölye'yi masaüstündeki '$AppName' kısayoluyla açabilirsiniz." -ForegroundColor Green
+  if ($hasDesktop) {
+    Write-Host "  Kurulum tamam. Atölye'yi masaüstündeki '$AppName' kısayoluyla açabilirsiniz." -ForegroundColor Green
+  } else {
+    Write-Host "  Kurulum tamam. Atölye'yi tarayıcıda $(Get-Url) adresinden ya da '$ScriptPath baslat' ile açabilirsiniz." -ForegroundColor Green
+  }
   if ($FromPackage) {
     Write-Host "  Güncellemek için yeni paketi indirip Kur.bat'ı çalıştırın. Bu çıkarılan klasörü artık silebilirsiniz." -ForegroundColor Gray
   } else {
@@ -321,15 +359,15 @@ function Show-Status {
     }
   }
   Write-Host "  Çalışıyor       : $(if (Test-Running) { "$yes ($(Get-Url))" } else { $no })"
-  Write-Host "  Masaüstü kısayolu: $(if (Test-Path $DesktopLink) { $yes } else { $no })"
-  Write-Host "  Otomatik başlatma: $(if (Test-Path $StartupLink) { $yes } else { $no })"
+  Write-Host "  Masaüstü kısayolu: $(if (Test-Link $DesktopLink) { $yes } else { $no })"
+  Write-Host "  Otomatik başlatma: $(if (Test-Link $StartupLink) { $yes } else { $no })"
   Write-Host "  Kayıt dosyası   : $LogFile"
   Write-Host ''
 }
 
 function Uninstall-Atolye {
   Stop-Atolye
-  if (Test-Path $DesktopLink) { Remove-Item $DesktopLink -Force }
+  if (Test-Link $DesktopLink) { Remove-Item $DesktopLink -Force }
   Disable-Autostart
   Write-Ok 'Kısayollar kaldırıldı'
   Write-Host "  Dosyalar silinmedi: $InstallDir (isterseniz klasörü elle silebilirsiniz)" -ForegroundColor Gray
