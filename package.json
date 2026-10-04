@@ -11,7 +11,8 @@
     "start": "node src/cli.js",
     "dev": "node --watch src/cli.js",
     "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs test/spend.test.mjs",
-    "paket": "node scripts/paket.mjs"
+    "paket": "node scripts/paket.mjs",
+    "paket:tam": "node scripts/paket.mjs --tam"
   },
   "engines": {
     "node": ">=18.18"

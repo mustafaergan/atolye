@@ -67,7 +67,7 @@ Git ya da GitHub erişimi olmayan kullanıcılar için tek dosyalık zip paketi 
 
 ```bash
 npm run paket            # hafif paket: dist/Atolye-<sürüm>.zip (~0,1 MB; kurulumda npm erişimi gerekir)
-npm run paket -- --tam   # tam paket:   dist/Atolye-<sürüm>-tam.zip (~120 MB; npm erişimi gerekmez, Windows'ta hazırlayın)
+npm run paket:tam        # tam paket:     dist/Atolye-<sürüm>-tam.zip (~120 MB; npm erişimi gerekmez, Windows'ta hazırlayın)
 ```
 
 Kullanıcı zip'i çıkarıp **`Kur.bat`**'a çift tıklar: Atölye `%LOCALAPPDATA%\Atolye` klasörüne kurulur, masaüstü

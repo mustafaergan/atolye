@@ -3,7 +3,7 @@
 // dağıtıp Kur.bat ile kurmak için. Git gerekmez.
 //
 //   npm run paket            → hafif paket (kurulumda paketler npm'den indirilir)
-//   npm run paket -- --tam   → tam paket (node_modules dahil, npm erişimi gerekmez;
+//   npm run paket:tam        → tam paket (node_modules dahil, npm erişimi gerekmez;
 //                              Windows'ta hazırlanmalıdır, içindeki Claude Code dosyası Windows içindir)
 import fs from 'node:fs';
 import path from 'node:path';
