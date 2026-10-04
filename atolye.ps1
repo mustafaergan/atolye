@@ -122,14 +122,58 @@ function Test-Running {
 function Get-NodePath {
   $cmd = Get-Command node -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
+  # Node.js az önce kurulduysa bu pencerenin PATH'i henüz güncel olmayabilir: bilinen yerlere bak
+  foreach ($dir in @("$env:ProgramFiles\nodejs", "${env:ProgramFiles(x86)}\nodejs", "$env:LOCALAPPDATA\Programs\nodejs")) {
+    $exe = Join-Path $dir 'node.exe'
+    if ($dir -and (Test-Path $exe)) {
+      $env:PATH = "$dir;$env:PATH" # npm de bulunsun
+      return $exe
+    }
+  }
   return $null
+}
+
+# Etkileşimli pencerede E/H sorusu; gizli/etkileşimsiz çalışmada varsayılanı döndürür
+# (ATOLYE_SORMA=1: hiç sorma, her soruya "hayır" — otomatik/toplu kurulum için)
+function Confirm-Yes($question, [bool]$default = $true) {
+  if ($env:ATOLYE_SORMA -eq '1') { return $false }
+  if (-not [Environment]::UserInteractive -or $TarayiciAcma) { return $default }
+  $hint = if ($default) { '(E/h)' } else { '(e/H)' }
+  try { $a = Read-Host "  $question $hint" } catch { return $default }
+  if (-not $a) { return $default }
+  return ($a.Trim() -match '^(e|evet|y|yes)$')
+}
+
+function Write-Box($color, [string[]]$lines) {
+  $width = ($lines | Measure-Object -Property Length -Maximum).Maximum + 2
+  Write-Host ''
+  Write-Host ('  +' + ('-' * $width) + '+') -ForegroundColor $color
+  foreach ($l in $lines) { Write-Host ('  | ' + $l.PadRight($width - 1) + '|') -ForegroundColor $color }
+  Write-Host ('  +' + ('-' * $width) + '+') -ForegroundColor $color
+  Write-Host ''
+}
+
+function Stop-NodeMissing([string]$reason) {
+  $lines = @(
+    $reason,
+    '',
+    "Atölye'nin çalışması için Node.js $MinNode veya üstü gerekli.",
+    '1) https://nodejs.org adresinden "LTS" sürümünü indirip kurun',
+    '   (ya da PowerShell''de: winget install OpenJS.NodeJS.LTS)',
+    '2) Kurulumdan sonra bu pencereyi kapatıp Kur.bat''ı yeniden çalıştırın.'
+  )
+  Write-Box Red $lines
+  if (Confirm-Yes 'Node.js indirme sayfası şimdi açılsın mı?') { Start-Process 'https://nodejs.org/' }
+  exit 1
 }
 
 function Test-Requirements {
   $node = Get-NodePath
-  if (-not $node) { Stop-WithError "Node.js bulunamadı. https://nodejs.org adresinden LTS sürümünü kurup tekrar deneyin." }
-  $ver = [version]((& $node --version).TrimStart('v'))
-  if ($ver -lt $MinNode) { Stop-WithError "Node.js $ver çok eski; en az $MinNode gerekli." }
+  if (-not $node) { Stop-NodeMissing 'Node.js bulunamadı.' }
+  $ver = $null
+  try { $ver = [version]((& $node --version).Trim().TrimStart('v')) } catch { }
+  if (-not $ver) { Stop-NodeMissing "Node.js çalıştırılamadı: $node" }
+  if ($ver -lt $MinNode) { Stop-NodeMissing "Node.js $ver çok eski." }
   Write-Ok "Node.js $ver"
   if ($FromPackage) { return } # paketten kurulumda Git gerekmez
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Stop-WithError "Git bulunamadı. https://git-scm.com adresinden kurup tekrar deneyin." }
@@ -212,9 +256,121 @@ function Install-Packages {
 
 function Install-EnvFile {
   $envFile = Join-Path $InstallDir '.env'
-  if (Test-Path $envFile) { return }
-  Copy-Item (Join-Path $InstallDir '.env.example') $envFile
-  Write-Ok '.env oluşturuldu (gateway ayarları ~/.claude/settings.json içindeyse dokunmanıza gerek yok)'
+  if (-not (Test-Path $envFile)) {
+    Copy-Item (Join-Path $InstallDir '.env.example') $envFile
+    Write-Ok '.env oluşturuldu'
+    return
+  }
+  # Eski sürümlerin örnek dosyasından kalan açık satırlar (sahte gateway adresi, boş token)
+  # settings.json'daki gerçek ayarların önüne geçmesin: yorum satırına çevir
+  $lines = Get-Content $envFile -Encoding UTF8
+  $changed = $false
+  $fixed = foreach ($l in $lines) {
+    if ($l -match '^\s*ANTHROPIC_(BASE_URL|AUTH_TOKEN|API_KEY)\s*=\s*(.*)$' -and ($Matches[2].Trim() -eq '' -or $Matches[2] -match 'example\.(com|org)')) {
+      $changed = $true
+      "# $l"
+    } else { $l }
+  }
+  if ($changed) {
+    [IO.File]::WriteAllLines($envFile, [string[]]$fixed, (New-Object Text.UTF8Encoding $false))
+    Write-Ok '.env içindeki örnek/boş bağlantı satırları devre dışı bırakıldı'
+  }
+}
+
+# ---------- Claude bağlantı ayarı ----------
+# Atölye'nin (ve Claude Code'un) gateway adresini ve token'ı bulduğu yerler:
+# kurulum klasöründeki .env, Claude Code ayar dosyaları, kullanıcı ortam değişkenleri, claude.ai girişi.
+function Read-EnvFileValues($path) {
+  $vals = @{}
+  if (-not (Test-Path $path)) { return $vals }
+  foreach ($l in (Get-Content $path -Encoding UTF8)) {
+    # -cmatch: Türkçe Windows'ta büyük/küçük harf duyarsız eşleşmede [A-Z], "I" harfini ("ı") tanımaz
+    if ($l -cmatch '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$') {
+      $v = $Matches[2].Trim('"', "'")
+      if ($v -and $v -notmatch 'example\.(com|org)') { $vals[$Matches[1]] = $v }
+    }
+  }
+  return $vals
+}
+
+function Get-ClaudeConnection {
+  $configDirs = @()
+  if ($env:CLAUDE_CONFIG_DIR) { $configDirs += $env:CLAUDE_CONFIG_DIR }
+  $configDirs += (Join-Path $HOME '.claude')
+
+  $sources = @()
+  $envVals = Read-EnvFileValues (Join-Path $InstallDir '.env')
+  if ($envVals.Count) { $sources += @{ name = 'Atölye .env'; env = $envVals; helper = $false } }
+  foreach ($d in $configDirs) {
+    foreach ($f in @('settings.local.json', 'settings.json')) {
+      $p = Join-Path $d $f
+      if (-not (Test-Path $p)) { continue }
+      try {
+        $json = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+        $e = @{}
+        if ($json.env) { $json.env.PSObject.Properties | ForEach-Object { if ($_.Value) { $e[$_.Name] = [string]$_.Value } } }
+        $sources += @{ name = "~/.claude/$f"; env = $e; helper = [bool]$json.apiKeyHelper }
+      } catch { }
+    }
+  }
+  $procEnv = @{}
+  foreach ($k in @('ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY')) {
+    $v = [Environment]::GetEnvironmentVariable($k)
+    if ($v) { $procEnv[$k] = $v }
+  }
+  if ($procEnv.Count) { $sources += @{ name = 'ortam değişkenleri'; env = $procEnv; helper = $false } }
+
+  $result = @{ baseUrl = $null; token = $null; tokenSource = $null; baseSource = $null; login = $false }
+  foreach ($s in $sources) {
+    if (-not $result.baseUrl -and $s.env['ANTHROPIC_BASE_URL']) { $result.baseUrl = $s.env['ANTHROPIC_BASE_URL']; $result.baseSource = $s.name }
+    if (-not $result.token) {
+      if ($s.env['ANTHROPIC_AUTH_TOKEN'] -or $s.env['ANTHROPIC_API_KEY']) { $result.token = $true; $result.tokenSource = $s.name }
+      elseif ($s.helper) { $result.token = $true; $result.tokenSource = "$($s.name) (apiKeyHelper)" }
+    }
+  }
+  foreach ($d in $configDirs) { if (Test-Path (Join-Path $d '.credentials.json')) { $result.login = $true } }
+  return $result
+}
+
+function Test-ClaudeConnection([switch]$Quiet) {
+  $c = Get-ClaudeConnection
+  $gateway = $null
+  if ($c.baseUrl) { try { $gateway = ([Uri]$c.baseUrl).Host } catch { $gateway = $c.baseUrl } }
+
+  if ($c.token) {
+    if (-not $Quiet) {
+      $where = if ($gateway) { "gateway: $gateway ($($c.baseSource)), " } else { '' }
+      Write-Ok "Claude bağlantı ayarı bulundu ($($where)token: $($c.tokenSource))"
+    }
+    return $true
+  }
+  if ($c.login -and -not $c.baseUrl) {
+    if (-not $Quiet) { Write-Ok 'Claude bağlantısı: claude.ai hesabıyla giriş yapılmış' }
+    return $true
+  }
+  if ($Quiet) { return $false }
+
+  $envFile = Join-Path $InstallDir '.env'
+  $first = if ($c.baseUrl) { "Gateway adresi bulundu ($gateway) ama token bulunamadı." } else { 'Claude bağlantı ayarı (gateway adresi ve token) bulunamadı.' }
+  Write-Box Yellow @(
+    $first,
+    '',
+    "Atölye kurulacak ama Claude'a bağlanamayacak. Şunlardan birini yapın:",
+    '- Şirketin verdiği gateway adresini ve token''ı .env dosyasına yazın',
+    '  (yolu aşağıda):',
+    '    ANTHROPIC_BASE_URL=https://...',
+    '    ANTHROPIC_AUTH_TOKEN=...',
+    '- ya da Claude Code''u (claude) bu bilgisayarda kurup ayarlayın;',
+    '  ~/.claude/settings.json içindeki ayarlar otomatik kullanılır.'
+  )
+  Write-Host "  .env dosyası: $envFile" -ForegroundColor Yellow
+  Write-Host ''
+  if (Confirm-Yes '.env dosyası şimdi Not Defteri''nde açılsın mı?') {
+    Start-Process notepad.exe -ArgumentList "`"$envFile`"" -Wait
+    if (Test-ClaudeConnection -Quiet) { Write-Ok 'Bağlantı ayarı artık tamam' }
+    else { Write-Warn "Bağlantı ayarı hâlâ eksik. Daha sonra .env dosyasını düzenleyip Atölye'yi yeniden başlatın ('atolye.ps1 durdur' ardından 'baslat')." }
+  }
+  return $false
 }
 
 function Start-Atolye {
@@ -296,11 +452,14 @@ function Install-Atolye {
   Install-Files
   Install-Packages
   Install-EnvFile
+  $connected = Test-ClaudeConnection
   $hasDesktop = Install-DesktopShortcut
   Enable-Autostart
   Start-Atolye
   Write-Host ''
-  if ($hasDesktop) {
+  if (-not $connected) {
+    Write-Host "  ! Kurulum tamam ama Claude bağlantı ayarı eksik: $(Join-Path $InstallDir '.env') dosyasını doldurup Atölye'yi yeniden başlatın." -ForegroundColor Yellow
+  } elseif ($hasDesktop) {
     Write-Host "  Kurulum tamam. Atölye'yi masaüstündeki '$AppName' kısayoluyla açabilirsiniz." -ForegroundColor Green
   } else {
     Write-Host "  Kurulum tamam. Atölye'yi tarayıcıda $(Get-Url) adresinden ya da '$ScriptPath baslat' ile açabilirsiniz." -ForegroundColor Green
@@ -334,6 +493,8 @@ function Update-Atolye {
   }
   Write-Ok "Güncellendi: $before → $after"
   Install-Packages
+  Install-EnvFile
+  if (-not (Test-ClaudeConnection -Quiet)) { Write-Warn "Claude bağlantı ayarı bulunamadı; '$ScriptPath durum' ile kontrol edin." }
   $wasRunning = Test-Running
   if ($wasRunning) {
     Stop-Atolye
@@ -361,6 +522,12 @@ function Show-Status {
   Write-Host "  Çalışıyor       : $(if (Test-Running) { "$yes ($(Get-Url))" } else { $no })"
   Write-Host "  Masaüstü kısayolu: $(if (Test-Link $DesktopLink) { $yes } else { $no })"
   Write-Host "  Otomatik başlatma: $(if (Test-Link $StartupLink) { $yes } else { $no })"
+  $c = Get-ClaudeConnection
+  $conn = if ($c.token) {
+    $gw = if ($c.baseUrl) { try { ([Uri]$c.baseUrl).Host } catch { $c.baseUrl } } else { 'doğrudan Anthropic API' }
+    "$yes ($gw; token: $($c.tokenSource))"
+  } elseif ($c.login -and -not $c.baseUrl) { "$yes (claude.ai girişi)" } else { "$no — .env ya da ~/.claude/settings.json içinde gateway/token yok" }
+  Write-Host "  Claude bağlantısı: $conn"
   Write-Host "  Kayıt dosyası   : $LogFile"
   Write-Host ''
 }
