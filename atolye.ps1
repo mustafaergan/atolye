@@ -119,12 +119,90 @@ function Get-Port {
 
 function Get-Url { return "http://127.0.0.1:$(Get-Port)" }
 
-function Test-Running {
-  $client = New-Object Net.Sockets.TcpClient
+# Porttaki uygulama bir Atölye mi? (süreç bilgisi okunamadığında yedek kontrol)
+function Test-AtolyeHttp([int]$port) {
   try {
-    $task = $client.ConnectAsync('127.0.0.1', (Get-Port))
-    return ($task.Wait(500) -and $client.Connected)
-  } catch { return $false } finally { $client.Dispose() }
+    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:$port/api/config"
+    return ($r.Content -match '"generalDir"')
+  } catch { return $false }
+}
+
+# Portu dinleyen süreç ve bu kurulumun Atölye'si olup olmadığı (yoksa $null)
+function Get-PortOwner([int]$port) {
+  $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $c) { return $null }
+  $procId = [int]$c.OwningProcess
+  $name = (Get-Process -Id $procId -ErrorAction SilentlyContinue).ProcessName
+  $cmd = $null
+  try { $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction Stop).CommandLine } catch { }
+  if ($cmd) {
+    $cli = Join-Path $InstallDir 'src\cli.js'
+    $ours = ($name -eq 'node') -and ($cmd.IndexOf($cli, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+  } else {
+    $ours = ($name -eq 'node') -and (Test-AtolyeHttp $port)
+  }
+  return @{ pid = $procId; name = $name; ours = [bool]$ours }
+}
+
+# Bu kurulumun Atölye'si çalışıyor mu? (portta başka bir program varsa hayır)
+function Test-Running {
+  $o = Get-PortOwner (Get-Port)
+  return [bool]($o -and $o.ours)
+}
+
+# Port gerçekten kullanılabilir mi? Dinleyen yoksa bile Windows (Hyper-V/WSL) bazı
+# port aralıklarını ayırmış olabilir; bu yüzden kısa bir süre açmayı deneriz.
+function Test-PortFree([int]$port) {
+  if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { return $false }
+  $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port)
+  try { $listener.Start(); return $true } catch { return $false } finally { try { $listener.Stop() } catch { } }
+}
+
+function Find-FreePort([int]$start) {
+  for ($p = $start; $p -lt $start + 100 -and $p -le 65535; $p++) { if (Test-PortFree $p) { return $p } }
+  return $null
+}
+
+# .env içindeki bir değeri ayarlar (yorum satırı halindeyse açar, yoksa ekler)
+function Set-EnvValue($key, $value) {
+  $envFile = Join-Path $InstallDir '.env'
+  $lines = @()
+  if (Test-Path $envFile) { $lines = @(Get-Content $envFile -Encoding UTF8) }
+  $done = $false
+  $out = foreach ($l in $lines) {
+    if (-not $done -and $l -cmatch "^\s*#?\s*$key\s*=") { $done = $true; "$key=$value" } else { $l }
+  }
+  if (-not $done) { $out = @($out) + "$key=$value" }
+  [IO.File]::WriteAllLines($envFile, [string[]]$out, (New-Object Text.UTF8Encoding $false))
+}
+
+# Port başka bir programdaysa yeni bir port sorar (-Auto: sormadan boş portu seçer) ve .env'ye yazar
+function Resolve-PortConflict([switch]$Auto) {
+  $port = Get-Port
+  $owner = Get-PortOwner $port
+  if ($owner -and $owner.ours) { return }
+  if (-not $owner -and (Test-PortFree $port)) { return }
+
+  $who = if ($owner) { "$($owner.name) (PID $($owner.pid))" } else { 'Windows tarafından ayrılmış' }
+  Write-Warn "Port $port kullanılamıyor: $who"
+  $new = Find-FreePort ($port + 1)
+  if (-not $new) { Stop-WithError "$port sonrasında boş port bulunamadı. .env dosyasına ATOLYE_PORT=<port> yazıp tekrar deneyin." }
+
+  if (-not $Auto -and $env:ATOLYE_SORMA -ne '1' -and [Environment]::UserInteractive) {
+    for ($i = 0; $i -lt 5; $i++) {
+      $a = ''
+      try { $a = Read-Host "  Atölye için kullanılacak port [$new]" } catch { break }
+      $a = "$a".Trim()
+      if (-not $a) { break }
+      if ($a -notmatch '^\d+$' -or [int]$a -lt 1024 -or [int]$a -gt 65535) { Write-Warn '1024 ile 65535 arasında bir sayı girin.'; continue }
+      if (-not (Test-PortFree ([int]$a))) { Write-Warn "Port $a da kullanılamıyor, başka bir numara deneyin."; continue }
+      $new = [int]$a
+      break
+    }
+  }
+  Set-EnvValue 'ATOLYE_PORT' $new
+  Write-Ok "Atölye artık $new portunu kullanacak (.env dosyasına kaydedildi): http://127.0.0.1:$new"
+  Write-Host '  Not: Tarayıcı proje listesini adrese göre saklar; yeni adreste klasörleri bir kez yeniden eklemeniz gerekebilir.' -ForegroundColor Gray
 }
 
 function Get-NodePath {
@@ -385,6 +463,8 @@ function Start-Atolye {
   if (Test-Running) {
     Write-Ok "Zaten çalışıyor: $(Get-Url)"
   } else {
+    # Port başka bir programdaysa: elle başlatmada sor, Windows açılışında (gizli) boş portu kendisi seçsin
+    Resolve-PortConflict -Auto:$TarayiciAcma
     $node = Get-NodePath
     if (-not $node) { Stop-WithError 'Node.js bulunamadı.' }
     Write-Step 'Başlatılıyor…'
@@ -411,19 +491,17 @@ function Start-Atolye {
 
 function Stop-Atolye {
   $port = Get-Port
-  $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  $owner = Get-PortOwner $port
   $stopped = $false
-  foreach ($c in $conns) {
-    $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
-    # Sadece Node süreçlerini durdur; portu başka bir program kullanıyorsa dokunma
-    if ($proc -and $proc.ProcessName -eq 'node') {
-      # /T: açık oturumların Claude Code alt süreçleriyle (claude.exe) birlikte kapat
-      taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
-      Write-Ok "Durduruldu (süreç $($proc.Id))"
-      $stopped = $true
-    } elseif ($proc) {
-      Write-Warn "Port $port başka bir program tarafından kullanılıyor ($($proc.ProcessName)); dokunulmadı."
-    }
+  # Sadece bu kurulumun Atölye'sini durdur; portu başka bir program (başka bir Node uygulaması
+  # ya da başka bir Atölye kurulumu) kullanıyorsa dokunma
+  if ($owner -and $owner.ours) {
+    # /T: açık oturumların Claude Code alt süreçleriyle (claude.exe) birlikte kapat
+    taskkill /PID $owner.pid /T /F 2>&1 | Out-Null
+    Write-Ok "Durduruldu (süreç $($owner.pid))"
+    $stopped = $true
+  } elseif ($owner) {
+    Write-Warn "Port $port başka bir program tarafından kullanılıyor ($($owner.name)); dokunulmadı."
   }
   # Önceki sürümlerin durdururken geride bıraktığı, bu kurulumdan çalışan süreçler
   $prefix = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\') + '\'
@@ -480,6 +558,7 @@ function Install-Atolye {
   Install-Packages
   Install-EnvFile
   $connected = Test-ClaudeConnection
+  Resolve-PortConflict
   $hasDesktop = Install-DesktopShortcut
   Enable-Autostart
   Start-Atolye
@@ -547,6 +626,12 @@ function Show-Status {
     }
   }
   Write-Host "  Çalışıyor       : $(if (Test-Running) { "$yes ($(Get-Url))" } else { $no })"
+  $owner = Get-PortOwner (Get-Port)
+  if ($owner -and -not $owner.ours) {
+    Write-Host "  Port            : $(Get-Port) başka bir program tarafından kullanılıyor ($($owner.name)); 'baslat' yeni port soracak" -ForegroundColor Yellow
+  } else {
+    Write-Host "  Port            : $(Get-Port)"
+  }
   Write-Host "  Masaüstü kısayolu: $(if (Test-Link $DesktopLink) { $yes } else { $no })"
   Write-Host "  Otomatik başlatma: $(if (Test-Link $StartupLink) { $yes } else { $no })"
   $c = Get-ClaudeConnection
