@@ -582,3 +582,6 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .ctx-metrics b { font-weight: 500; font-family: var(--mono); font-size: 12px; }
 .ctx-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .ctx-error { color: var(--err); font-size: 12.5px; }
+
+/* Klasörsüz sohbet */
+.empty-logo.general rect { fill: var(--ok); }

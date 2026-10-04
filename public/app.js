@@ -46,6 +46,7 @@ const ICONS = {
   pencil: '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  chat: '<path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L3.5 21l1.4-4.6A8.5 8.5 0 1 1 21 12z"/>',
 };
 
 const MODE_LABEL = {
@@ -1089,6 +1090,9 @@ function popupKey(e) {
 const samePath = (a, b) => pathKey(a) === pathKey(b);
 const pathKey = (p) => (p || '').replace(/[\\/]+$/, '').toLowerCase();
 const folderOf = (p) => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
+// Klasörsüz sohbet: hiçbir projeye bağlı olmayan oturumlar (sunucudaki boş klasörde çalışır)
+const isGeneral = (p) => Boolean(state.config?.generalDir) && samePath(p, state.config.generalDir);
+const projectLabel = (p) => (isGeneral(p) ? 'Klasörsüz sohbet' : folderOf(p));
 const SESSIONS_PER_PROJECT = 6;
 
 function readJson(key, fallback) {
@@ -1225,12 +1229,12 @@ function renderSessions() {
         onclick: () => { selectProject(dir); if (collapsed) { state.collapsed.delete(k); saveProjects(); renderSessions(); } } },
         el('span', { class: `p-chevron ${collapsed ? '' : 'open'}`, role: 'button', title: collapsed ? 'Aç' : 'Kapat',
           'aria-expanded': String(!collapsed), onclick: toggle }, icon(ICONS.chevron)),
-        icon(ICONS.folder),
-        el('span', { class: 'p-name', text: folderOf(dir) }),
+        icon(isGeneral(dir) ? ICONS.chat : ICONS.folder),
+        el('span', { class: 'p-name', text: projectLabel(dir) }),
         collapsed && runningCount ? el('span', { class: 's-badge run', title: `${runningCount} oturum çalışıyor` }, el('span', { class: 'spin' })) : null),
       el('span', { class: 'p-actions' },
-        el('button', { class: 'p-btn', type: 'button', title: `${folderOf(dir)} içinde yeni oturum`, onclick: () => newSession(dir) }, icon('<path d="M12 5v14M5 12h14"/>')),
-        el('button', { class: 'p-btn', type: 'button', title: 'Projeyi listeden kaldır', onclick: () => removeProject(dir) }, icon('<path d="M6 6l12 12M18 6L6 18"/>'))));
+        el('button', { class: 'p-btn', type: 'button', title: `${projectLabel(dir)} içinde yeni oturum`, onclick: () => newSession(dir) }, icon('<path d="M12 5v14M5 12h14"/>')),
+        isGeneral(dir) ? null : el('button', { class: 'p-btn', type: 'button', title: 'Projeyi listeden kaldır', onclick: () => removeProject(dir) }, icon('<path d="M6 6l12 12M18 6L6 18"/>'))));
 
     const group = el('div', { class: 'project' }, head);
     if (collapsed) return group;
@@ -1319,11 +1323,45 @@ $('#newSessionBtn').onclick = () => newSession(state.selectedProject || state.cw
 function selectProject(dir, { render = true } = {}) {
   state.selectedProject = dir;
   store.set('atolye:selected', dir);
-  $('#newSessionFolder').textContent = folderOf(dir);
-  $('#newSessionBtn').title = `${dir} içinde yeni oturum aç`;
+  $('#newSessionFolder').textContent = isGeneral(dir) ? 'Klasörsüz' : folderOf(dir);
+  $('#newSessionBtn').title = isGeneral(dir) ? 'Projeye bağlı olmayan yeni oturum' : `${dir} içinde yeni oturum aç`;
   if (render) renderSessions();
 }
-for (const b of document.querySelectorAll('.suggestions button')) b.onclick = () => { dom.input.value = b.dataset.prompt; autoGrow(); send(); };
+// Boş ekran: proje oturumunda kod önerileri, klasörsüz sohbette genel öneriler.
+// "doldur" önerileri gönderilmez, kullanıcı devamını yazsın diye mesaj kutusuna yazılır.
+const EMPTY = {
+  project: {
+    title: 'Ne üzerinde çalışalım?',
+    text: 'Kodunuzu okuyabilir, düzenleyebilir ve komut çalıştırabilirim. Değişiklik yapmadan önce izninizi isterim.',
+    tips: [
+      ['Projeyi özetle', 'Bu projenin yapısını incele ve kısaca özetle.'],
+      ['Testleri çalıştır', 'Projedeki testleri çalıştır ve hata varsa düzelt.'],
+      ['Kodu incele', 'Son değişiklikleri incele ve olası hataları bul.'],
+    ],
+  },
+  general: {
+    title: 'Ne sormak istersiniz?',
+    text: 'Bu sohbet bir projeye bağlı değil. Genel sorular sorabilir, ağ ya da sistem sorunlarını birlikte teşhis edebiliriz; gerekirse izninizle komut çalıştırırım.',
+    tips: [
+      ['Ağ bağlantımı kontrol et', 'Ağ bağlantımı kontrol et: DNS, varsayılan ağ geçidi, proxy ayarları ve internete erişimi test et; sorun varsa açıkla.'],
+      ['Bir hatayı açıkla', 'Şu hata mesajını açıklar mısın, olası sebepleri ve çözümleri neler?\n\n', true],
+      ['Komut yaz', 'Şu iş için bir PowerShell komutu yaz: ', true],
+    ],
+  },
+};
+function updateEmptyState(cwd) {
+  const e = isGeneral(cwd) ? EMPTY.general : EMPTY.project;
+  $('h1', dom.empty).textContent = e.title;
+  $('p', dom.empty).textContent = e.text;
+  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, prompt, fillOnly]) =>
+    el('button', { type: 'button', text: label, onclick: () => {
+      dom.input.value = prompt;
+      autoGrow();
+      if (fillOnly) { dom.input.focus(); dom.input.setSelectionRange(prompt.length, prompt.length); } else send();
+    } })));
+  const logo = $('.empty-logo', dom.empty);
+  logo.classList.toggle('general', isGeneral(cwd));
+}
 
 // ---------- Klasör seçici ----------
 const dlg = $('#folderDialog');
@@ -1365,7 +1403,8 @@ dlg.addEventListener('close', () => {
 function setCwdLabel(cwd) {
   state.cwd = cwd;
   store.set('atolye:cwd', cwd);
-  dom.sessionCwd.textContent = cwd;
+  dom.sessionCwd.textContent = isGeneral(cwd) ? 'Klasörsüz sohbet · proje bağlamı yok' : cwd;
+  updateEmptyState(cwd);
   addProject(cwd);
   selectProject(cwd, { render: false });
 }
@@ -1437,6 +1476,11 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
 (async function init() {
   state.config = await fetch('/api/config').then((r) => r.json());
   state.model = store.get('atolye:model', '');
+  // Klasörsüz sohbet her zaman listenin en üstünde
+  if (state.config.generalDir) {
+    state.projects = [state.config.generalDir, ...state.projects.filter((p) => !samePath(p, state.config.generalDir))];
+    saveProjects();
+  }
   setCwdLabel(store.get('atolye:cwd', '') || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse en son bakılan oturuma dön
   const last = readJson('atolye:open', null);

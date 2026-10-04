@@ -21,6 +21,14 @@ function allowanceGroup(toolName) {
   return toolName;
 }
 
+// Klasörsüz sohbet: çalışma klasörü boş, ayrı bir klasördür; Claude'un projede dosya aramaya kalkmaması için
+const GENERAL_PROMPT = [
+  'Bu oturum bir projeye bağlı değil (Atölye "klasörsüz sohbet"). Çalışma klasörü boş, ayrı bir klasördür;',
+  'orada proje dosyası aramayın. Kullanıcı genel sorular soruyor (ör. ağ, sistem, araçlar, kavramlar).',
+  'Sorunu teşhis etmek için gerekirse kullanıcının bilgisayarında komut çalıştırabilirsiniz (ör. ping, nslookup,',
+  'Test-NetConnection, ipconfig); ne yaptığınızı kısaca açıklayın. Kullanıcı Türkçe yazıyorsa Türkçe cevap verin.',
+].join(' ');
+
 export class AgentSession {
   /**
    * @param {object} opts
@@ -30,8 +38,9 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, permissionMode, emit }) {
+  constructor({ cwd, resume, model, permissionMode, emit, general = false }) {
     this.cwd = cwd;
+    this.general = general;
     this.resume = resume;
     this.model = model || undefined;
     this.permissionMode = permissionMode || 'default';
@@ -56,7 +65,7 @@ export class AgentSession {
       includePartialMessages: true,
       // CLAUDE.md, ~/.claude/settings.json (gateway adresi, token, izinler) yüklensin
       settingSources: ['user', 'project', 'local'],
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.general ? { append: GENERAL_PROMPT } : {}) },
       canUseTool: (toolName, input, ctx) => this.#askPermission(toolName, input, ctx),
       stderr: (data) => {
         if (process.env.ATOLYE_DEBUG) process.stderr.write(`[claude] ${data}`);
