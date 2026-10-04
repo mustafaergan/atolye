@@ -16,6 +16,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { SessionManager } from './manager.js';
 import { getSpend } from './spend.js';
+import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions']);
@@ -60,7 +61,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   }));
 
   app.get('/api/spend', wrap(async (req, res) => {
-    res.json(await getSpend({ force: req.query.refresh === '1' }));
+    res.json(await getSpend({ force: req.query.refresh === '1', lang: normalizeLang(req.query.lang) }));
   }));
 
   app.get('/api/sessions', wrap(async (req, res) => {
@@ -69,7 +70,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     res.json(
       sessions.map((s) => ({
         id: s.sessionId,
-        title: s.customTitle || s.summary || s.firstPrompt || 'Adsız oturum',
+        title: s.customTitle || s.summary || s.firstPrompt || msg(req.query.lang, 'Adsız oturum'),
         lastModified: s.lastModified,
         gitBranch: s.gitBranch,
         cwd: s.cwd,
@@ -131,6 +132,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     // Bu bağlantının o an izlediği oturum. Bağlantı kapansa da oturum çalışmaya devam eder.
     let entry = null;
     let unsubscribe = null;
+    let lang = 'tr'; // arayüzün dili; "open" mesajıyla gelir
     const emit = (event) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
     };
@@ -146,9 +148,10 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const handle = async (m) => {
       switch (m.type) {
         case 'open': {
+          lang = normalizeLang(m.lang);
           const cwd = path.resolve(String(m.cwd || defaultCwd));
           const stat = await fs.stat(cwd).catch(() => null);
-          if (!stat?.isDirectory()) throw new Error(`Klasör bulunamadı: ${cwd}`);
+          if (!stat?.isDirectory()) throw new Error(msg(lang, 'Klasör bulunamadı: {dir}', { dir: cwd }));
           detach();
           const next = await manager.open({
             liveId: m.new ? null : m.liveId,
@@ -157,18 +160,19 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
             mode: MODES.has(m.mode) ? m.mode : 'default',
             model: m.model || undefined,
             general: samePath(cwd, GENERAL_DIR),
+            lang,
           });
           const history = next.historyCount
             ? await getSessionMessages(next.agent.sessionId, { dir: next.cwd, limit: next.historyCount }).catch(() => [])
             : [];
-          if (!manager.entries.has(next.liveId)) throw new Error('Oturum kapandı, yeniden açın');
+          if (!manager.entries.has(next.liveId)) throw new Error(msg(lang, 'Oturum kapandı, yeniden açın'));
           entry = next;
           unsubscribe = manager.subscribe(entry, emit, history);
           break;
         }
         case 'send':
-          if (!entry || entry.agent.closed) throw new Error('Aktif oturum yok');
-          manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : []);
+          if (!entry || entry.agent.closed) throw new Error(msg(lang, 'Aktif oturum yok'));
+          manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang);
           break;
         case 'interrupt':
           await entry?.agent.interrupt();

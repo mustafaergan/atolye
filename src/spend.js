@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 import { execFile } from 'node:child_process';
+import { msg } from './messages.js';
 
 const CACHE_MS = 60_000;
 const UNSUPPORTED_RETRY_MS = 10 * 60_000;
@@ -87,7 +88,7 @@ export function postWithSystem(url, token) {
     execFile(cmd, args, { env, timeout: TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
       const out = String(stdout || '').replace(/\r\n/g, '\n');
       const statusLine = out.split('\n').find((l) => l.startsWith('STATUS:'));
-      if (!statusLine) return reject(new Error(String(stderr || err?.message || 'İstek başarısız').trim().slice(0, 400)));
+      if (!statusLine) return reject(new Error(String(stderr || err?.message || 'Request failed').trim().slice(0, 400)));
       const body = out.split('\n').filter((l) => !l.startsWith('STATUS:')).join('\n').trim();
       resolve({ status: Number(statusLine.slice(7)), body });
     });
@@ -145,21 +146,21 @@ export function summarize(items) {
   return { summary: parts.join(' · ').slice(0, 60), percent };
 }
 
-export function parseResponse(body) {
+export function parseResponse(body, lang = 'tr') {
   let data;
   try {
     data = JSON.parse(body);
   } catch {
-    throw new Error('Cevap JSON olarak okunamadı');
+    throw new Error(msg(lang, 'Cevap JSON olarak okunamadı'));
   }
   const items = Array.isArray(data?.items)
     ? data.items.map((i) => ({ label: String(i?.label ?? ''), value: String(i?.value ?? '') })).filter((i) => i.label || i.value)
     : [];
-  if (!items.length) throw new Error('Beklenmeyen cevap biçimi ({ items: [...] } bekleniyordu)');
+  if (!items.length) throw new Error(msg(lang, 'Beklenmeyen cevap biçimi ({ items: [...] } bekleniyordu)'));
   return items;
 }
 
-async function fetchSpend() {
+async function fetchSpend(lang) {
   if (process.env.ATOLYE_SPEND === '0') return { value: { enabled: false }, ttl: Infinity };
   const { token, baseUrl } = await credentials();
   if (!token || !baseUrl) return { value: { enabled: false }, ttl: UNSUPPORTED_RETRY_MS };
@@ -179,18 +180,18 @@ async function fetchSpend() {
     // Bu gateway'de böyle bir uç nokta yok: göstergeyi gizle, arada bir yeniden dene
     if (status === 404 || status === 405 || status === 501) return { value: { enabled: false }, ttl: UNSUPPORTED_RETRY_MS };
     if (status < 200 || status >= 300) throw new Error(`HTTP ${status}${body ? `: ${body.slice(0, 300)}` : ''}`);
-    const items = parseResponse(body);
+    const items = parseResponse(body, lang);
     return { value: { enabled: true, ok: true, title: 'Claude Code harcama', items, ...summarize(items), at: Date.now() }, ttl: CACHE_MS };
   } catch (err) {
     return { value: { enabled: true, ok: false, error: String(err?.message || err).slice(0, 1000) }, ttl: CACHE_MS };
   }
 }
 
-export async function getSpend({ force = false } = {}) {
-  if (!force && cache && Date.now() - cache.at < cache.ttl) return cache.value;
+export async function getSpend({ force = false, lang = 'tr' } = {}) {
+  if (!force && cache && cache.lang === lang && Date.now() - cache.at < cache.ttl) return cache.value;
   if (running) return running;
-  running = fetchSpend().then(({ value, ttl }) => {
-    cache = { at: Date.now(), ttl, value };
+  running = fetchSpend(lang).then(({ value, ttl }) => {
+    cache = { at: Date.now(), ttl, value, lang };
     return value;
   });
   try {

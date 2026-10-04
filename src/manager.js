@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import { AgentSession } from './session.js';
+import { msg } from './messages.js';
 
 const IDLE_CLOSE_MS = 30_000;
 
@@ -25,7 +26,7 @@ export class SessionManager {
   }
 
   /** Var olan canlı oturumu döndürür ya da yenisini (gerekirse devam ettirerek) başlatır. */
-  async open({ liveId, sessionId, cwd, mode, model, general = false }) {
+  async open({ liveId, sessionId, cwd, mode, model, general = false, lang = 'tr' }) {
     const existing = this.find({ liveId, sessionId });
     if (existing) return existing;
 
@@ -57,6 +58,7 @@ export class SessionManager {
       model,
       permissionMode: mode,
       general,
+      lang,
       emit: (ev) => this.#onEvent(entry, ev),
     });
     this.entries.set(entry.liveId, entry);
@@ -91,10 +93,10 @@ export class SessionManager {
     };
   }
 
-  send(entry, text, images) {
+  send(entry, text, images, lang = 'tr') {
     entry.agent.send(text, images);
     entry.sent = true;
-    if (!entry.title) entry.title = text.slice(0, 120) || 'Görsel';
+    if (!entry.title) entry.title = text.slice(0, 120) || msg(lang, 'Görsel');
     this.#onEvent(entry, { type: 'user_prompt', text, images });
   }
 

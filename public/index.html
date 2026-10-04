@@ -17,54 +17,60 @@
           <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M9 22l7-13 7 13M12 17h8"/></svg>
         </span>
         <span class="brand-name">Atölye</span>
-        <button class="icon-btn" id="themeBtn" title="Tema değiştir" aria-label="Tema değiştir">
+        <button class="icon-btn" id="themeBtn" title="Tema değiştir" aria-label="Tema değiştir" data-i18n-attr="title,aria-label">
           <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
         </button>
       </div>
 
       <button class="new-btn" id="newSessionBtn">
         <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-        <span>Yeni oturum</span>
+        <span data-i18n>Yeni oturum</span>
         <span class="new-folder" id="newSessionFolder"></span>
       </button>
 
       <div class="section-label">
-        <span>Projeler</span>
-        <button class="add-project" id="folderBtn" title="Proje klasörü ekle">
+        <span data-i18n>Projeler</span>
+        <button class="add-project" id="folderBtn" title="Proje klasörü ekle" data-i18n data-i18n-attr="title">
           <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6M9 13h6"/></svg>
           Klasör ekle
         </button>
       </div>
-      <nav class="session-list" id="sessionList" aria-label="Projeler ve oturumlar"></nav>
+      <nav class="session-list" id="sessionList" aria-label="Projeler ve oturumlar" data-i18n-attr="aria-label"></nav>
 
-      <div class="sidebar-foot" id="gatewayInfo"></div>
+      <div class="sidebar-foot">
+        <span class="gateway-info" id="gatewayInfo"></span>
+        <div class="lang-switch" role="group" aria-label="Dil" data-i18n-attr="aria-label">
+          <button type="button" data-lang="tr">TR</button>
+          <button type="button" data-lang="en">EN</button>
+        </div>
+      </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <button class="icon-btn mobile-only" id="menuBtn" aria-label="Menü">
+        <button class="icon-btn mobile-only" id="menuBtn" aria-label="Menü" data-i18n-attr="aria-label">
           <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
         <div class="topbar-title">
-          <div class="title" id="sessionTitle">Yeni oturum</div>
+          <div class="title" id="sessionTitle" data-i18n>Yeni oturum</div>
           <div class="subtitle" id="sessionCwd"></div>
         </div>
         <div class="spend-wrap" id="spendWrap" hidden>
-          <button class="spend" id="spendBtn" type="button" title="Harcama ve bütçe (ayrıntı için tıklayın)">
+          <button class="spend" id="spendBtn" type="button" title="Harcama ve bütçe (ayrıntı için tıklayın)" data-i18n-attr="title">
             <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>
             <span id="spendText">…</span>
           </button>
           <div class="spend-pop" id="spendPop" hidden>
             <div class="spend-pop-head">
-              <strong id="spendTitle">Harcama</strong>
-              <button class="btn ghost" id="spendRefresh" type="button">Yenile</button>
+              <strong id="spendTitle" data-i18n>Harcama</strong>
+              <button class="btn ghost" id="spendRefresh" type="button" data-i18n>Yenile</button>
             </div>
             <table class="spend-table" id="spendTable" hidden></table>
             <pre id="spendOutput"></pre>
             <div class="spend-time" id="spendTime"></div>
           </div>
         </div>
-        <div class="conn" id="connState" title="Bağlantı durumu"><span class="dot"></span><span class="label">Bağlanıyor</span></div>
+        <div class="conn" id="connState" title="Bağlantı durumu" data-i18n-attr="title"><span class="dot"></span><span class="label">Bağlanıyor</span></div>
       </header>
 
       <section class="transcript" id="transcript" aria-live="polite">
@@ -86,7 +92,7 @@
         <div class="ctx-pop" id="ctxPop" hidden>
           <div class="ctx-head">
             <div>
-              <div class="ctx-title">Bağlam</div>
+              <div class="ctx-title" data-i18n>Bağlam</div>
               <div class="ctx-sub" id="ctxSub"></div>
             </div>
             <div class="ctx-big" id="ctxBig">%0</div>
@@ -96,47 +102,47 @@
           <div class="ctx-cats" id="ctxCats"></div>
           <div id="ctxDetails"></div>
           <div class="ctx-section">
-            <div class="ctx-section-title">Bu oturum <span class="ctx-muted">(Atölye açtığından beri)</span></div>
+            <div class="ctx-section-title" data-i18n>Bu oturum <span class="ctx-muted" data-i18n>(Atölye açtığından beri)</span></div>
             <div class="ctx-metrics" id="ctxMetrics"></div>
           </div>
           <div class="ctx-actions">
-            <button class="btn" id="ctxCompact" type="button" title="Konuşmayı özetleyip bağlamı boşaltır">Özetle (/compact)</button>
-            <button class="btn ghost" id="ctxRefresh" type="button">Yenile</button>
+            <button class="btn" id="ctxCompact" type="button" title="Konuşmayı özetleyip bağlamı boşaltır" data-i18n data-i18n-attr="title">Özetle (/compact)</button>
+            <button class="btn ghost" id="ctxRefresh" type="button" data-i18n>Yenile</button>
           </div>
         </div>
         <div class="composer" id="composer">
           <div class="attachments" id="attachments"></div>
-          <textarea id="input" rows="1" placeholder="Bir şey sorun ya da görev verin…  ( / komutlar, @ dosyalar )" autocomplete="off"></textarea>
+          <textarea id="input" rows="1" placeholder="Bir şey sorun ya da görev verin…  ( / komutlar, @ dosyalar )" autocomplete="off" data-i18n-attr="placeholder"></textarea>
           <div class="composer-bar">
             <div class="left">
-              <button class="icon-btn" id="attachBtn" title="Görsel ekle" aria-label="Görsel ekle">
+              <button class="icon-btn" id="attachBtn" title="Görsel ekle" aria-label="Görsel ekle" data-i18n-attr="title,aria-label">
                 <svg viewBox="0 0 24 24"><path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
               </button>
               <input type="file" id="fileInput" accept="image/*" multiple hidden>
-              <div class="select-wrap" title="İzin modu (Shift+Tab)">
-                <select id="modeSelect" aria-label="İzin modu">
-                  <option value="default">Her işlemde sor</option>
-                  <option value="acceptEdits">Düzenlemeleri kabul et</option>
-                  <option value="plan">Plan modu</option>
-                  <option value="bypassPermissions">İzinleri atla</option>
+              <div class="select-wrap" title="İzin modu (Shift+Tab)" data-i18n-attr="title">
+                <select id="modeSelect" aria-label="İzin modu" data-i18n-attr="aria-label">
+                  <option value="default" data-i18n>Her işlemde sor</option>
+                  <option value="acceptEdits" data-i18n>Düzenlemeleri kabul et</option>
+                  <option value="plan" data-i18n>Plan modu</option>
+                  <option value="bypassPermissions" data-i18n>İzinleri atla</option>
                 </select>
               </div>
               <div class="select-wrap" title="Model">
                 <select id="modelSelect" aria-label="Model">
-                  <option value="">Varsayılan model</option>
+                  <option value="" data-i18n>Varsayılan model</option>
                 </select>
               </div>
             </div>
             <div class="right">
-              <span class="hint" id="hint">Enter gönder · Shift+Enter yeni satır</span>
-              <button class="ctx-btn" id="ctxBtn" type="button" title="Bağlam kullanımı (ayrıntı için tıklayın)" hidden>
+              <span class="hint" id="hint" data-i18n>Enter gönder · Shift+Enter yeni satır</span>
+              <button class="ctx-btn" id="ctxBtn" type="button" title="Bağlam kullanımı (ayrıntı için tıklayın)" data-i18n-attr="title" hidden>
                 <svg class="ctx-ring" viewBox="0 0 36 36" aria-hidden="true">
                   <circle class="ctx-track" cx="18" cy="18" r="15"/>
                   <circle class="ctx-fill" id="ctxFill" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100"/>
                 </svg>
                 <span id="ctxText">%0</span>
               </button>
-              <button class="send-btn" id="sendBtn" aria-label="Gönder" title="Gönder">
+              <button class="send-btn" id="sendBtn" aria-label="Gönder" title="Gönder" data-i18n-attr="title,aria-label">
                 <svg class="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
                 <svg class="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>
               </button>
@@ -151,17 +157,17 @@
   <dialog id="folderDialog" class="dialog">
     <form method="dialog" class="dialog-inner">
       <div class="dialog-head">
-        <h2>Proje klasörü ekle</h2>
-        <button class="icon-btn" value="cancel" aria-label="Kapat"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        <h2 data-i18n>Proje klasörü ekle</h2>
+        <button class="icon-btn" value="cancel" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <div class="path-row">
-        <input id="pathInput" type="text" spellcheck="false" aria-label="Klasör yolu">
-        <button type="button" class="btn" id="pathGo">Git</button>
+        <input id="pathInput" type="text" spellcheck="false" aria-label="Klasör yolu" data-i18n-attr="aria-label">
+        <button type="button" class="btn" id="pathGo" data-i18n>Git</button>
       </div>
       <div class="dir-list" id="dirList"></div>
       <div class="dialog-foot">
-        <button class="btn ghost" value="cancel">Vazgeç</button>
-        <button class="btn primary" id="folderChoose" value="ok">Ekle ve yeni oturum aç</button>
+        <button class="btn ghost" value="cancel" data-i18n>Vazgeç</button>
+        <button class="btn primary" id="folderChoose" value="ok" data-i18n>Ekle ve yeni oturum aç</button>
       </div>
     </form>
   </dialog>
