@@ -3,6 +3,7 @@
 // durdurabilir, izin modunu ve modeli anında değiştirebiliriz.
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { msg } from './messages.js';
 
 // Arayüze iletilen SDK mesaj tipleri. Geri kalanlar (hook, telemetri vb.) gürültü.
 const FORWARDED = new Set(['system', 'assistant', 'user', 'stream_event', 'result']);
@@ -23,10 +24,11 @@ function allowanceGroup(toolName) {
 
 // Klasörsüz sohbet: çalışma klasörü boş, ayrı bir klasördür; Claude'un projede dosya aramaya kalkmaması için
 const GENERAL_PROMPT = [
-  'Bu oturum bir projeye bağlı değil (Atölye "klasörsüz sohbet"). Çalışma klasörü boş, ayrı bir klasördür;',
-  'orada proje dosyası aramayın. Kullanıcı genel sorular soruyor (ör. ağ, sistem, araçlar, kavramlar).',
-  'Sorunu teşhis etmek için gerekirse kullanıcının bilgisayarında komut çalıştırabilirsiniz (ör. ping, nslookup,',
-  'Test-NetConnection, ipconfig); ne yaptığınızı kısaca açıklayın. Kullanıcı Türkçe yazıyorsa Türkçe cevap verin.',
+  'This session is not tied to a project (Atölye "no-folder chat"). The working directory is an empty,',
+  'separate folder; do not look for project files there. The user is asking general questions (e.g. networking,',
+  'systems, tools, concepts). To diagnose a problem you may run commands on the user\'s computer when useful',
+  '(e.g. ping, nslookup, Test-NetConnection, ipconfig); briefly explain what you run.',
+  'Always reply in the language the user writes in.',
 ].join(' ');
 
 export class AgentSession {
@@ -38,8 +40,9 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, permissionMode, emit, general = false }) {
+  constructor({ cwd, resume, model, permissionMode, emit, general = false, lang = 'tr' }) {
     this.cwd = cwd;
+    this.lang = lang;
     this.general = general;
     this.resume = resume;
     this.model = model || undefined;
@@ -101,10 +104,10 @@ export class AgentSession {
         if (FORWARDED.has(msg.type)) this.emit({ type: 'sdk', msg });
       }
     } catch (err) {
-      if (!this.closed) this.emit({ type: 'error', message: friendlyError(err) });
+      if (!this.closed) this.emit({ type: 'error', message: friendlyError(err, this.lang) });
     } finally {
       this.#setBusy(false);
-      this.#cancelPending('Oturum kapandı');
+      this.#cancelPending(msg(this.lang, 'Oturum kapandı'));
       if (!this.closed) this.emit({ type: 'session_ended' });
       this.closed = true;
     }
@@ -129,7 +132,7 @@ export class AgentSession {
   }
 
   send(text, images = []) {
-    if (this.closed) throw new Error('Oturum kapalı');
+    if (this.closed) throw new Error(msg(this.lang, 'Oturum kapalı'));
     const content = [
       ...images.map((img) => ({
         type: 'image',
@@ -148,13 +151,13 @@ export class AgentSession {
   }
 
   async interrupt() {
-    this.#cancelPending('Kullanıcı durdurdu', true);
+    this.#cancelPending(msg(this.lang, 'Kullanıcı durdurdu'), true);
     await this.q?.interrupt().catch(() => {});
   }
 
   /** /context komutundaki veri: bağlamın kategorilere göre token dağılımı */
   async contextUsage() {
-    if (!this.q || this.closed) throw new Error('Oturum kapalı');
+    if (!this.q || this.closed) throw new Error(msg(this.lang, 'Oturum kapalı'));
     return this.q.getContextUsage();
   }
 
@@ -178,7 +181,7 @@ export class AgentSession {
     const { toolName, input } = p;
 
     if (decision.behavior === 'deny') {
-      p.resolve({ behavior: 'deny', message: decision.message || 'Kullanıcı reddetti' });
+      p.resolve({ behavior: 'deny', message: decision.message || msg(this.lang, 'Kullanıcı reddetti') });
     } else if (toolName === 'AskUserQuestion') {
       p.resolve({ behavior: 'allow', updatedInput: { ...input, answers: decision.answers || {} } });
     } else {
@@ -214,7 +217,7 @@ export class AgentSession {
       signal?.addEventListener('abort', () => {
         if (!this.pending.has(id)) return;
         this.pending.delete(id);
-        resolve({ behavior: 'deny', message: 'İptal edildi' });
+        resolve({ behavior: 'deny', message: msg(this.lang, 'İptal edildi') });
         this.emit({ type: 'permission_resolved', id, behavior: 'cancelled' });
       });
       this.emit({
@@ -242,7 +245,7 @@ export class AgentSession {
   close() {
     if (this.closed) return;
     this.closed = true;
-    this.#cancelPending('Oturum kapandı');
+    this.#cancelPending(msg(this.lang, 'Oturum kapandı'));
     this.wake?.();
     try {
       this.q?.close?.();
@@ -252,12 +255,12 @@ export class AgentSession {
   }
 }
 
-function friendlyError(err) {
+function friendlyError(err, lang) {
   const text = String(err?.message || err);
-  if (/ENOENT|spawn/i.test(text)) return `Claude Code çalıştırılamadı: ${text}`;
+  if (/ENOENT|spawn/i.test(text)) return msg(lang, 'Claude Code çalıştırılamadı: {error}', { error: text });
   if (/401|unauthori[sz]ed|authentication/i.test(text))
-    return `Kimlik doğrulama hatası. ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY değerini kontrol edin. (${text})`;
+    return msg(lang, 'Kimlik doğrulama hatası. ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY değerini kontrol edin. ({error})', { error: text });
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|certificate|self.signed/i.test(text))
-    return `Gateway'e bağlanılamadı. ANTHROPIC_BASE_URL, HTTPS_PROXY ve NODE_EXTRA_CA_CERTS ayarlarını kontrol edin. (${text})`;
+    return msg(lang, "Gateway'e bağlanılamadı. ANTHROPIC_BASE_URL, HTTPS_PROXY ve NODE_EXTRA_CA_CERTS ayarlarını kontrol edin. ({error})", { error: text });
   return text;
 }

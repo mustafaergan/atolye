@@ -1,6 +1,7 @@
 // Atölye arayüzü: oturum listesi, akış halinde sohbet, araç kartları,
 // izin onayları, sorular, slash komutları ve @dosya önerileri.
 import { lineDiff, renderDiff } from './diff.js';
+import { t as T, getLang, setLang, locale, translatePage } from './i18n.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const el = (tag, attrs = {}, ...children) => {
@@ -113,11 +114,11 @@ function renderMarkdown(target, text) {
   target.innerHTML = DOMPurify.sanitize(marked.parse(text || ''));
   for (const a of target.querySelectorAll('a')) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
   for (const pre of target.querySelectorAll('pre')) {
-    const btn = el('button', { class: 'copy-code', type: 'button', text: 'Kopyala' });
+    const btn = el('button', { class: 'copy-code', type: 'button', text: T('Kopyala') });
     btn.onclick = () => {
       navigator.clipboard?.writeText(pre.querySelector('code')?.innerText ?? pre.innerText);
-      btn.textContent = 'Kopyalandı';
-      setTimeout(() => (btn.textContent = 'Kopyala'), 1200);
+      btn.textContent = T('Kopyalandı');
+      setTimeout(() => (btn.textContent = T('Kopyala')), 1200);
     };
     pre.append(btn);
   }
@@ -132,14 +133,14 @@ function relPath(p) {
 
 function timeAgo(ms) {
   const s = Math.max(1, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return 'şimdi';
+  if (s < 60) return T('şimdi');
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} dk`;
+  if (m < 60) return T('{n} dk', { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} sa`;
+  if (h < 24) return T('{n} sa', { n: h });
   const d = Math.round(h / 24);
-  if (d < 30) return `${d} g`;
-  return new Date(ms).toLocaleDateString('tr-TR');
+  if (d < 30) return T('{n} g', { n: d });
+  return new Date(ms).toLocaleDateString(locale());
 }
 
 let stickToBottom = true;
@@ -168,7 +169,7 @@ function toolResultText(content) {
   if (content == null) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content))
-    return content.map((b) => (b.type === 'text' ? b.text : b.type === 'image' ? '[görsel]' : '')).join('\n');
+    return content.map((b) => (b.type === 'text' ? b.text : b.type === 'image' ? T('[görsel]') : '')).join('\n');
   return JSON.stringify(content, null, 2);
 }
 
@@ -180,17 +181,17 @@ function clip(text, max = 20000) {
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
   state.ws = ws;
-  setConn('wait', 'Bağlanıyor');
+  setConn('wait', T('Bağlanıyor'));
   ws.onopen = () => {
     state.connected = true;
-    setConn('ok', 'Bağlı');
+    setConn('ok', T('Bağlı'));
     // Sayfa yenilense ya da bağlantı kopsa da sunucudaki oturuma geri bağlan
     openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId });
   };
   ws.onclose = () => {
     state.connected = false;
     setBusy(false);
-    setConn('err', 'Bağlantı koptu');
+    setConn('err', T('Bağlantı koptu'));
     setTimeout(connect, 2000);
   };
   ws.onmessage = (e) => {
@@ -207,11 +208,11 @@ function setConn(kind, label) {
 
 function wsSend(obj) {
   if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify(obj));
-  else notice('Sunucuya bağlı değil. Yeniden bağlanılıyor…');
+  else notice(T('Sunucuya bağlı değil. Yeniden bağlanılıyor…'));
 }
 
 function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd }) {
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null, lang: getLang() });
 }
 
 function rememberOpen() {
@@ -239,7 +240,7 @@ function applyOpened(ev) {
   setBusy(ev.busy);
 
   const s = sessionsOf(state.cwd).find((x) => x.id === state.sessionId);
-  dom.sessionTitle.textContent = s?.title || ev.title || (state.sessionId ? 'Oturum' : 'Yeni oturum');
+  dom.sessionTitle.textContent = s?.title || ev.title || T(state.sessionId ? 'Oturum' : 'Yeni oturum');
   renderSessions();
   scrollDown(true);
 }
@@ -267,7 +268,7 @@ function handleEvent(ev) {
 
 function handleSdk(msg) {
   // Yeniden deneme / özetleme sonrası yanıt gelmeye başlayınca göstergeyi sıfırla
-  if (state.busy && (msg.type === 'stream_event' || msg.type === 'assistant')) setWorking('Çalışıyor…');
+  if (state.busy && (msg.type === 'stream_event' || msg.type === 'assistant')) setWorking(T('Çalışıyor…'));
   if (msg.type === 'system') {
     if (msg.subtype === 'init') {
       const isNew = state.sessionId !== msg.session_id;
@@ -281,12 +282,12 @@ function handleSdk(msg) {
       renderMarkdown(node, msg.content);
       append(node);
     } else if (msg.subtype === 'compact_boundary') {
-      notice('Konuşma özetlendi (compact). Eski mesajlar bağlamdan çıkarıldı.', 'info');
+      notice(T('Konuşma özetlendi (compact). Eski mesajlar bağlamdan çıkarıldı.'), 'info');
       requestContext();
     } else if (msg.subtype === 'api_retry') {
-      setWorking(`Gateway yanıt vermedi, yeniden deneniyor (${msg.attempt}. deneme)…`);
+      setWorking(T('Gateway yanıt vermedi, yeniden deneniyor ({n}. deneme)…', { n: msg.attempt }));
     } else if (msg.subtype === 'status' && msg.status === 'compacting') {
-      setWorking('Konuşma özetleniyor…');
+      setWorking(T('Konuşma özetleniyor…'));
     }
     return;
   }
@@ -356,7 +357,7 @@ function takeLive(msgId, type) {
 
 function thinkingEl(text, open = false) {
   const d = el('details', { class: 'thinking' },
-    el('summary', {}, icon(ICONS.chevron), 'Düşünüyor'),
+    el('summary', {}, icon(ICONS.chevron), T('Düşünüyor')),
     el('div', { class: 'body', text }));
   d.open = open;
   return d;
@@ -395,7 +396,7 @@ function renderAssistant(msg, fromHistory) {
     }
   }
   if (msg.error === 'authentication_failed' && !fromHistory)
-    notice('Kimlik doğrulama başarısız. Şirket gateway token\'ını (ANTHROPIC_AUTH_TOKEN) ~/.claude/settings.json ya da .env içinde kontrol edin.');
+    notice(T("Kimlik doğrulama başarısız. Şirket gateway token'ını (ANTHROPIC_AUTH_TOKEN) ~/.claude/settings.json ya da .env içinde kontrol edin."));
   scrollDown();
 }
 
@@ -432,7 +433,7 @@ function cleanUserText(text) {
 function renderUserBubble(text, images = []) {
   if (!text && !images.length) return;
   append(el('div', { class: 'msg-user' },
-    images.length ? el('div', { class: 'imgs' }, images.map((src) => el('img', { src, alt: 'Ek görsel' }))) : null,
+    images.length ? el('div', { class: 'imgs' }, images.map((src) => el('img', { src, alt: T('Ek görsel') }))) : null,
     text ? el('div', { class: 'bubble', text }) : null));
 }
 
@@ -443,19 +444,19 @@ function renderResult(msg) {
   if (typeof msg.total_cost_usd === 'number') state.cost = msg.total_cost_usd;
   trackResult(msg);
   const secs = (msg.duration_ms / 1000).toFixed(1);
-  const parts = [`${secs} sn`];
-  if (msg.num_turns) parts.push(`${msg.num_turns} tur`);
+  const parts = [T('{n} sn', { n: secs })];
+  if (msg.num_turns) parts.push(T('{n} tur', { n: msg.num_turns }));
   if (msg.total_cost_usd) parts.push(`≈ $${msg.total_cost_usd.toFixed(3)}`);
   if (msg.subtype === 'success' && msg.is_error) {
     // API hatası zaten asistan metni olarak gösterildi
     append(el('div', { class: 'result-line err', text: parts.join(' · ') }));
   } else if (msg.subtype !== 'success') {
     const reason =
-      msg.subtype === 'error_max_turns' ? 'Tur sınırına ulaşıldı'
-      : msg.subtype === 'error_max_budget_usd' ? 'Bütçe sınırına ulaşıldı'
-      : msg.result || (msg.errors || []).join('\n') || 'Bir hata oluştu';
+      msg.subtype === 'error_max_turns' ? T('Tur sınırına ulaşıldı')
+      : msg.subtype === 'error_max_budget_usd' ? T('Bütçe sınırına ulaşıldı')
+      : msg.result || (msg.errors || []).join('\n') || T('Bir hata oluştu');
     if (!/interrupt/i.test(String(msg.terminal_reason || '')) && !/abort/i.test(reason)) notice(reason);
-    else append(el('div', { class: 'result-line', text: 'Durduruldu' }));
+    else append(el('div', { class: 'result-line', text: T('Durduruldu') }));
   } else {
     append(el('div', { class: 'result-line', text: parts.join(' · ') }));
   }
@@ -468,7 +469,7 @@ function renderResult(msg) {
 function updateStatus() {
   const bits = [];
   if (dom.statusline.dataset.model) bits.push(dom.statusline.dataset.model);
-  if (state.cost) bits.push(`oturum ≈ $${state.cost.toFixed(3)}`);
+  if (state.cost) bits.push(T('oturum ≈ ${n}', { n: state.cost.toFixed(3) }));
   dom.statusline.replaceChildren(...bits.map((b) => el('span', { text: b })));
 }
 
@@ -492,7 +493,7 @@ const CTX_NAMES = {
   'Autocompact buffer': 'Otomatik özetleme payı',
   'Free space': 'Boş alan',
 };
-const ctxName = (n) => CTX_NAMES[n] || n;
+const ctxName = (n) => (getLang() === 'tr' ? CTX_NAMES[n] || n : n);
 const newMetrics = () => ({ turns: 0, durationMs: 0, usage: null, cost: 0 });
 state.context = null;
 state.metrics = newMetrics();
@@ -505,9 +506,9 @@ const fmtTokens = (n) => {
 };
 const fmtDuration = (ms) => {
   const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} sn`;
+  if (s < 60) return T('{n} sn', { n: s });
   const m = Math.floor(s / 60);
-  return m < 60 ? `${m} dk ${s % 60} sn` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
+  return m < 60 ? T('{m} dk {s} sn', { m, s: s % 60 }) : T('{h} sa {m} dk', { h: Math.floor(m / 60), m: m % 60 });
 };
 
 let ctxTimer = null;
@@ -549,10 +550,10 @@ function renderContext() {
   ctx.btn.className = `ctx-btn ${level}`;
   ctx.fill.setAttribute('stroke-dasharray', `${pct} 100`);
   ctx.text.textContent = `%${pct}`;
-  ctx.btn.title = `Bağlam: ${fmtTokens(d.totalTokens)} / ${fmtTokens(max)} token (ayrıntı için tıklayın)`;
+  ctx.btn.title = T('Bağlam: {used} / {max} token (ayrıntı için tıklayın)', { used: fmtTokens(d.totalTokens), max: fmtTokens(max) });
 
   ctx.big.textContent = `%${pct}`;
-  ctx.sub.textContent = `${d.model || ''}${d.model ? ' · ' : ''}${fmtTokens(d.totalTokens)} / ${fmtTokens(max)} token`;
+  ctx.sub.textContent = `${d.model || ''}${d.model ? ' · ' : ''}${T('{used} / {max} token', { used: fmtTokens(d.totalTokens), max: fmtTokens(max) })}`;
 
   const cats = (d.categories || []).filter((c) => c.kind !== 'deferred' && c.tokens > 0);
   const used = cats.filter((c) => c.kind === 'used');
@@ -570,8 +571,8 @@ function renderContext() {
   ctx.note.className = `ctx-note ${level}`;
   const notes = [];
   if (d.isAutoCompactEnabled && d.autoCompactThreshold)
-    notes.push(`Otomatik özetleme ${fmtTokens(d.autoCompactThreshold)} token civarında devreye girer.`);
-  if (level) notes.push('Bağlam dolmak üzere; "Özetle" ile yer açabilirsiniz.');
+    notes.push(T('Otomatik özetleme {n} token civarında devreye girer.', { n: fmtTokens(d.autoCompactThreshold) }));
+  if (level) notes.push(T('Bağlam dolmak üzere; "Özetle" ile yer açabilirsiniz.'));
   ctx.note.textContent = notes.join(' ');
 
   // Ayrıntılar: bellek dosyaları, MCP araçları, mesaj dağılımı
@@ -585,22 +586,22 @@ function renderContext() {
     s.open = open;
     sections.push(s);
   };
-  listSection('CLAUDE.md ve bellek dosyaları', (d.memoryFiles || []).map((f) => [relPath(f.path), f.tokens, f.path]));
+  listSection(T('CLAUDE.md ve bellek dosyaları'), (d.memoryFiles || []).map((f) => [relPath(f.path), f.tokens, f.path]));
   const mcp = new Map();
   for (const t of d.mcpTools || []) {
     const e = mcp.get(t.serverName) || { tokens: 0, count: 0 };
     e.tokens += t.tokens; e.count++;
     mcp.set(t.serverName, e);
   }
-  listSection('MCP sunucuları', [...mcp].sort((a, b) => b[1].tokens - a[1].tokens).map(([n, e]) => [`${n} (${e.count} araç)`, e.tokens]));
+  listSection(T('MCP sunucuları'), [...mcp].sort((a, b) => b[1].tokens - a[1].tokens).map(([n, e]) => [T('{name} ({n} araç)', { name: n, n: e.count }), e.tokens]));
   const mb = d.messageBreakdown;
   if (mb) {
-    listSection('Mesajların dağılımı', [
-      ['Araç sonuçları', mb.toolResultTokens], ['Araç çağrıları', mb.toolCallTokens],
-      ['Claude\'un mesajları', mb.assistantMessageTokens], ['Sizin mesajlarınız', mb.userMessageTokens],
-      ['Ekler', mb.attachmentTokens],
+    listSection(T('Mesajların dağılımı'), [
+      [T('Araç sonuçları'), mb.toolResultTokens], [T('Araç çağrıları'), mb.toolCallTokens],
+      [T("Claude'un mesajları"), mb.assistantMessageTokens], [T('Sizin mesajlarınız'), mb.userMessageTokens],
+      [T('Ekler'), mb.attachmentTokens],
     ].filter(([, t]) => t > 0).sort((a, b) => b[1] - a[1]));
-    listSection('En çok yer tutan araçlar', (mb.toolCallsByType || [])
+    listSection(T('En çok yer tutan araçlar'), (mb.toolCallsByType || [])
       .map((t) => [t.name, (t.callTokens || 0) + (t.resultTokens || 0)])
       .sort((a, b) => b[1] - a[1]).slice(0, 8));
   }
@@ -612,16 +613,16 @@ function renderMetrics() {
   const m = state.metrics;
   const sum = (k) => Object.values(m.usage || {}).reduce((a, u) => a + (u[k] || 0), 0);
   const rows = [
-    ['Giriş', fmtTokens(sum('inputTokens'))],
-    ['Çıkış', fmtTokens(sum('outputTokens'))],
-    ['Önbellekten okunan', fmtTokens(sum('cacheReadInputTokens'))],
-    ['Önbelleğe yazılan', fmtTokens(sum('cacheCreationInputTokens'))],
-    ['Tur', String(m.turns)],
-    ['Süre', fmtDuration(m.durationMs)],
-    ['Tahmini maliyet', m.cost ? `≈ $${m.cost.toFixed(3)}` : '–'],
+    [T('Giriş'), fmtTokens(sum('inputTokens'))],
+    [T('Çıkış'), fmtTokens(sum('outputTokens'))],
+    [T('Önbellekten okunan'), fmtTokens(sum('cacheReadInputTokens'))],
+    [T('Önbelleğe yazılan'), fmtTokens(sum('cacheCreationInputTokens'))],
+    [T('Tur'), String(m.turns)],
+    [T('Süre'), fmtDuration(m.durationMs)],
+    [T('Tahmini maliyet'), m.cost ? `≈ $${m.cost.toFixed(3)}` : '–'],
   ];
   const web = sum('webSearchRequests');
-  if (web) rows.push(['Web araması', String(web)]);
+  if (web) rows.push([T('Web araması'), String(web)]);
   ctx.metrics.replaceChildren(...rows.map(([k, v]) => el('div', {}, el('span', { text: k }), el('b', { text: v }))));
 }
 
@@ -653,9 +654,9 @@ function toolIcon(name) {
 }
 
 const TOOL_LABEL = {
-  Read: 'Okundu', Write: 'Yazıldı', Edit: 'Düzenlendi', MultiEdit: 'Düzenlendi', Bash: 'Komut', PowerShell: 'PowerShell',
-  Grep: 'Arama', Glob: 'Dosya arama', WebFetch: 'Web', WebSearch: 'Web araması', TodoWrite: 'Yapılacaklar',
-  Task: 'Alt ajan', Agent: 'Alt ajan', ExitPlanMode: 'Plan', NotebookEdit: 'Not defteri',
+  Read: T('Okundu'), Write: T('Yazıldı'), Edit: T('Düzenlendi'), MultiEdit: T('Düzenlendi'), Bash: T('Komut'), PowerShell: 'PowerShell',
+  Grep: T('Arama'), Glob: T('Dosya arama'), WebFetch: T('Web'), WebSearch: T('Web araması'), TodoWrite: T('Yapılacaklar'),
+  Task: T('Alt ajan'), Agent: T('Alt ajan'), ExitPlanMode: T('Plan'), NotebookEdit: T('Not defteri'),
 };
 
 function toolSummary(name, input = {}) {
@@ -670,7 +671,7 @@ function toolSummary(name, input = {}) {
     case 'Task': case 'Agent': return input.description || input.subagent_type || '';
     case 'TodoWrite': {
       const t = input.todos || [];
-      return `${t.filter((x) => x.status === 'completed').length}/${t.length} tamamlandı`;
+      return T('{done}/{total} tamamlandı', { done: t.filter((x) => x.status === 'completed').length, total: t.length });
     }
     default: {
       const s = JSON.stringify(input);
@@ -706,7 +707,7 @@ function toolInputBody(name, input) {
     parts.push(el('ul', { class: 'todos' }, (input.todos || []).map((t) =>
       el('li', { class: t.status }, el('span', { class: 'box' }), el('span', { text: t.status === 'in_progress' ? t.activeForm || t.content : t.content })))));
   } else if (name === 'Task' || name === 'Agent') {
-    parts.push(el('div', { class: 't-label', text: 'Görev' }), el('pre', { class: 'out', text: input.prompt || '' }));
+    parts.push(el('div', { class: 't-label', text: T('Görev') }), el('pre', { class: 'out', text: input.prompt || '' }));
   } else if (name === 'ExitPlanMode') {
     const p = el('div', { class: 'msg-text' });
     renderMarkdown(p, input.plan || '');
@@ -755,7 +756,7 @@ function applyToolResult(block, structured) {
   if (!text.trim()) return;
   if (!block.is_error && /^(Edit|MultiEdit|Write)$/.test(t.name)) return; // diff zaten gösteriliyor
   t.resultBox.append(
-    el('div', { class: 't-label', text: block.is_error ? 'Hata' : 'Çıktı' }),
+    el('div', { class: 't-label', text: T(block.is_error ? 'Hata' : 'Çıktı') }),
     el('pre', { class: `out ${block.is_error ? 'err' : ''}`, text: clip(text) }));
   if (block.is_error && !denied) t.el.open = true;
 }
@@ -769,31 +770,31 @@ function renderPermission(ev) {
     const plan = el('div', { class: 'plan msg-text' });
     renderMarkdown(plan, input.plan || '');
     put(card, 
-      el('h3', {}, icon(ICONS.plan), 'Plan hazır. Uygulamaya geçilsin mi?'),
+      el('h3', {}, icon(ICONS.plan), T('Plan hazır. Uygulamaya geçilsin mi?')),
       plan,
       el('div', { class: 'actions' },
-        el('button', { class: 'btn primary', type: 'button', text: 'Onayla, düzenlemeleri otomatik kabul et',
+        el('button', { class: 'btn primary', type: 'button', text: T('Onayla, düzenlemeleri otomatik kabul et'),
           onclick: () => answer(id, { behavior: 'allow', nextMode: 'acceptEdits' }) }),
-        el('button', { class: 'btn', type: 'button', text: 'Onayla, her adımda sor',
+        el('button', { class: 'btn', type: 'button', text: T('Onayla, her adımda sor'),
           onclick: () => answer(id, { behavior: 'allow', nextMode: 'default' }) }),
-        el('button', { class: 'btn ghost', type: 'button', text: 'Planlamaya devam et',
-          onclick: () => answer(id, { behavior: 'deny', message: 'Kullanıcı planı henüz onaylamadı; planlamaya devam et.' }) })));
+        el('button', { class: 'btn ghost', type: 'button', text: T('Planlamaya devam et'),
+          onclick: () => answer(id, { behavior: 'deny', message: T('Kullanıcı planı henüz onaylamadı; planlamaya devam et.') }) })));
   } else {
-    const heading = title || `${TOOL_LABEL[toolName] || toolName} için izin gerekiyor`;
-    const note = el('input', { type: 'text', placeholder: 'Reddederken Claude\'a ne yapmasını istediğinizi yazın (isteğe bağlı)' });
+    const heading = title || T('{tool} için izin gerekiyor', { tool: TOOL_LABEL[toolName] || toolName });
+    const note = el('input', { type: 'text', placeholder: T("Reddederken Claude'a ne yapmasını istediğinizi yazın (isteğe bağlı)") });
     put(card, 
       el('h3', {}, icon(ICONS.shield), heading),
       decisionReason ? el('p', { class: 'why', text: decisionReason }) : null,
-      blockedPath ? el('p', { class: 'why', text: `Erişilmek istenen yol: ${blockedPath}` }) : null,
+      blockedPath ? el('p', { class: 'why', text: T('Erişilmek istenen yol: {path}', { path: blockedPath }) }) : null,
       permissionSubtitle(toolName, input),
       toolInputBody(toolName, input),
       el('div', { class: 'actions' },
-        el('button', { class: 'btn primary', type: 'button', text: 'İzin ver', onclick: () => answer(id, { behavior: 'allow' }) }),
-        canAlways ? el('button', { class: 'btn', type: 'button', text: ALWAYS_LABEL[alwaysGroup] || 'Bu oturumda hep izin ver',
+        el('button', { class: 'btn primary', type: 'button', text: T('İzin ver'), onclick: () => answer(id, { behavior: 'allow' }) }),
+        canAlways ? el('button', { class: 'btn', type: 'button', text: T(ALWAYS_LABEL[alwaysGroup] || 'Bu oturumda hep izin ver'),
           onclick: () => answer(id, { behavior: 'allow', always: true }) }) : null,
-        el('button', { class: 'btn ghost', type: 'button', text: 'Reddet',
+        el('button', { class: 'btn ghost', type: 'button', text: T('Reddet'),
           onclick: () => answer(id, { behavior: 'deny', message: note.value.trim() || undefined }) }),
-        el('span', { class: 'kbd', text: 'Enter izin ver · Esc reddet' })),
+        el('span', { class: 'kbd', text: T('Enter izin ver · Esc reddet') })),
       el('div', { class: 'deny-note' }, note));
   }
   state.prompts.set(id, card);
@@ -818,7 +819,7 @@ function renderQuestion(ev) {
   const blocks = (input.questions || []).map((q, qi) => {
     const name = `q-${id}-${qi}`;
     const type = q.multiSelect ? 'checkbox' : 'radio';
-    const other = el('input', { type: 'text', placeholder: 'Diğer…' });
+    const other = el('input', { type: 'text', placeholder: T('Diğer…') });
     const opts = (q.options || []).map((o) =>
       el('label', { class: 'q-opt' },
         el('input', { type, name, value: o.label }),
@@ -827,7 +828,7 @@ function renderQuestion(ev) {
       if (other.value && type === 'radio') for (const r of card.querySelectorAll(`input[name="${name}"]`)) r.checked = false;
     });
     return { q, name, other, node: el('div', { class: 'q-block' },
-      el('div', { class: 'q-head', text: q.header || 'Soru' }),
+      el('div', { class: 'q-head', text: q.header || T('Soru') }),
       el('div', { class: 'q-text', text: q.question }),
       opts, other) };
   });
@@ -841,11 +842,11 @@ function renderQuestion(ev) {
     answer(id, { behavior: 'allow', answers });
   };
   put(card, 
-    el('h3', {}, icon(ICONS.question), 'Claude bir şey soruyor'),
+    el('h3', {}, icon(ICONS.question), T('Claude bir şey soruyor')),
     blocks.map((b) => b.node),
     el('div', { class: 'actions' },
-      el('button', { class: 'btn primary', type: 'button', text: 'Cevapla', onclick: submit }),
-      el('button', { class: 'btn ghost', type: 'button', text: 'Atla', onclick: () => answer(id, { behavior: 'deny', message: 'Kullanıcı soruyu cevaplamadı.' }) })));
+      el('button', { class: 'btn primary', type: 'button', text: T('Cevapla'), onclick: submit }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Atla'), onclick: () => answer(id, { behavior: 'deny', message: T('Kullanıcı soruyu cevaplamadı.') }) })));
   state.prompts.set(id, card);
   append(card);
   scrollDown(true);
@@ -861,7 +862,7 @@ function resolvePrompt(id, behavior, always = false) {
   state.prompts.delete(id);
   card.classList.add('resolved');
   for (const b of card.querySelectorAll('button, input')) b.disabled = true;
-  const label = behavior === 'allow' ? (always ? 'Bu oturum boyunca izin verildi' : 'İzin verildi') : behavior === 'deny' ? 'Reddedildi' : 'İptal edildi';
+  const label = T(behavior === 'allow' ? (always ? 'Bu oturum boyunca izin verildi' : 'İzin verildi') : behavior === 'deny' ? 'Reddedildi' : 'İptal edildi');
   $('.actions', card)?.replaceChildren(el('span', { class: 'result-note', text: label }));
   $('.deny-note', card)?.remove();
 }
@@ -874,7 +875,7 @@ function activePrompt() {
 // ---------- Meşguliyet / çalışıyor göstergesi ----------
 function setBusy(busy) {
   state.busy = busy;
-  if (busy) setWorking('Çalışıyor…');
+  if (busy) setWorking(T('Çalışıyor…'));
   else $('.working', dom.messages)?.remove();
   updateSendBtn();
 }
@@ -896,7 +897,7 @@ function updateSendBtn() {
   const hasText = dom.input.value.trim() || state.attachments.length;
   const stop = state.busy && !hasText;
   dom.sendBtn.classList.toggle('stop', stop);
-  dom.sendBtn.title = stop ? 'Durdur (Esc)' : 'Gönder';
+  dom.sendBtn.title = T(stop ? 'Durdur (Esc)' : 'Gönder');
   dom.sendBtn.disabled = !stop && !hasText;
 }
 
@@ -912,7 +913,7 @@ function setMode(mode, notifyServer = true) {
 function setCapabilities({ models = [], commands = [] }) {
   state.commands = commands;
   const current = state.model;
-  dom.modelSelect.replaceChildren(el('option', { value: '', text: 'Varsayılan model' }),
+  dom.modelSelect.replaceChildren(el('option', { value: '', text: T('Varsayılan model') }),
     ...models.filter((m) => m.value && m.value !== 'default').map((m) => el('option', { value: m.value, text: m.name || m.value, title: m.description || '' })));
   if (current && ![...dom.modelSelect.options].some((o) => o.value === current))
     dom.modelSelect.append(el('option', { value: current, text: current }));
@@ -921,7 +922,7 @@ function setCapabilities({ models = [], commands = [] }) {
 
 dom.modeSelect.addEventListener('change', () => {
   const mode = dom.modeSelect.value;
-  if (mode === 'bypassPermissions' && !confirm('İzinleri atla modunda Claude dosya düzenleme ve komut çalıştırma işlemlerini SORMADAN yapar. Emin misiniz?')) {
+  if (mode === 'bypassPermissions' && !confirm(T('İzinleri atla modunda Claude dosya düzenleme ve komut çalıştırma işlemlerini SORMADAN yapar. Emin misiniz?'))) {
     dom.modeSelect.value = state.mode;
     return;
   }
@@ -941,7 +942,7 @@ function send() {
   const images = state.attachments.map(({ mediaType, data }) => ({ mediaType, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
-  wsSend({ type: 'send', text: text || 'Bu görsele bak.', images });
+  wsSend({ type: 'send', text: text || T('Bu görsele bak.'), images });
   dom.input.value = '';
   state.attachments = [];
   renderAttachments();
@@ -994,7 +995,7 @@ document.addEventListener('keydown', (e) => {
 // ---------- Görsel ekleri ----------
 function addImageFile(file) {
   if (!file.type.startsWith('image/')) return;
-  if (file.size > 5 * 1024 * 1024) return notice(`${file.name} 5 MB'tan büyük, eklenmedi.`);
+  if (file.size > 5 * 1024 * 1024) return notice(T("{name} 5 MB'tan büyük, eklenmedi.", { name: file.name }));
   const reader = new FileReader();
   reader.onload = () => {
     const url = reader.result;
@@ -1006,7 +1007,7 @@ function addImageFile(file) {
 function renderAttachments() {
   dom.attachments.replaceChildren(...state.attachments.map((a, i) =>
     el('div', { class: 'att' }, el('img', { src: a.url, alt: '' }),
-      el('button', { type: 'button', text: '×', 'aria-label': 'Kaldır', onclick: () => { state.attachments.splice(i, 1); renderAttachments(); } }))));
+      el('button', { type: 'button', text: '×', 'aria-label': T('Kaldır'), onclick: () => { state.attachments.splice(i, 1); renderAttachments(); } }))));
   updateSendBtn();
 }
 $('#attachBtn').onclick = () => dom.fileInput.click();
@@ -1031,7 +1032,7 @@ async function updatePopup() {
   const slash = before.match(/^\/(\S*)$/);
   if (slash) {
     const q = slash[1].toLowerCase();
-    const items = [{ name: 'clear', description: 'Yeni oturum başlat' }, ...state.commands]
+    const items = [{ name: 'clear', description: T('Yeni oturum başlat') }, ...state.commands]
       .filter((c) => c.name.toLowerCase().includes(q))
       .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
       .slice(0, 40)
@@ -1092,7 +1093,7 @@ const pathKey = (p) => (p || '').replace(/[\\/]+$/, '').toLowerCase();
 const folderOf = (p) => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 // Klasörsüz sohbet: hiçbir projeye bağlı olmayan oturumlar (sunucudaki boş klasörde çalışır)
 const isGeneral = (p) => Boolean(state.config?.generalDir) && samePath(p, state.config.generalDir);
-const projectLabel = (p) => (isGeneral(p) ? 'Klasörsüz sohbet' : folderOf(p));
+const projectLabel = (p) => (isGeneral(p) ? T('Klasörsüz sohbet') : folderOf(p));
 const SESSIONS_PER_PROJECT = 6;
 
 function readJson(key, fallback) {
@@ -1119,7 +1120,7 @@ function addProject(dir, { load = true } = {}) {
 
 function removeProject(dir) {
   const running = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting)).length;
-  if (running && !confirm(`${folderOf(dir)} klasöründe çalışan ${running} oturum var. Yine de listeden kaldırılsın mı? (Çalışmaya devam ederler.)`)) return;
+  if (running && !confirm(T('{folder} klasöründe çalışan {n} oturum var. Yine de listeden kaldırılsın mı? (Çalışmaya devam ederler.)', { folder: folderOf(dir), n: running }))) return;
   state.projects = state.projects.filter((p) => !samePath(p, dir));
   saveProjects();
   if (samePath(dir, state.selectedProject) && !samePath(dir, state.cwd)) selectProject(state.cwd, { render: false });
@@ -1133,11 +1134,11 @@ function removeProject(dir) {
 async function loadSessions(dir = state.cwd) {
   let list;
   try {
-    list = await fetch(`/api/sessions?dir=${encodeURIComponent(dir)}`).then((r) => r.json());
-    if (!Array.isArray(list)) throw new Error(list?.error || 'Liste alınamadı');
+    list = await fetch(`/api/sessions?dir=${encodeURIComponent(dir)}&lang=${getLang()}`).then((r) => r.json());
+    if (!Array.isArray(list)) throw new Error(list?.error || T('Liste alınamadı'));
   } catch (err) {
     list = [];
-    notice(`${folderOf(dir)} oturumları yüklenemedi: ${err.message}`);
+    notice(T('{folder} oturumları yüklenemedi: {error}', { folder: folderOf(dir), error: err.message }));
   }
   state.sessionsByDir.set(pathKey(dir), list);
   renderSessions();
@@ -1181,7 +1182,7 @@ function sessionRows(dir) {
   // Henüz mesaj yazılmamış yeni oturum da listede hemen görünsün
   if (samePath(dir, state.cwd) && !state.sessionId) {
     const listed = rows.some((r) => state.liveId && (r.liveId === state.liveId || r.run?.liveId === state.liveId));
-    if (!listed) rows.unshift({ id: null, liveId: state.liveId, title: 'Yeni oturum', lastModified: Date.now(), cwd: dir, draft: true });
+    if (!listed) rows.unshift({ id: null, liveId: state.liveId, title: T('Yeni oturum'), lastModified: Date.now(), cwd: dir, draft: true });
   }
   return rows;
 }
@@ -1190,9 +1191,9 @@ function sessionRow(s) {
   const active = s.draft || (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
   const status = s.run
     ? s.run.waiting
-      ? el('span', { class: 's-badge wait', title: 'Onayınızı bekliyor', text: 'onay' })
+      ? el('span', { class: 's-badge wait', title: T('Onayınızı bekliyor'), text: T('onay') })
       : s.run.busy
-        ? el('span', { class: 's-badge run', title: 'Çalışıyor' }, el('span', { class: 'spin' }))
+        ? el('span', { class: 's-badge run', title: T('Çalışıyor') }, el('span', { class: 'spin' }))
         : null
     : null;
   const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
@@ -1200,8 +1201,8 @@ function sessionRow(s) {
     el('span', { class: 's-title', text: s.title }),
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
     s.id && !s.run?.busy ? el('span', { class: 's-actions' },
-      el('span', { title: 'Yeniden adlandır', onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
-      el('span', { title: 'Sil', onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
+      el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
+      el('span', { title: T('Sil'), onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
   item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd }));
   return item;
 }
@@ -1225,21 +1226,21 @@ function renderSessions() {
 
     // Klasör adına tıklamak projeyi seçer (üstteki "Yeni oturum" burada açar); ok simgesi açar/kapatır
     const head = el('div', { class: `project-head ${isSelected ? 'current' : ''}` },
-      el('button', { class: 'p-toggle', type: 'button', title: `${dir}\nSeçmek için tıklayın`, 'aria-pressed': String(isSelected),
+      el('button', { class: 'p-toggle', type: 'button', title: T('{dir}\nSeçmek için tıklayın', { dir }), 'aria-pressed': String(isSelected),
         onclick: () => { selectProject(dir); if (collapsed) { state.collapsed.delete(k); saveProjects(); renderSessions(); } } },
-        el('span', { class: `p-chevron ${collapsed ? '' : 'open'}`, role: 'button', title: collapsed ? 'Aç' : 'Kapat',
+        el('span', { class: `p-chevron ${collapsed ? '' : 'open'}`, role: 'button', title: T(collapsed ? 'Aç' : 'Kapat'),
           'aria-expanded': String(!collapsed), onclick: toggle }, icon(ICONS.chevron)),
         icon(isGeneral(dir) ? ICONS.chat : ICONS.folder),
         el('span', { class: 'p-name', text: projectLabel(dir) }),
-        collapsed && runningCount ? el('span', { class: 's-badge run', title: `${runningCount} oturum çalışıyor` }, el('span', { class: 'spin' })) : null),
+        collapsed && runningCount ? el('span', { class: 's-badge run', title: T('{n} oturum çalışıyor', { n: runningCount }) }, el('span', { class: 'spin' })) : null),
       el('span', { class: 'p-actions' },
-        el('button', { class: 'p-btn', type: 'button', title: `${projectLabel(dir)} içinde yeni oturum`, onclick: () => newSession(dir) }, icon('<path d="M12 5v14M5 12h14"/>')),
-        isGeneral(dir) ? null : el('button', { class: 'p-btn', type: 'button', title: 'Projeyi listeden kaldır', onclick: () => removeProject(dir) }, icon('<path d="M6 6l12 12M18 6L6 18"/>'))));
+        el('button', { class: 'p-btn', type: 'button', title: T('{project} içinde yeni oturum', { project: projectLabel(dir) }), onclick: () => newSession(dir) }, icon('<path d="M12 5v14M5 12h14"/>')),
+        isGeneral(dir) ? null : el('button', { class: 'p-btn', type: 'button', title: T('Projeyi listeden kaldır'), onclick: () => removeProject(dir) }, icon('<path d="M6 6l12 12M18 6L6 18"/>'))));
 
     const group = el('div', { class: 'project' }, head);
     if (collapsed) return group;
     if (!rows.length) {
-      group.append(el('div', { class: 'list-empty', text: state.sessionsByDir.has(k) ? 'Henüz oturum yok' : 'Yükleniyor…' }));
+      group.append(el('div', { class: 'list-empty', text: T(state.sessionsByDir.has(k) ? 'Henüz oturum yok' : 'Yükleniyor…') }));
       return group;
     }
     const showAll = state.expanded.has(k);
@@ -1248,7 +1249,7 @@ function renderSessions() {
     group.append(...visible.map(sessionRow));
     if (rows.length > visible.length || showAll) {
       group.append(el('button', { class: 'more-btn', type: 'button',
-        text: showAll ? 'Daha az göster' : `${rows.length - visible.length} oturum daha`,
+        text: showAll ? T('Daha az göster') : T('{n} oturum daha', { n: rows.length - visible.length }),
         onclick: () => { showAll ? state.expanded.delete(k) : state.expanded.add(k); renderSessions(); } }));
     }
     return group;
@@ -1259,14 +1260,14 @@ function renderSessions() {
 }
 
 async function renameSession(s) {
-  const title = prompt('Oturumun yeni adı:', s.title);
+  const title = prompt(T('Oturumun yeni adı:'), s.title);
   if (!title?.trim()) return;
   await fetch(`/api/sessions/${s.id}/rename`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title.trim(), dir: s.cwd }) });
   loadSessions(s.cwd);
 }
 
 async function removeSession(s) {
-  if (!confirm(`"${s.title}" oturumu kalıcı olarak silinsin mi?`)) return;
+  if (!confirm(T('"{title}" oturumu kalıcı olarak silinsin mi?', { title: s.title }))) return;
   await fetch(`/api/sessions/${s.id}?dir=${encodeURIComponent(s.cwd)}`, { method: 'DELETE' });
   if (s.id === state.sessionId) newSession(s.cwd);
   loadSessions(s.cwd);
@@ -1296,7 +1297,7 @@ function newSession(dir = state.cwd) {
   state.liveId = null;
   setCwdLabel(dir);
   resetTranscript();
-  dom.sessionTitle.textContent = 'Yeni oturum';
+  dom.sessionTitle.textContent = T('Yeni oturum');
   renderSessions();
   openLive({ isNew: true, cwd: dir });
   dom.input.focus();
@@ -1312,7 +1313,7 @@ function openSession({ sessionId, liveId, cwd }) {
   setCwdLabel(cwd || state.cwd);
   resetTranscript();
   renderSessions();
-  setWorking('Oturum açılıyor…');
+  setWorking(T('Oturum açılıyor…'));
   openLive({ sessionId, liveId, cwd: state.cwd });
 }
 
@@ -1323,8 +1324,8 @@ $('#newSessionBtn').onclick = () => newSession(state.selectedProject || state.cw
 function selectProject(dir, { render = true } = {}) {
   state.selectedProject = dir;
   store.set('atolye:selected', dir);
-  $('#newSessionFolder').textContent = isGeneral(dir) ? 'Klasörsüz' : folderOf(dir);
-  $('#newSessionBtn').title = isGeneral(dir) ? 'Projeye bağlı olmayan yeni oturum' : `${dir} içinde yeni oturum aç`;
+  $('#newSessionFolder').textContent = isGeneral(dir) ? T('Klasörsüz') : folderOf(dir);
+  $('#newSessionBtn').title = isGeneral(dir) ? T('Projeye bağlı olmayan yeni oturum') : T('{dir} içinde yeni oturum aç', { dir });
   if (render) renderSessions();
 }
 // Boş ekran: proje oturumunda kod önerileri, klasörsüz sohbette genel öneriler.
@@ -1351,10 +1352,11 @@ const EMPTY = {
 };
 function updateEmptyState(cwd) {
   const e = isGeneral(cwd) ? EMPTY.general : EMPTY.project;
-  $('h1', dom.empty).textContent = e.title;
-  $('p', dom.empty).textContent = e.text;
-  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, prompt, fillOnly]) =>
-    el('button', { type: 'button', text: label, onclick: () => {
+  $('h1', dom.empty).textContent = T(e.title);
+  $('p', dom.empty).textContent = T(e.text);
+  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly]) =>
+    el('button', { type: 'button', text: T(label), onclick: () => {
+      const prompt = T(key);
       dom.input.value = prompt;
       autoGrow();
       if (fillOnly) { dom.input.focus(); dom.input.setSelectionRange(prompt.length, prompt.length); } else send();
@@ -1403,10 +1405,19 @@ dlg.addEventListener('close', () => {
 function setCwdLabel(cwd) {
   state.cwd = cwd;
   store.set('atolye:cwd', cwd);
-  dom.sessionCwd.textContent = isGeneral(cwd) ? 'Klasörsüz sohbet · proje bağlamı yok' : cwd;
+  dom.sessionCwd.textContent = isGeneral(cwd) ? T('Klasörsüz sohbet · proje bağlamı yok') : cwd;
   updateEmptyState(cwd);
   addProject(cwd);
   selectProject(cwd, { render: false });
+}
+
+// ---------- Dil ----------
+translatePage();
+for (const b of document.querySelectorAll('.lang-switch button')) {
+  b.classList.toggle('on', b.dataset.lang === getLang());
+  b.setAttribute('aria-pressed', String(b.dataset.lang === getLang()));
+  // Dil değişince sayfa yenilenir; oturumlar sunucuda çalışmaya devam eder
+  b.onclick = () => { if (b.dataset.lang !== getLang()) setLang(b.dataset.lang); };
 }
 
 // ---------- Tema ve mobil menü ----------
@@ -1435,8 +1446,8 @@ let spendLoading = null;
 
 async function loadSpend(force = false) {
   if (spendLoading) return;
-  if (force) spend.text.textContent = 'Güncelleniyor…';
-  spendLoading = fetch(`/api/spend${force ? '?refresh=1' : ''}`).then((r) => r.json()).catch((err) => ({ enabled: true, ok: false, error: err.message }));
+  if (force) spend.text.textContent = T('Güncelleniyor…');
+  spendLoading = fetch(`/api/spend?lang=${getLang()}${force ? '&refresh=1' : ''}`).then((r) => r.json()).catch((err) => ({ enabled: true, ok: false, error: err.message }));
   const res = await spendLoading;
   spendLoading = null;
   // Gateway harcama özeti sunmuyorsa gösterge hiç görünmez
@@ -1444,23 +1455,23 @@ async function loadSpend(force = false) {
   if (!res.enabled) return;
   spend.btn.classList.remove('warn', 'err');
   if (!res.ok) {
-    spend.text.textContent = 'Harcama alınamadı';
+    spend.text.textContent = T('Harcama alınamadı');
     spend.btn.classList.add('err');
-    spend.out.textContent = res.error || 'Bilinmeyen hata';
+    spend.out.textContent = res.error || T('Bilinmeyen hata');
     spend.out.hidden = false;
     spend.table.hidden = true;
-    spend.title.textContent = 'Harcama alınamadı';
+    spend.title.textContent = T('Harcama alınamadı');
     spend.time.textContent = '';
     return;
   }
-  spend.text.textContent = res.summary || 'Harcama';
+  spend.text.textContent = res.summary || T('Harcama');
   if (res.percent >= 90) spend.btn.classList.add('err');
   else if (res.percent >= 75) spend.btn.classList.add('warn');
   spend.table.replaceChildren(...(res.items || []).map((i) => el('tr', {}, el('th', { text: i.label }), el('td', { text: i.value }))));
   spend.table.hidden = false;
   spend.out.hidden = true;
-  spend.title.textContent = res.title || 'Harcama';
-  spend.time.textContent = `Son güncelleme: ${new Date(res.at).toLocaleTimeString('tr-TR')}`;
+  spend.title.textContent = T(res.title || 'Harcama');
+  spend.time.textContent = T('Son güncelleme: {time}', { time: new Date(res.at).toLocaleTimeString(locale()) });
 }
 
 spend.btn.onclick = (e) => { e.stopPropagation(); spend.pop.hidden = !spend.pop.hidden; };
@@ -1486,8 +1497,8 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   const last = readJson('atolye:open', null);
   if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; }
   dom.gatewayInfo.textContent = state.config.gateway
-    ? `Gateway: ${new URL(state.config.gateway).host}`
-    : 'Gateway: Claude Code ayarlarından';
+    ? T('Gateway: {host}', { host: new URL(state.config.gateway).host })
+    : T('Gateway: Claude Code ayarlarından');
   dom.gatewayInfo.title = state.config.gateway || '';
   renderSessions();
   loadAllSessions();
