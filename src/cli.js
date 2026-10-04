@@ -10,6 +10,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: path.join(ROOT, '.env'), quiet: true });
 dotenv.config({ quiet: true });
 
+// Boş bırakılmış ya da örnek dosyadan kalmış değerler, ~/.claude/settings.json içindeki
+// gerçek ayarların önüne geçmesin
+for (const key of ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY']) {
+  const v = process.env[key];
+  if (v !== undefined && (!v.trim() || /example\.(com|org)/i.test(v))) delete process.env[key];
+}
+
 const args = process.argv.slice(2);
 const flag = (name) => {
   const i = args.indexOf(name);
