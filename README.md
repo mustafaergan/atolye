@@ -34,10 +34,40 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 
 ## Kurulum
 
+### Windows: tek komutla (önerilen)
+
+PowerShell'de:
+
+```powershell
+git clone https://github.com/mustafaergan/atolye.git $env:LOCALAPPDATA\Atolye
+powershell -ExecutionPolicy Bypass -File $env:LOCALAPPDATA\Atolye\atolye.ps1
+```
+
+`atolye.ps1` Node.js ve Git'i kontrol eder, paketleri kurar, masaüstüne **Atölye** kısayolu koyar,
+Windows açılışında arka planda başlatmayı ayarlar ve tarayıcıyı açar. Yönetici izni gerekmez.
+Sonrasında masaüstündeki kısayol yeterlidir; Atölye zaten çalışıyorsa sadece tarayıcıyı açar.
+
+| Komut | İşlev |
+|---|---|
+| `atolye.ps1` / `atolye.ps1 kur` | Kurulum (yukarıdaki adımlar) |
+| `atolye.ps1 baslat` | Arka planda başlat ve tarayıcıyı aç |
+| `atolye.ps1 durdur` | Durdur |
+| `atolye.ps1 guncelle` | Son sürümü indir, paketleri güncelle, çalışıyorsa yeniden başlat |
+| `atolye.ps1 durum` | Kurulum, çalışma ve otomatik başlatma durumu |
+| `atolye.ps1 otomatik-ac` / `otomatik-kapat` | Windows açılışında başlatmayı aç / kapat |
+| `atolye.ps1 kaldir` | Kısayolları ve otomatik başlatmayı kaldır (dosyalara dokunmaz) |
+
+Atölye arka planda gizli çalışır; çıktısı kurulum klasöründeki `atolye.log` dosyasına yazılır.
+Şirket politikası PowerShell script'lerini engelliyorsa komutları `powershell -ExecutionPolicy Bypass -File …`
+şeklinde çalıştırın.
+
+### Elle
+
 ```bash
 git clone https://github.com/mustafaergan/atolye.git
 cd atolye
 npm install
+npm start
 ```
 
 ### Gateway ayarı
