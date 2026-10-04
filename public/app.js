@@ -1099,30 +1099,68 @@ const SESSIONS_PER_PROJECT = 6;
 function readJson(key, fallback) {
   try { return JSON.parse(store.get(key, '')) ?? fallback; } catch { return fallback; }
 }
-state.projects = readJson('atolye:projects', []);
-state.collapsed = new Set(readJson('atolye:collapsed', []));
+// Proje listesi ve daraltılmış klasörler tarayıcı kaydında tutulur; aynı anda birden fazla
+// Atölye sekmesi açık olabilir (ör. masaüstü kısayolu her seferinde yeni sekme açar).
+// Bu yüzden her değişiklik kaydın GÜNCEL hali üzerine uygulanır — sekmenin bellekteki eski
+// listesi asla olduğu gibi yazılmaz, yoksa başka sekmede eklenen klasörler silinir — ve
+// diğer sekmeler "storage" olayıyla senkronlanır.
+const readProjects = () => {
+  const list = readJson('atolye:projects', []);
+  return Array.isArray(list) ? list.filter((p) => typeof p === 'string' && p) : [];
+};
+const readCollapsed = () => {
+  const list = readJson('atolye:collapsed', []);
+  return new Set(Array.isArray(list) ? list : []);
+};
+function withGeneralFirst(list) {
+  const g = state.config?.generalDir;
+  return g ? [g, ...list.filter((p) => !samePath(p, g))] : list;
+}
+function updateProjects(change) {
+  const next = withGeneralFirst(change(readProjects()));
+  store.set('atolye:projects', JSON.stringify(next));
+  state.projects = next;
+}
+function updateCollapsed(change) {
+  const next = readCollapsed();
+  change(next);
+  store.set('atolye:collapsed', JSON.stringify([...next]));
+  state.collapsed = next;
+}
+
+state.projects = readProjects();
+state.collapsed = readCollapsed();
 state.expanded = new Set(); // "daha fazla göster" açılan projeler
 state.sessionsByDir = new Map(); // pathKey -> oturumlar
 
 const sessionsOf = (dir) => state.sessionsByDir.get(pathKey(dir)) || [];
-const saveProjects = () => {
-  store.set('atolye:projects', JSON.stringify(state.projects));
-  store.set('atolye:collapsed', JSON.stringify([...state.collapsed]));
-};
 
+/** Projeyi listeye ekler; bu sekmede yeni eklendiyse true döner. */
 function addProject(dir, { load = true } = {}) {
-  if (!dir || state.projects.some((p) => samePath(p, dir))) return false;
-  state.projects.push(dir);
-  saveProjects();
-  if (load) loadSessions(dir);
-  return true;
+  if (!dir) return false;
+  const known = state.projects.some((p) => samePath(p, dir));
+  if (known && readProjects().some((p) => samePath(p, dir))) return false;
+  updateProjects((list) => (list.some((p) => samePath(p, dir)) ? list : [...list, dir]));
+  if (!known && load) loadSessions(dir);
+  return !known;
 }
+
+// Başka bir sekmede yapılan değişiklikleri bu sekmeye yansıt
+window.addEventListener('storage', (e) => {
+  if (e.key === 'atolye:projects') {
+    const before = new Set(state.projects.map(pathKey));
+    state.projects = withGeneralFirst(readProjects());
+    for (const p of state.projects) if (!before.has(pathKey(p))) loadSessions(p);
+  } else if (e.key === 'atolye:collapsed') {
+    state.collapsed = readCollapsed();
+  } else return;
+  renderSessions();
+});
 
 function removeProject(dir) {
   const running = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting)).length;
   if (running && !confirm(T('{folder} klasöründe çalışan {n} oturum var. Yine de listeden kaldırılsın mı? (Çalışmaya devam ederler.)', { folder: folderOf(dir), n: running }))) return;
-  state.projects = state.projects.filter((p) => !samePath(p, dir));
-  saveProjects();
+  updateProjects((list) => list.filter((p) => !samePath(p, dir)));
   if (samePath(dir, state.selectedProject) && !samePath(dir, state.cwd)) selectProject(state.cwd, { render: false });
   if (samePath(dir, state.cwd)) {
     if (state.projects.length) newSession(state.projects[0]);
@@ -1219,15 +1257,14 @@ function renderSessions() {
     const isSelected = samePath(dir, state.selectedProject);
     const toggle = (e) => {
       e.stopPropagation();
-      collapsed ? state.collapsed.delete(k) : state.collapsed.add(k);
-      saveProjects();
+      updateCollapsed((set) => (set.has(k) ? set.delete(k) : set.add(k)));
       renderSessions();
     };
 
     // Klasör adına tıklamak projeyi seçer (üstteki "Yeni oturum" burada açar); ok simgesi açar/kapatır
     const head = el('div', { class: `project-head ${isSelected ? 'current' : ''}` },
       el('button', { class: 'p-toggle', type: 'button', title: T('{dir}\nSeçmek için tıklayın', { dir }), 'aria-pressed': String(isSelected),
-        onclick: () => { selectProject(dir); if (collapsed) { state.collapsed.delete(k); saveProjects(); renderSessions(); } } },
+        onclick: () => { selectProject(dir); if (collapsed) { updateCollapsed((set) => set.delete(k)); renderSessions(); } } },
         el('span', { class: `p-chevron ${collapsed ? '' : 'open'}`, role: 'button', title: T(collapsed ? 'Aç' : 'Kapat'),
           'aria-expanded': String(!collapsed), onclick: toggle }, icon(ICONS.chevron)),
         icon(isGeneral(dir) ? ICONS.chat : ICONS.folder),
@@ -1396,7 +1433,7 @@ pathInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preven
 dlg.addEventListener('close', () => {
   if (dlg.returnValue !== 'ok' || !pathInput.value) return;
   const dir = pathInput.value;
-  state.collapsed.delete(pathKey(dir));
+  updateCollapsed((set) => set.delete(pathKey(dir)));
   addProject(dir);
   newSession(dir);
 });
@@ -1488,10 +1525,7 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   state.config = await fetch('/api/config').then((r) => r.json());
   state.model = store.get('atolye:model', '');
   // Klasörsüz sohbet her zaman listenin en üstünde
-  if (state.config.generalDir) {
-    state.projects = [state.config.generalDir, ...state.projects.filter((p) => !samePath(p, state.config.generalDir))];
-    saveProjects();
-  }
+  updateProjects((list) => list); // kayıttaki güncel liste, klasörsüz sohbet en üstte
   setCwdLabel(store.get('atolye:cwd', '') || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse en son bakılan oturuma dön
   const last = readJson('atolye:open', null);
