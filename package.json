@@ -1,6 +1,6 @@
 {
   "name": "atolye",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Claude Agent SDK üzerinde çalışan, kurumsal gateway uyumlu yerel kodlama arayüzü",
   "main": "src/server.js",
   "type": "module",
