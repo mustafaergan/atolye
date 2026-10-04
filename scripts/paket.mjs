@@ -54,6 +54,17 @@ fs.writeFileSync(path.join(stage, 'Kur.bat'), [
   '',
 ].join('\r\n'));
 
+// Kald\u0131rma: kurulum klas\u00F6r\u00FCnden de \u00E7al\u0131\u015Ft\u0131r\u0131labilir, yani .bat kendi klas\u00F6r\u00FCn\u00FC siler.
+// \u00D6nce ge\u00E7ici klas\u00F6re ge\u00E7ilir (silinecek klas\u00F6r kilitlenmesin); komut ve "exit" ayn\u0131 sat\u0131rdad\u0131r,
+// \u00E7\u00FCnk\u00FC cmd .bat dosyas\u0131n\u0131 sat\u0131r sat\u0131r okur ve dosya silindikten sonra sonraki sat\u0131r\u0131 bulamaz.
+// "Kapatmak i\u00E7in Enter" beklemesi PowerShell i\u00E7inde yap\u0131l\u0131r (-Bekle).
+fs.writeFileSync(path.join(stage, 'Kaldir.bat'), [
+  '@echo off',
+  'chcp 65001 >nul',
+  'cd /d "%TEMP%" & powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0atolye.ps1" kaldir -Bekle & exit /b',
+  '',
+].join('\r\n'));
+
 const BOM = '\uFEFF';
 fs.writeFileSync(path.join(stage, 'KURULUM.txt'), BOM + [
   `Atölye ${pkg.version}${commit ? ` (${commit})` : ''}${full ? ' — tam paket' : ''}`,
@@ -69,6 +80,11 @@ fs.writeFileSync(path.join(stage, 'KURULUM.txt'), BOM + [
   '',
   'Güncelleme',
   '  Yeni paketi indirip aynı şekilde Kur.bat ile kurun. Ayarlarınız (.env) korunur.',
+  '',
+  'Kaldırma',
+  '  Kaldir.bat dosyasına çift tıklayın (bu klasördeki ya da %LOCALAPPDATA%\\Atolye içindeki).',
+  '  Atölye durdurulur, kısayollar ve kurulum klasörü silinir. Sohbet geçmişi (~/.claude)',
+  '  Claude Code ile ortak olduğu için silinmez.',
   '',
   'Ayarlar',
   '  Claude Code (claude) bu bilgisayarda çalışıyorsa ek ayar gerekmez; gateway adresi ve',

@@ -12,7 +12,9 @@
     durum           Kurulum ve çalışma durumunu gösterir.
     otomatik-ac     Windows açılışında otomatik başlatmayı açar.
     otomatik-kapat  Windows açılışında otomatik başlatmayı kapatır.
-    kaldir          Kısayolları ve otomatik başlatmayı kaldırır (dosyalara dokunmaz).
+    kaldir          Atölye'yi kaldırır: durdurur, kısayolları ve otomatik başlatmayı siler, paketle
+                    kurulmuşsa kurulum klasörünü de siler (onay ister; -Evet ile sormaz). Git ile
+                    indirilmiş klasörlere ve ~/.claude içindeki sohbet geçmişine dokunmaz.
 
   Yönetici izni gerekmez; kısayollar kullanıcının kendi Masaüstü ve Başlangıç klasörlerine yazılır.
 
@@ -31,7 +33,13 @@ param(
   [string]$Klasor,
 
   # Başlatırken tarayıcıyı açma (Windows açılışında kullanılır)
-  [switch]$TarayiciAcma
+  [switch]$TarayiciAcma,
+
+  # kaldir: onay sormadan kaldır
+  [switch]$Evet,
+
+  # Bitince "kapatmak için Enter" bekle (.bat dosyalarından çift tıklanarak çalıştırıldığında)
+  [switch]$Bekle
 )
 
 $ErrorActionPreference = 'Stop'
@@ -404,17 +412,36 @@ function Start-Atolye {
 function Stop-Atolye {
   $port = Get-Port
   $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-  if (-not $conns) { Write-Ok 'Zaten çalışmıyor'; return }
+  $stopped = $false
   foreach ($c in $conns) {
     $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
     # Sadece Node süreçlerini durdur; portu başka bir program kullanıyorsa dokunma
     if ($proc -and $proc.ProcessName -eq 'node') {
-      Stop-Process -Id $proc.Id -Force
+      # /T: açık oturumların Claude Code alt süreçleriyle (claude.exe) birlikte kapat
+      taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
       Write-Ok "Durduruldu (süreç $($proc.Id))"
+      $stopped = $true
     } elseif ($proc) {
       Write-Warn "Port $port başka bir program tarafından kullanılıyor ($($proc.ProcessName)); dokunulmadı."
     }
   }
+  # Önceki sürümlerin durdururken geride bıraktığı, bu kurulumdan çalışan süreçler
+  $prefix = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\') + '\'
+  $orphans = Get-Process -Name claude, node -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) }
+  foreach ($p in $orphans) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+  if ($orphans) { Write-Ok "Arkada kalmış $(@($orphans).Count) süreç kapatıldı" }
+  if (-not $stopped -and -not $orphans) { Write-Ok 'Zaten çalışmıyor' }
+}
+
+# Klasörü sil; virüs tarayıcısı gibi geçici kilitler için birkaç kez dene
+function Remove-DirWithRetry($dir) {
+  for ($i = 0; $i -lt 10; $i++) {
+    cmd /d /c "rmdir /s /q `"$dir`"" 2>$null
+    if (-not (Test-Path $dir)) { return $true }
+    Start-Sleep -Seconds 1
+  }
+  return $false
 }
 
 function Enable-Autostart {
@@ -533,20 +560,72 @@ function Show-Status {
 }
 
 function Uninstall-Atolye {
+  Write-Host ''
+  Write-Host "  $AppName kaldırma" -ForegroundColor White
+  Write-Host ''
+  $installed = Test-AtolyeDir $InstallDir
+  $isRepo = Test-Path (Join-Path $InstallDir '.git')
+  # Sadece paketle kurulmuş klasörler silinir (geliştiricinin git deposuna asla dokunulmaz)
+  $markers = (Test-Path (Join-Path $InstallDir '.kurulu')) -or (Test-Path (Join-Path $InstallDir '.paket'))
+  $full = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+  $unsafe = @($HOME, $env:LOCALAPPDATA, $env:APPDATA, $env:USERPROFILE, [IO.Path]::GetPathRoot($full)) |
+    Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
+  $canDelete = $installed -and -not $isRepo -and $markers -and ($unsafe -notcontains $full)
+  $generalDir = Join-Path $HOME '.atolye'
+  $hasShortcuts = (Test-Link $DesktopLink) -or (Test-Link $StartupLink)
+
+  if (-not $installed -and -not $hasShortcuts) {
+    Write-Ok "Kaldırılacak bir Atölye kurulumu bulunamadı ($InstallDir)"
+    return
+  }
+
+  Write-Host '  Yapılacaklar:'
+  Write-Host '    - Çalışıyorsa Atölye durdurulacak'
+  if ($hasShortcuts) { Write-Host '    - Masaüstü kısayolu ve Windows açılışında başlatma kaldırılacak' }
+  if ($canDelete) { Write-Host "    - Kurulum klasörü silinecek (.env ayarları dahil): $InstallDir" }
+  elseif ($isRepo) { Write-Host "    - Git ile indirilmiş klasöre dokunulmayacak: $InstallDir" -ForegroundColor Gray }
+  Write-Host '    - Sohbet geçmişi (~/.claude) korunacak; Claude Code CLI ile ortaktır' -ForegroundColor Gray
+  Write-Host ''
+  if (-not $Evet -and -not (Confirm-Yes "$AppName kaldırılsın mı?" $false)) {
+    Write-Host '  Vazgeçildi, hiçbir şey değiştirilmedi.' -ForegroundColor Gray
+    return
+  }
+
   Stop-Atolye
-  if (Test-Link $DesktopLink) { Remove-Item $DesktopLink -Force }
+  if (Test-Link $DesktopLink) { Remove-Item $DesktopLink -Force; Write-Ok 'Masaüstü kısayolu kaldırıldı' }
   Disable-Autostart
-  Write-Ok 'Kısayollar kaldırıldı'
-  Write-Host "  Dosyalar silinmedi: $InstallDir (isterseniz klasörü elle silebilirsiniz)" -ForegroundColor Gray
+
+  if ($canDelete) {
+    Write-Step 'Kurulum klasörü siliniyor…'
+    # rmdir, uzun node_modules yollarında Remove-Item'dan daha güvenilir
+    if (Remove-DirWithRetry $full) { Write-Ok "Kurulum klasörü silindi: $full" }
+    else { Write-Warn "Klasör tamamen silinemedi (açık bir dosya olabilir): $full — elle silebilirsiniz." }
+  }
+
+  if ((Test-Path $generalDir) -and ($Evet -or (Confirm-Yes "Klasörsüz sohbet klasörü ($generalDir) de silinsin mi?" $false))) {
+    if (Remove-DirWithRetry $generalDir) { Write-Ok "Silindi: $generalDir" }
+  }
+
+  Write-Host ''
+  Write-Host "  $AppName kaldırıldı." -ForegroundColor Green
+  if (-not $canDelete -and $installed) { Write-Host "  Dosyalar yerinde duruyor: $InstallDir" -ForegroundColor Gray }
+  Write-Host ''
 }
 
-switch ($Komut) {
-  'kur' { Install-Atolye }
-  'baslat' { Start-Atolye }
-  'durdur' { Stop-Atolye }
-  'guncelle' { Update-Atolye }
-  'durum' { Show-Status }
-  'otomatik-ac' { Enable-Autostart }
-  'otomatik-kapat' { Disable-Autostart }
-  'kaldir' { Uninstall-Atolye }
+try {
+  switch ($Komut) {
+    'kur' { Install-Atolye }
+    'baslat' { Start-Atolye }
+    'durdur' { Stop-Atolye }
+    'guncelle' { Update-Atolye }
+    'durum' { Show-Status }
+    'otomatik-ac' { Enable-Autostart }
+    'otomatik-kapat' { Disable-Autostart }
+    'kaldir' { Uninstall-Atolye }
+  }
+} finally {
+  # Kaldir.bat kendi klasörünü silebildiği için bekleme .bat'ta değil burada yapılır
+  if ($Bekle -and $env:ATOLYE_SORMA -ne '1') {
+    try { [void](Read-Host "  Kapatmak için Enter'a basın") } catch { }
+  }
 }
