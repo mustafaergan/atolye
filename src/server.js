@@ -19,8 +19,12 @@ import { getSpend } from './spend.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions']);
+// Klasörsüz sohbet oturumlarının çalıştığı boş klasör (hiçbir projeye bağlı değil)
+const GENERAL_DIR = path.join(os.homedir(), '.atolye', 'genel');
+const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
-export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
+export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
+  await fs.mkdir(GENERAL_DIR, { recursive: true });
   const app = express();
   const manager = new SessionManager();
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -47,6 +51,7 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.get('/api/config', wrap(async (_req, res) => {
     res.json({
       defaultCwd,
+      generalDir: GENERAL_DIR,
       home: os.homedir(),
       platform: process.platform,
       gateway: process.env.ANTHROPIC_BASE_URL || null,
@@ -151,6 +156,7 @@ export function createServer({ port, host = '127.0.0.1', defaultCwd }) {
             cwd,
             mode: MODES.has(m.mode) ? m.mode : 'default',
             model: m.model || undefined,
+            general: samePath(cwd, GENERAL_DIR),
           });
           const history = next.historyCount
             ? await getSessionMessages(next.agent.sessionId, { dir: next.cwd, limit: next.historyCount }).catch(() => [])

@@ -25,7 +25,7 @@ export class SessionManager {
   }
 
   /** Var olan canlı oturumu döndürür ya da yenisini (gerekirse devam ettirerek) başlatır. */
-  async open({ liveId, sessionId, cwd, mode, model }) {
+  async open({ liveId, sessionId, cwd, mode, model, general = false }) {
     const existing = this.find({ liveId, sessionId });
     if (existing) return existing;
 
@@ -56,6 +56,7 @@ export class SessionManager {
       resume: sessionId || undefined,
       model,
       permissionMode: mode,
+      general,
       emit: (ev) => this.#onEvent(entry, ev),
     });
     this.entries.set(entry.liveId, entry);
