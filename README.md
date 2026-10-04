@@ -56,7 +56,7 @@ Sonrasında masaüstündeki kısayol yeterlidir; Atölye zaten çalışıyorsa s
 | `atolye.ps1 guncelle` | Son sürümü indir, paketleri güncelle, çalışıyorsa yeniden başlat |
 | `atolye.ps1 durum` | Kurulum, çalışma ve otomatik başlatma durumu |
 | `atolye.ps1 otomatik-ac` / `otomatik-kapat` | Windows açılışında başlatmayı aç / kapat |
-| `atolye.ps1 kaldir` | Kısayolları ve otomatik başlatmayı kaldır (dosyalara dokunmaz) |
+| `atolye.ps1 kaldir` | Kaldır: durdurur, kısayolları ve otomatik başlatmayı siler; paketle kurulduysa klasörü de siler (onay ister). Git deposuna ve `~/.claude` sohbet geçmişine dokunmaz |
 
 Atölye arka planda gizli çalışır; çıktısı kurulum klasöründeki `atolye.log` dosyasına yazılır.
 Şirket politikası PowerShell script'lerini engelliyorsa komutları `powershell -ExecutionPolicy Bypass -File …`
@@ -73,7 +73,8 @@ npm run paket:tam        # tam paket:     dist/Atolye-<sürüm>-tam.zip (~120 MB
 
 Kullanıcı zip'i çıkarıp **`Kur.bat`**'a çift tıklar: Atölye `%LOCALAPPDATA%\Atolye` klasörüne kurulur, masaüstü
 kısayolu ve Windows açılışında başlatma eklenir (Node.js kurulu olmalıdır; Git gerekmez). Güncellemek için yeni
-paket aynı şekilde kurulur; `.env` ayarları korunur. Paketin içindeki `KURULUM.txt` adımları anlatır.
+paket aynı şekilde kurulur; `.env` ayarları korunur. Kaldırmak için **`Kaldir.bat`** (paket klasöründe ya da
+kurulum klasöründe) çalıştırılır. Paketin içindeki `KURULUM.txt` adımları anlatır.
 
 ### Elle
 
