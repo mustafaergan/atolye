@@ -55,8 +55,20 @@ function Test-AtolyeDir($dir) {
   try { return ((Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json).name -eq 'atolye') } catch { return $false }
 }
 
+function Read-PaketInfo($dir) {
+  $f = Join-Path $dir '.paket'
+  if (-not (Test-Path $f)) { return $null }
+  try { return (Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }
+}
+
+# Script bir dağıtım paketinin (zip) çıkarıldığı klasörden mi çalışıyor? (.paket var; git deposu
+# ya da kurulmuş kopya değil — kurulum klasörüne .kurulu işareti konur)
+$PaketInfo = Read-PaketInfo $PSScriptRoot
+$FromPackage = ($null -ne $PaketInfo) -and -not (Test-Path (Join-Path $PSScriptRoot '.git')) -and -not (Test-Path (Join-Path $PSScriptRoot '.kurulu'))
+
 function Resolve-InstallDir {
   if ($Klasor) { return [IO.Path]::GetFullPath($Klasor) }
+  if ($FromPackage) { return (Join-Path $env:LOCALAPPDATA 'Atolye') }
   if (Test-AtolyeDir $PSScriptRoot) { return $PSScriptRoot }
   return (Join-Path $env:LOCALAPPDATA 'Atolye')
 }
@@ -101,6 +113,7 @@ function Test-Requirements {
   $ver = [version]((& $node --version).TrimStart('v'))
   if ($ver -lt $MinNode) { Stop-WithError "Node.js $ver çok eski; en az $MinNode gerekli." }
   Write-Ok "Node.js $ver"
+  if ($FromPackage) { return } # paketten kurulumda Git gerekmez
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Stop-WithError "Git bulunamadı. https://git-scm.com adresinden kurup tekrar deneyin." }
   Write-Ok "Git $(((git --version) -replace 'git version ', ''))"
 }
@@ -119,7 +132,38 @@ function New-Shortcut($path, $arguments, $description) {
 }
 
 # ---------- Komutlar ----------
+function Install-FromPackage {
+  $samePlace = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') -ieq [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+  if ($samePlace) { Write-Ok "Kurulum klasörü: $InstallDir"; return }
+  if (Test-Path (Join-Path $InstallDir '.git')) {
+    Stop-WithError "$InstallDir git ile kurulmuş. Onu '$InstallDir\atolye.ps1 guncelle' ile güncelleyin ya da -Klasor ile başka bir yer seçin."
+  }
+  if ((Test-Path $InstallDir) -and -not (Test-AtolyeDir $InstallDir) -and (Get-ChildItem $InstallDir -Force | Select-Object -First 1)) {
+    Stop-WithError "$InstallDir boş değil ve bir Atölye klasörü değil. -Klasor ile başka bir yer seçin."
+  }
+  $old = Read-PaketInfo $InstallDir
+  if ($old) { Write-Step "Güncelleniyor: $($old.version) → $($PaketInfo.version)" } else { Write-Step "Kuruluyor: $($PaketInfo.version) → $InstallDir" }
+  if (Test-Running) { Stop-Atolye; Start-Sleep -Seconds 1 }
+
+  New-Item -ItemType Directory -Force $InstallDir | Out-Null
+  # Eski sürümden kalan dosyalar karışmasın diye uygulama klasörlerini yenile; .env ve node_modules korunur
+  foreach ($d in @('src', 'public', 'scripts')) {
+    $p = Join-Path $InstallDir $d
+    if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+  }
+  $skip = @('.env')
+  if (-not $PaketInfo.tam) { $skip += 'node_modules' }
+  Get-ChildItem $PSScriptRoot -Force | Where-Object { $skip -notcontains $_.Name } | ForEach-Object {
+    Copy-Item $_.FullName -Destination $InstallDir -Recurse -Force
+  }
+  Set-Content (Join-Path $InstallDir '.kurulu') (Get-Date -Format s) -Encoding ASCII
+  # İnternetten indirilen zip'ten çıkan dosyalardaki "engellendi" işaretini kaldır
+  Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
+  Write-Ok "Dosyalar kopyalandı: $InstallDir"
+}
+
 function Install-Files {
+  if ($FromPackage) { Install-FromPackage; return }
   if (Test-AtolyeDir $InstallDir) {
     Write-Ok "Kurulum klasörü: $InstallDir"
   } else {
@@ -134,6 +178,11 @@ function Install-Files {
 }
 
 function Install-Packages {
+  $info = Read-PaketInfo $InstallDir
+  if ($info -and $info.tam -and (Test-Path (Join-Path $InstallDir 'node_modules\@anthropic-ai\claude-agent-sdk'))) {
+    Write-Ok 'Paketler pakette hazır geldi (npm erişimi gerekmedi)'
+    return
+  }
   Write-Step 'Paketler kuruluyor (ilk seferde birkaç dakika sürebilir)…'
   Push-Location $InstallDir
   try {
@@ -218,12 +267,21 @@ function Install-Atolye {
   Start-Atolye
   Write-Host ''
   Write-Host "  Kurulum tamam. Atölye'yi masaüstündeki '$AppName' kısayoluyla açabilirsiniz." -ForegroundColor Green
-  Write-Host "  Güncellemek için: $ScriptPath guncelle" -ForegroundColor Gray
+  if ($FromPackage) {
+    Write-Host "  Güncellemek için yeni paketi indirip Kur.bat'ı çalıştırın. Bu çıkarılan klasörü artık silebilirsiniz." -ForegroundColor Gray
+  } else {
+    Write-Host "  Güncellemek için: $ScriptPath guncelle" -ForegroundColor Gray
+  }
   Write-Host ''
 }
 
 function Update-Atolye {
   if (-not (Test-AtolyeDir $InstallDir)) { Stop-WithError "Kurulum bulunamadı: $InstallDir. Önce 'kur' komutunu çalıştırın." }
+  if (-not (Test-Path (Join-Path $InstallDir '.git'))) {
+    $info = Read-PaketInfo $InstallDir
+    Write-Warn "Bu kurulum paketten yapıldı (sürüm $($info.version)). Güncellemek için yeni paketi indirip içindeki Kur.bat'ı çalıştırın."
+    return
+  }
   Push-Location $InstallDir
   try {
     $before = (git rev-parse --short HEAD)
@@ -254,8 +312,13 @@ function Show-Status {
   $yes = 'evet'; $no = 'hayır'
   Write-Host "  Kurulum klasörü : $InstallDir $(if ($installed) { '' } else { '(kurulu değil)' })"
   if ($installed) {
-    Push-Location $InstallDir
-    try { Write-Host "  Sürüm           : $(git log -1 --format='%h %cd' --date=short)" } finally { Pop-Location }
+    $info = Read-PaketInfo $InstallDir
+    if (Test-Path (Join-Path $InstallDir '.git')) {
+      Push-Location $InstallDir
+      try { Write-Host "  Sürüm           : $(git log -1 --format='%h %cd' --date=short) (git)" } finally { Pop-Location }
+    } elseif ($info) {
+      Write-Host "  Sürüm           : $($info.version) $($info.commit) (paket$(if ($info.tam) { ', tam' }))"
+    }
   }
   Write-Host "  Çalışıyor       : $(if (Test-Running) { "$yes ($(Get-Url))" } else { $no })"
   Write-Host "  Masaüstü kısayolu: $(if (Test-Path $DesktopLink) { $yes } else { $no })"
