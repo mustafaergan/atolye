@@ -22,7 +22,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 🔄 **Arka planda çalışma**: başka oturuma geçmek ya da sayfayı yenilemek işi durdurmaz; geri dönünce kaldığı yerden (bekleyen izinler dahil) görünür. Çalışan oturumlar kenar çubuğunda işaretlenir, işi biten ve bakılmayan oturumlar 30 sn sonra bellekten silinir
 - 🌐 **Türkçe / İngilizce arayüz**: kenar çubuğundaki TR / EN seçici; ilk açılışta tarayıcının diline göre seçilir
 - 💬 **Klasörsüz sohbet**: projeye bağlı olmadan soru sorma (ör. ağ/sistem sorunları); oturumlar boş bir klasörde (`~/.atolye/genel`) çalışır, gerekirse izinle komut çalıştırılır
-- 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma
+- 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma; liste diskte (`~/.atolye/durum.json`) tutulur, tarayıcı verileri silinse, port değişse ya da bilgisayar yeniden başlasa da korunur
 - 📁 Klasör seçici, `@dosya` önerisi, `/komut` menüsü (`/compact`, `/context`, kendi komutlarınız…)
 - 🖼️ Görsel ekleme (yapıştır, sürükle-bırak, dosya seç)
 - ⏹️ Durdurma (Esc), açık/koyu tema, mobil uyumlu düzen
@@ -165,6 +165,7 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 - `src/cli.js`: başlangıç, `.env` okuma, tarayıcıyı açma
 - `src/server.js`: Express + WebSocket, oturum listesi, klasör ve dosya API'leri
 - `src/manager.js`: tarayıcıdan bağımsız çalışan oturumlar, olay tamponu ve boşta kalanları kapatma
+- `src/store.js`: kalıcı arayüz durumu (`~/.atolye/durum.json`: projeler, açık/kapalı klasörler, son seçimler)
 - `src/spend.js`: gateway harcama özetini çekme (sistem sertifikaları / PowerShell yedeği) ve özetleme
 - `public/i18n.js`, `src/messages.js`: Türkçe/İngilizce metinler (Türkçe metin anahtardır; `npm test` eksik çeviriyi yakalar)
 - `src/session.js`: Agent SDK `query()` akışını açık tutan oturum sınıfı (izinler, durdurma, mod/model değişimi)
