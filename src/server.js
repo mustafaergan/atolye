@@ -15,6 +15,7 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import { SessionManager } from './manager.js';
+import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
 import { msg, normalizeLang } from './messages.js';
 
@@ -28,6 +29,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   await fs.mkdir(GENERAL_DIR, { recursive: true });
   const app = express();
   const manager = new SessionManager();
+  const store = new StateStore();
+  // Klasörsüz sohbet listede her zaman arayüz tarafından en üste konur; kayda yazılmaz
+  const notGeneral = (p) => typeof p === 'string' && p && !samePath(p, GENERAL_DIR);
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
   const isAllowedOrigin = (origin) =>
     !origin || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
@@ -58,6 +62,28 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       gateway: process.env.ANTHROPIC_BASE_URL || null,
       hasCredential: Boolean(process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY),
     });
+  }));
+
+  // Kalıcı arayüz durumu (projeler, daraltılmış klasörler, son seçimler) — bkz. store.js
+  app.get('/api/state', wrap(async (_req, res) => res.json(store.get())));
+  app.post('/api/state/projects', wrap(async (req, res) => {
+    const { op, dir } = req.body || {};
+    if (op === 'add' && notGeneral(dir)) store.addProject(dir);
+    else if (op === 'remove' && typeof dir === 'string') store.removeProject(dir);
+    res.json(store.get());
+  }));
+  app.post('/api/state/collapsed', wrap(async (req, res) => {
+    const { key, collapsed } = req.body || {};
+    if (typeof key === 'string' && key) store.setCollapsed(key, Boolean(collapsed));
+    res.json(store.get());
+  }));
+  app.post('/api/state/remember', wrap(async (req, res) => {
+    const { cwd, selected, open } = req.body || {};
+    res.json(store.remember({ cwd, selected, open }));
+  }));
+  app.post('/api/state/import', wrap(async (req, res) => {
+    const { projects, collapsed } = req.body || {};
+    res.json(store.importLocal({ projects: (Array.isArray(projects) ? projects : []).filter(notGeneral), collapsed }));
   }));
 
   app.get('/api/spend', wrap(async (req, res) => {
@@ -137,6 +163,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
     };
     const stopLive = manager.onChange((sessions) => emit({ type: 'live', sessions }));
+    // Başka bir sekmede proje eklenince/kaldırılınca bu sekme de güncellensin
+    const stopState = store.onChange((state) => emit({ type: 'state', state }));
     emit({ type: 'live', sessions: manager.list() });
 
     const detach = () => {
@@ -211,6 +239,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
     ws.on('close', () => {
       stopLive();
+      stopState();
       detach();
     });
   });
