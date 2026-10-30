@@ -20,6 +20,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 📊 **Bağlam ve metrikler**: mesaj kutusunda bağlam doluluk halkası; tıklayınca `/context` dökümü (sistem, araçlar, MCP, CLAUDE.md, mesajlar), oturumun token/süre/maliyet metrikleri ve tek tıkla `/compact`
 - 🗂️ Oturum geçmişi: listeleme, devam etme, yeniden adlandırma, silme (Claude CLI oturumlarıyla ortak)
 - 🔄 **Arka planda çalışma**: başka oturuma geçmek ya da sayfayı yenilemek işi durdurmaz; geri dönünce kaldığı yerden (bekleyen izinler dahil) görünür. Çalışan oturumlar kenar çubuğunda işaretlenir, işi biten ve bakılmayan oturumlar 30 sn sonra bellekten silinir
+- 🔁 **İki motor**: sağ üstteki seçiciyle oturumlar Claude Code ya da GitHub Copilot CLI ile çalışır (aşağıya bakın)
 - 🌐 **Türkçe / İngilizce arayüz**: kenar çubuğundaki TR / EN seçici; ilk açılışta tarayıcının diline göre seçilir
 - 💬 **Klasörsüz sohbet**: projeye bağlı olmadan soru sorma (ör. ağ/sistem sorunları); oturumlar boş bir klasörde (`~/.atolye/genel`) çalışır, gerekirse izinle komut çalıştırılır
 - 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma; liste diskte (`~/.atolye/durum.json`) tutulur, tarayıcı verileri silinse, port değişse ya da bilgisayar yeniden başlasa da korunur
@@ -121,6 +122,23 @@ node src/cli.js --port 3211 --cwd C:\projeler\uygulamam --no-open
 | `ATOLYE_SPEND=0` | Harcama göstergesini kapat |
 | `ATOLYE_SPEND_PATH` | Harcama özeti yolu (varsayılan `/spend-summary`) |
 
+### GitHub Copilot CLI (isteğe bağlı)
+
+Sağ üstteki seçiciyle oturumlar **Claude Code** yerine **GitHub Copilot CLI** ile de çalıştırılabilir. Atölye,
+Copilot CLI'ın sunucu modunu ([`copilot --acp`](https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server),
+Agent Client Protocol; GitHub'da önizleme aşamasında) kullanır; cevap akışı, araç kartları, diff, izin kartları, plan
+(yapılacaklar) ve bağlam halkası Claude oturumlarındakiyle aynı arayüzde görünür.
+
+```bash
+npm install -g @github/copilot   # Copilot CLI'ı kur
+copilot                          # bir kez çalıştırıp /login ile GitHub hesabıyla giriş yap
+```
+
+Kurulu değilse seçicide "kurulu değil" yazar. Seçiciyi değiştirmek o klasörde seçilen motorla yeni bir oturum
+açar; açık oturum kendi motoruyla çalışmaya devam eder ve kenar çubuğunda "Copilot" etiketiyle görünür.
+Copilot'ta model ve plan modu Copilot'un kendi komutlarıyla (`/model`, `/plan`) seçilir; harcama etiketi yalnızca
+Claude gateway'i içindir. Copilot CLI başka bir yerdeyse `.env` içinde `COPILOT_CLI_PATH` ile gösterilebilir.
+
 ### Harcama göstergesi
 
 Bazı kurumsal gateway'ler, Claude Code token'ıyla çağrılabilen bir harcama özeti sunar:
@@ -166,6 +184,7 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 - `src/server.js`: Express + WebSocket, oturum listesi, klasör ve dosya API'leri
 - `src/manager.js`: tarayıcıdan bağımsız çalışan oturumlar, olay tamponu ve boşta kalanları kapatma
 - `src/store.js`: kalıcı arayüz durumu (`~/.atolye/durum.json`: projeler, açık/kapalı klasörler, son seçimler)
+- `src/copilot.js`: GitHub Copilot CLI motoru (ACP istemcisi; Copilot mesajlarını arayüzün kart yapısına çevirir)
 - `src/spend.js`: gateway harcama özetini çekme (sistem sertifikaları / PowerShell yedeği) ve özetleme
 - `public/i18n.js`, `src/messages.js`: Türkçe/İngilizce metinler (Türkçe metin anahtardır; `npm test` eksik çeviriyi yakalar)
 - `src/session.js`: Agent SDK `query()` akışını açık tutan oturum sınıfı (izinler, durdurma, mod/model değişimi)

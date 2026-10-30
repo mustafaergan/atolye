@@ -71,7 +71,7 @@ test('sayfa: data-i18n ile işaretli her metnin İngilizcesi var', () => {
 
 test('sunucu: msg(...) ile kullanılan her mesajın İngilizcesi var', () => {
   const keys = new Set();
-  for (const f of ['server.js', 'session.js', 'manager.js', 'spend.js']) {
+  for (const f of ['server.js', 'session.js', 'manager.js', 'spend.js', 'copilot.js']) {
     for (const body of callBodies(read(`../src/${f}`), 'msg')) {
       const lit = stringLiterals(body)[0]; // ilk argüman dil, ikincisi anahtar: ilk string sabiti anahtardır
       if (lit) keys.add(lit);

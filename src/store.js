@@ -20,9 +20,14 @@ function normalize(d = {}) {
   const projects = [];
   for (const p of strings(d.projects)) if (!projects.some((q) => key(q) === key(p))) projects.push(p);
   const open = d.open && typeof d.open === 'object'
-    ? { liveId: str(d.open.liveId), sessionId: str(d.open.sessionId), cwd: str(d.open.cwd) }
+    ? { liveId: str(d.open.liveId), sessionId: str(d.open.sessionId), cwd: str(d.open.cwd), engine: d.open.engine === 'copilot' ? 'copilot' : 'claude' }
     : null;
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open };
+  // GitHub Copilot oturumları (Claude oturumlarını Claude Code kendisi saklar; Copilot'unkileri biz listeleriz)
+  const copilotSessions = (Array.isArray(d.copilotSessions) ? d.copilotSessions : [])
+    .filter((s) => s && str(s.id) && str(s.cwd))
+    .map((s) => ({ id: s.id, cwd: s.cwd, title: str(s.title), lastModified: Number(s.lastModified) || 0, renamed: Boolean(s.renamed) }));
+  const engine = d.engine === 'copilot' ? 'copilot' : 'claude';
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, copilotSessions };
 }
 
 export class StateStore {
@@ -73,10 +78,11 @@ export class StateStore {
   }
 
   /** Sadece bir sonraki açılış için hatırlananlar (diğer sekmelere yayınlanmaz) */
-  remember({ cwd, selected, open }) {
+  remember({ cwd, selected, open, engine }) {
     if (cwd !== undefined) this.data.cwd = str(cwd);
     if (selected !== undefined) this.data.selected = str(selected);
     if (open !== undefined) this.data.open = normalize({ open }).open;
+    if (engine !== undefined) this.data.engine = engine === 'copilot' ? 'copilot' : 'claude';
     this.#save(false);
     return this.data;
   }
@@ -88,6 +94,45 @@ export class StateStore {
     this.data = merged;
     if (changed) this.#save(true);
     return this.data;
+  }
+
+  // ---------- Copilot oturum kayıtları ----------
+  copilotSessionsFor(dir) {
+    return this.data.copilotSessions.filter((s) => key(s.cwd) === key(dir)).sort((a, b) => b.lastModified - a.lastModified);
+  }
+
+  recordCopilotSession({ id, cwd, title }) {
+    if (!str(id) || !str(cwd)) return;
+    const list = this.data.copilotSessions;
+    const found = list.find((s) => s.id === id);
+    if (found) {
+      found.lastModified = Date.now();
+      if (title && !found.title) found.title = title;
+    } else {
+      list.push({ id, cwd, title: str(title), lastModified: Date.now() });
+    }
+    this.#save(false);
+  }
+
+  renameCopilotSession(id, title) {
+    const found = this.data.copilotSessions.find((s) => s.id === id);
+    if (!found) return false;
+    found.title = str(title);
+    found.renamed = true;
+    this.#save(false);
+    return true;
+  }
+
+  /** Copilot'un verdiği başlık: kullanıcı yeniden adlandırmadıysa kullanılır */
+  setCopilotTitle(id, title) {
+    const found = this.data.copilotSessions.find((s) => s.id === id);
+    if (found && str(title) && !found.renamed) { found.title = title; this.#save(false); }
+  }
+
+  deleteCopilotSession(id) {
+    const before = this.data.copilotSessions.length;
+    this.data.copilotSessions = this.data.copilotSessions.filter((s) => s.id !== id);
+    if (this.data.copilotSessions.length !== before) this.#save(false);
   }
 
   onChange(fn) {

@@ -9,12 +9,15 @@
 import { randomUUID } from 'node:crypto';
 import { getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import { AgentSession } from './session.js';
+import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
 
 const IDLE_CLOSE_MS = 30_000;
 
 export class SessionManager {
-  constructor() {
+  /** @param {{ store?: import('./store.js').StateStore }} [opts] store: Copilot oturumlarını listelemek için */
+  constructor({ store } = {}) {
+    this.store = store;
     this.entries = new Map(); // liveId -> entry
     this.listeners = new Set(); // canlı oturum listesi değişince çağrılır
   }
@@ -26,13 +29,14 @@ export class SessionManager {
   }
 
   /** Var olan canlı oturumu döndürür ya da yenisini (gerekirse devam ettirerek) başlatır. */
-  async open({ liveId, sessionId, cwd, mode, model, general = false, lang = 'tr' }) {
+  async open({ liveId, sessionId, cwd, mode, model, general = false, lang = 'tr', engine = 'claude' }) {
     const existing = this.find({ liveId, sessionId });
     if (existing) return existing;
 
     // Devam ettirilen oturumda diskte zaten olan mesaj sayısı; bu süreçte
     // eklenenler tampondan gönderileceği için geçmiş bu sayıyla sınırlanır.
-    const historyCount = sessionId
+    // (Copilot eski konuşmayı oturum yüklenirken kendisi yeniden gönderir; disk geçmişi yok)
+    const historyCount = sessionId && engine !== 'copilot'
       ? (await getSessionMessages(sessionId, { dir: cwd }).catch(() => [])).length
       : 0;
 
@@ -41,6 +45,7 @@ export class SessionManager {
 
     const entry = {
       liveId: randomUUID(),
+      engine: engine === 'copilot' ? 'copilot' : 'claude',
       cwd,
       historyCount,
       buffer: [],
@@ -52,7 +57,8 @@ export class SessionManager {
       idleTimer: null,
       agent: null,
     };
-    entry.agent = new AgentSession({
+    const Engine = entry.engine === 'copilot' ? CopilotSession : AgentSession;
+    entry.agent = new Engine({
       cwd,
       resume: sessionId || undefined,
       model,
@@ -76,6 +82,7 @@ export class SessionManager {
     fn({
       type: 'opened',
       liveId: entry.liveId,
+      engine: entry.engine,
       sessionId: entry.agent.sessionId,
       cwd: entry.cwd,
       title: entry.title,
@@ -117,6 +124,7 @@ export class SessionManager {
       .filter((e) => e.sent)
       .map((e) => ({
         liveId: e.liveId,
+        engine: e.engine,
         sessionId: e.agent.sessionId,
         title: e.title,
         cwd: e.cwd,
@@ -133,6 +141,12 @@ export class SessionManager {
 
   #onEvent(entry, ev) {
     entry.lastActivity = Date.now();
+    if (entry.engine === 'copilot') this.#recordCopilot(entry, ev);
+    if (ev.type === 'session_title') {
+      if (ev.title) entry.title = ev.title;
+      this.#broadcast();
+      return;
+    }
     if (ev.type === 'capabilities') {
       entry.capabilities = ev;
     } else {
@@ -148,6 +162,17 @@ export class SessionManager {
       this.#broadcast();
       this.#maybeClose(entry);
     }
+  }
+
+  // Copilot oturumları listede görünsün diye kalıcı depoya yazılır (oluşunca, ilk mesajda, başlıkta, tur sonunda)
+  #recordCopilot(entry, ev) {
+    const id = entry.agent.sessionId;
+    if (!this.store || !id) return;
+    const isInit = ev.type === 'sdk' && ev.msg.type === 'system' && ev.msg.subtype === 'init';
+    const isResult = ev.type === 'sdk' && ev.msg.type === 'result';
+    if (isInit && !entry.sent) return; // boş oturumlar listeye girmesin
+    if (isInit || isResult || ev.type === 'user_prompt') this.store.recordCopilotSession({ id, cwd: entry.cwd, title: entry.title });
+    if (ev.type === 'session_title') this.store.setCopilotTitle(id, ev.title);
   }
 
   // Kimse bakmıyorsa ve iş bitmişse kapat. Hiç mesaj gönderilmemiş boş
