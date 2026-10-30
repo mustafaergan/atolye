@@ -17,6 +17,7 @@ import {
 import { SessionManager } from './manager.js';
 import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
+import { detectCopilot } from './copilot.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,8 +29,8 @@ const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toL
 export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   await fs.mkdir(GENERAL_DIR, { recursive: true });
   const app = express();
-  const manager = new SessionManager();
   const store = new StateStore();
+  const manager = new SessionManager({ store });
   // Klasörsüz sohbet listede her zaman arayüz tarafından en üste konur; kayda yazılmaz
   const notGeneral = (p) => typeof p === 'string' && p && !samePath(p, GENERAL_DIR);
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -78,8 +79,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     res.json(store.get());
   }));
   app.post('/api/state/remember', wrap(async (req, res) => {
-    const { cwd, selected, open } = req.body || {};
-    res.json(store.remember({ cwd, selected, open }));
+    const { cwd, selected, open, engine } = req.body || {};
+    res.json(store.remember({ cwd, selected, open, engine }));
   }));
   app.post('/api/state/import', wrap(async (req, res) => {
     const { projects, collapsed } = req.body || {};
@@ -90,18 +91,30 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     res.json(await getSpend({ force: req.query.refresh === '1', lang: normalizeLang(req.query.lang) }));
   }));
 
+  // Hangi yapay zekâ motorları kullanılabilir? (Claude Code her zaman; GitHub Copilot CLI kuruluysa)
+  app.get('/api/engines', wrap(async (req, res) => {
+    res.json({ claude: { available: true }, copilot: await detectCopilot({ force: req.query.refresh === '1' }) });
+  }));
+
   app.get('/api/sessions', wrap(async (req, res) => {
     const dir = String(req.query.dir || defaultCwd);
     const sessions = await listSessions({ dir, limit: 100 });
-    res.json(
-      sessions.map((s) => ({
-        id: s.sessionId,
-        title: s.customTitle || s.summary || s.firstPrompt || msg(req.query.lang, 'Adsız oturum'),
-        lastModified: s.lastModified,
-        gitBranch: s.gitBranch,
-        cwd: s.cwd,
-      })),
-    );
+    const claude = sessions.map((s) => ({
+      id: s.sessionId,
+      engine: 'claude',
+      title: s.customTitle || s.summary || s.firstPrompt || msg(req.query.lang, 'Adsız oturum'),
+      lastModified: s.lastModified,
+      gitBranch: s.gitBranch,
+      cwd: s.cwd,
+    }));
+    const copilot = store.copilotSessionsFor(dir).map((s) => ({
+      id: s.id,
+      engine: 'copilot',
+      title: s.title || msg(req.query.lang, 'Adsız oturum'),
+      lastModified: s.lastModified,
+      cwd: s.cwd,
+    }));
+    res.json([...claude, ...copilot].sort((a, b) => b.lastModified - a.lastModified));
   }));
 
   app.get('/api/sessions/:id/messages', wrap(async (req, res) => {
@@ -111,14 +124,18 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   app.post('/api/sessions/:id/rename', wrap(async (req, res) => {
     const dir = req.body?.dir ? String(req.body.dir) : undefined;
-    await renameSession(req.params.id, String(req.body?.title || '').slice(0, 200), { dir });
+    const title = String(req.body?.title || '').slice(0, 200);
+    if (req.body?.engine === 'copilot') store.renameCopilotSession(req.params.id, title);
+    else await renameSession(req.params.id, title, { dir });
     res.json({ ok: true });
   }));
 
   app.delete('/api/sessions/:id', wrap(async (req, res) => {
     const dir = req.query.dir ? String(req.query.dir) : undefined;
     manager.closeBySessionId(req.params.id);
-    await deleteSession(req.params.id, { dir });
+    // Copilot oturumu: listeden kaldırılır (Copilot'un kendi kayıtlarına dokunulmaz)
+    if (req.query.engine === 'copilot') store.deleteCopilotSession(req.params.id);
+    else await deleteSession(req.params.id, { dir });
     res.json({ ok: true });
   }));
 
@@ -181,7 +198,13 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
           const stat = await fs.stat(cwd).catch(() => null);
           if (!stat?.isDirectory()) throw new Error(msg(lang, 'Klasör bulunamadı: {dir}', { dir: cwd }));
           detach();
+          const engine = m.engine === 'copilot' ? 'copilot' : 'claude';
+          if (engine === 'copilot') {
+            const cp = await detectCopilot();
+            if (!cp.available) throw new Error(msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: cp.error }));
+          }
           const next = await manager.open({
+            engine,
             liveId: m.new ? null : m.liveId,
             sessionId: m.new ? null : m.sessionId,
             cwd,

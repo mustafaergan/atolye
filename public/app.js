@@ -91,6 +91,7 @@ const dom = {
   sendBtn: $('#sendBtn'),
   modeSelect: $('#modeSelect'),
   modelSelect: $('#modelSelect'),
+  engineSelect: $('#engineSelect'),
   sessionList: $('#sessionList'),
   sessionTitle: $('#sessionTitle'),
   sessionCwd: $('#sessionCwd'),
@@ -187,7 +188,7 @@ function connect() {
     state.connected = true;
     setConn('ok', T('Bağlı'));
     // Sayfa yenilense ya da bağlantı kopsa da sunucudaki oturuma geri bağlan
-    openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId });
+    openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId, engine: state.sessionEngine || state.engine });
   };
   ws.onclose = () => {
     state.connected = false;
@@ -212,18 +213,57 @@ function wsSend(obj) {
   else notice(T('Sunucuya bağlı değil. Yeniden bağlanılıyor…'));
 }
 
-function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd }) {
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null, lang: getLang() });
+function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd, engine = state.engine }) {
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null, lang: getLang(), engine });
 }
 
+// ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
+// Sağ üstteki seçici açık oturumun motorunu gösterir; değiştirmek o klasörde seçilen motorla
+// yeni bir oturum açar (açık oturum kendi motoruyla listede çalışmaya devam eder).
+state.engine = 'claude';        // yeni oturumlar için seçilen
+state.sessionEngine = null;     // açık oturumun motoru
+state.engines = { claude: { available: true }, copilot: { available: false } };
+
+async function loadEngines(refresh = false) {
+  state.engines = await fetch(`/api/engines${refresh ? '?refresh=1' : ''}`).then((r) => r.json()).catch(() => state.engines);
+  const opt = dom.engineSelect.querySelector('option[value="copilot"]');
+  const cp = state.engines.copilot || {};
+  opt.disabled = !cp.available;
+  opt.textContent = cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil)');
+  opt.title = cp.available ? `Copilot CLI ${cp.version || ''}` : cp.error || '';
+  if (!cp.available && state.engine === 'copilot') state.engine = 'claude';
+  applyEngineUi();
+}
+
+function applyEngineUi() {
+  const engine = state.sessionEngine || state.engine;
+  dom.engineSelect.value = engine;
+  dom.engineSelect.parentElement.classList.toggle('copilot', engine === 'copilot');
+  const copilot = engine === 'copilot';
+  // Copilot'ta model /model komutuyla, plan /plan komutuyla seçilir
+  dom.modelSelect.parentElement.hidden = copilot;
+  const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
+  planOpt.hidden = copilot;
+  planOpt.disabled = copilot;
+}
+
+dom.engineSelect.addEventListener('change', () => {
+  const engine = dom.engineSelect.value;
+  state.engine = engine;
+  remember({ engine });
+  if (engine !== state.sessionEngine) newSession(state.cwd);
+});
+
 function rememberOpen() {
-  remember({ open: { liveId: state.liveId, sessionId: state.sessionId, cwd: state.cwd } });
+  remember({ open: { liveId: state.liveId, sessionId: state.sessionId, cwd: state.cwd, engine: state.sessionEngine } });
 }
 
 // Sunucu oturumu açtığında ekranı baştan kurar: önce diskteki eski geçmiş,
 // sonra bu çalışmada oluşan olaylar (akış, araçlar, bekleyen izinler).
 function applyOpened(ev) {
   state.liveId = ev.liveId;
+  state.sessionEngine = ev.engine || 'claude';
+  applyEngineUi();
   state.sessionId = ev.sessionId;
   if (ev.cwd && !samePath(ev.cwd, state.cwd)) setCwdLabel(ev.cwd);
   rememberOpen();
@@ -1215,7 +1255,7 @@ function sessionRows(dir) {
   const rows = [];
   for (const r of running) {
     if (r.sessionId && diskIds.has(r.sessionId)) continue;
-    rows.push({ id: r.sessionId, liveId: r.liveId, title: r.title || 'Yeni oturum', lastModified: r.lastActivity, run: r, cwd: dir });
+    rows.push({ id: r.sessionId, liveId: r.liveId, engine: r.engine, title: r.title || T('Yeni oturum'), lastModified: r.lastActivity, run: r, cwd: dir });
   }
   for (const s of disk) rows.push({ ...s, run: runningBySession.get(s.id), cwd: dir });
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
@@ -1240,11 +1280,12 @@ function sessionRow(s) {
   const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
     status,
     el('span', { class: 's-title', text: s.title }),
+    (s.engine || s.run?.engine) === 'copilot' ? el('span', { class: 's-engine', text: 'Copilot', title: 'GitHub Copilot' }) : null,
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
     s.id && !s.run?.busy ? el('span', { class: 's-actions' },
       el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
       el('span', { title: T('Sil'), onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
-  item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd }));
+  item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd, engine: s.engine || s.run?.engine }));
   return item;
 }
 
@@ -1302,13 +1343,13 @@ function renderSessions() {
 async function renameSession(s) {
   const title = prompt(T('Oturumun yeni adı:'), s.title);
   if (!title?.trim()) return;
-  await fetch(`/api/sessions/${s.id}/rename`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title.trim(), dir: s.cwd }) });
+  await fetch(`/api/sessions/${s.id}/rename`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title.trim(), dir: s.cwd, engine: s.engine }) });
   loadSessions(s.cwd);
 }
 
 async function removeSession(s) {
   if (!confirm(T('"{title}" oturumu kalıcı olarak silinsin mi?', { title: s.title }))) return;
-  await fetch(`/api/sessions/${s.id}?dir=${encodeURIComponent(s.cwd)}`, { method: 'DELETE' });
+  await fetch(`/api/sessions/${s.id}?dir=${encodeURIComponent(s.cwd)}&engine=${s.engine || 'claude'}`, { method: 'DELETE' });
   if (s.id === state.sessionId) newSession(s.cwd);
   loadSessions(s.cwd);
 }
@@ -1339,12 +1380,14 @@ function newSession(dir = state.cwd) {
   resetTranscript();
   dom.sessionTitle.textContent = T('Yeni oturum');
   renderSessions();
-  openLive({ isNew: true, cwd: dir });
+  state.sessionEngine = state.engine;
+  applyEngineUi();
+  openLive({ isNew: true, cwd: dir, engine: state.engine });
   dom.input.focus();
   closeMenu();
 }
 
-function openSession({ sessionId, liveId, cwd }) {
+function openSession({ sessionId, liveId, cwd, engine = 'claude' }) {
   closeMenu();
   if ((liveId && liveId === state.liveId) || (!liveId && sessionId && sessionId === state.sessionId)) return;
   // Seçimi hemen göster; sunucudan "opened" gelince ekran doldurulur
@@ -1354,7 +1397,9 @@ function openSession({ sessionId, liveId, cwd }) {
   resetTranscript();
   renderSessions();
   setWorking(T('Oturum açılıyor…'));
-  openLive({ sessionId, liveId, cwd: state.cwd });
+  state.sessionEngine = engine;
+  applyEngineUi();
+  openLive({ sessionId, liveId, cwd: state.cwd, engine });
 }
 
 $('#newSessionBtn').onclick = () => newSession(state.selectedProject || state.cwd);
@@ -1543,7 +1588,16 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   setCwdLabel((migrating && legacyCwd) || saved?.cwd || legacyCwd || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse ya da tarayıcı yeniden açıldıysa en son bakılan oturuma dön
   const last = (migrating && legacyOpen) || saved?.open || legacyOpen;
-  if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; }
+  if (saved?.engine) state.engine = saved.engine;
+  if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; state.sessionEngine = last.engine || 'claude'; }
+  await loadEngines();
+  // Son oturum Copilot'tu ama Copilot artık yoksa: hata göstermek yerine Claude ile temiz başla
+  if (state.sessionEngine === 'copilot' && !state.engines.copilot?.available) {
+    state.liveId = null;
+    state.sessionId = null;
+    state.sessionEngine = 'claude';
+    applyEngineUi();
+  }
   dom.gatewayInfo.textContent = state.config.gateway
     ? T('Gateway: {host}', { host: new URL(state.config.gateway).host })
     : T('Gateway: Claude Code ayarlarından');

@@ -205,6 +205,9 @@ export const EN = {
   'Ekle ve yeni oturum aç': 'Add and start a session',
   'Dil': 'Language',
   'Pencereyi kapat': 'Close',
+  'Yeni oturumların çalışacağı yapay zekâ motoru': 'AI engine for new sessions',
+  'Yapay zekâ motoru': 'AI engine',
+  'GitHub Copilot (kurulu değil)': 'GitHub Copilot (not installed)',
 };
 
 const STORE_KEY = 'atolye:lang';

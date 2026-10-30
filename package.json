@@ -1,6 +1,6 @@
 {
   "name": "atolye",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Claude Agent SDK üzerinde çalışan, kurumsal gateway uyumlu yerel kodlama arayüzü",
   "main": "src/server.js",
   "type": "module",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/cli.js",
     "dev": "node --watch src/cli.js",
-    "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs test/spend.test.mjs test/i18n.test.mjs test/store.test.mjs",
+    "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs test/spend.test.mjs test/i18n.test.mjs test/store.test.mjs test/copilot.test.mjs",
     "paket": "node scripts/paket.mjs",
     "paket:tam": "node scripts/paket.mjs --tam"
   },
@@ -32,5 +32,8 @@
     "express": "^5.2.1",
     "marked": "^18.0.14",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "^2.2.0"
   }
 }
