@@ -494,7 +494,7 @@ function friendlyError(err, lang) {
   if (/ENOENT|not recognized|tanınmıyor|bulunamad|not found/i.test(text))
     return msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: text });
   if (/auth|login|401|403/i.test(text))
-    return msg(lang, "Copilot'a giriş yapılmamış. Bir terminalde 'copilot' çalıştırıp /login ile giriş yapın. ({error})", { error: text });
+    return msg(lang, "Copilot'a giriş yapılmamış. Bir terminalde 'copilot login' çalıştırıp tarayıcıdan giriş yapın, sonra yeni bir Copilot oturumu açın. ({error})", { error: text });
   return text;
 }
 

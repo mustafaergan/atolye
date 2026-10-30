@@ -19,8 +19,8 @@ export const EN = {
   'İstek başarısız': 'Request failed',
   'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})':
     'GitHub Copilot CLI was not found. To install: npm install -g @github/copilot ({error})',
-  "Copilot'a giriş yapılmamış. Bir terminalde 'copilot' çalıştırıp /login ile giriş yapın. ({error})":
-    "Not signed in to Copilot. Run 'copilot' in a terminal and sign in with /login. ({error})",
+  "Copilot'a giriş yapılmamış. Bir terminalde 'copilot login' çalıştırıp tarayıcıdan giriş yapın, sonra yeni bir Copilot oturumu açın. ({error})":
+    "Not signed in to Copilot. Run 'copilot login' in a terminal, sign in in the browser, then start a new Copilot session. ({error})",
   'Copilot CLI beklenmedik şekilde kapandı': 'Copilot CLI exited unexpectedly',
   'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.':
     'This Copilot version cannot load the previous session; a new session was started.',
