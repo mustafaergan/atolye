@@ -68,6 +68,61 @@ function writeEnv(env) {
   }
 }
 
+
+// ---------- Tarayıcı bağlantısı (Playwright MCP) ----------
+// Yapay zekânın bir tarayıcıyı sürebilmesi (sayfa açma, tıklama, form doldurma, ekran görüntüsü) için Microsoft'un
+// resmî Playwright MCP sunucusu, diğer bağlantılar gibi CLI'ların kendi MCP ayar dosyalarına "tarayici" adıyla
+// yazılır. Hangi tarayıcının açılacağı buradan seçilir.
+export const BROWSER_SERVER = 'tarayici';
+export const BROWSERS = ['chrome', 'msedge', 'chromium', 'firefox', 'webkit'];
+
+/** MCP sunucusunu başlatan komut: kurulu paketin kendi dosyası Node ile çalıştırılır (PATH'e ve npx'e bağlı değildir) */
+export function browserCommand({ browser, headless, cli }) {
+  return { command: process.execPath, args: [cli, '--browser', browser, ...(headless ? ['--headless'] : [])] };
+}
+
+function readServer(name) {
+  for (const file of [claudeFile(), copilotFile()]) {
+    try {
+      const entry = readJson(file).mcpServers?.[name];
+      if (entry && typeof entry === 'object') return entry;
+    } catch { /* diğer dosyaya bak */ }
+  }
+  return null;
+}
+
+function writeServer(name, base) {
+  for (const [file, entry] of [
+    [claudeFile(), base && { type: 'stdio', ...base }],
+    [copilotFile(), base && { type: 'local', ...base, tools: ['*'] }],
+  ]) {
+    const data = readJson(file);
+    const servers = { ...(data.mcpServers || {}) };
+    if (entry) servers[name] = entry; else delete servers[name];
+    if (!entry && !fs.existsSync(file)) continue;
+    writeJson(file, { ...data, mcpServers: servers });
+  }
+}
+
+export function browserStatus() {
+  const args = readServer(BROWSER_SERVER)?.args || [];
+  const i = args.indexOf('--browser');
+  const browser = i >= 0 && BROWSERS.includes(args[i + 1]) ? args[i + 1] : null;
+  return { connected: Boolean(browser), browser: browser || 'chrome', headless: args.includes('--headless') };
+}
+
+export function saveBrowser({ browser, headless, cli }) {
+  if (!BROWSERS.includes(browser)) throw Object.assign(new Error('bad-browser'), { code: 'bad-browser' });
+  if (!cli) throw Object.assign(new Error('not-installed'), { code: 'not-installed' });
+  writeServer(BROWSER_SERVER, browserCommand({ browser, headless: Boolean(headless), cli }));
+  return status();
+}
+
+export function removeBrowser() {
+  writeServer(BROWSER_SERVER, null);
+  return status();
+}
+
 /** Arayüze giden durum: API anahtarı asla geri gönderilmez */
 export function status() {
   const env = readEnv();
@@ -80,6 +135,7 @@ export function status() {
       connected: Boolean(configFromEnv(s, env)),
     };
   }
+  out.services[BROWSER_SERVER] = browserStatus();
   return out;
 }
 

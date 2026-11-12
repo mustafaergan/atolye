@@ -178,6 +178,12 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   ve hangi veriye ihtiyacı olduğunu yazar → Atölye isteği gösterir ve onayınızla kayıtlı bağlantı üzerinden REST ile
   getirir → veri yapay zekâya geri gönderilir ve soru yanıtlanır. Yalnızca okuma işlemleri vardır; her istek için onay
   sorulur (oturum boyunca izin verilebilir). Claude Code'da aynı iş MCP araçlarıyla doğrudan yapılır.
+- **Tarayıcı** sekmesi, yapay zekânın bir tarayıcıyı sürmesini sağlar (sayfa açma, tıklama, form doldurma, ekran
+  görüntüsü). Hangi tarayıcının açılacağı seçilir: bilgisayarda kurulu Chrome ya da Edge, ya da Playwright'ın kendi
+  Chromium / Firefox / WebKit tarayıcıları. Bunun için Microsoft'un Playwright MCP paketi (`@playwright/mcp`) gerekir:
+  kurulu değilse ne indirileceği bildirilir ve yalnızca onay verilirse `npm install -g` ile kurulur; kuruluysa bu adım
+  atlanır ve "kurulu" olarak gösterilir. Ayar CLI dosyalarına `tarayici` adıyla yazılır. Açılan tarayıcı ayrı ve boş bir
+  profildir; yapay zekâ açtığı sayfalardaki metinlerden etkilenebileceği için gerçek sistemlerde dikkatli kullanılmalıdır.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
   işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner ve ayrı ayrı proje
   olarak eklenir; aynı klasörde birden fazla depo olunca o kök klasör de proje olarak eklenir (depoların tümü hakkında oradan soru sorulur).

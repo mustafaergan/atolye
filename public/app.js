@@ -1826,14 +1826,14 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
     fetch: true, // "Veri getir": veriyi Atölye REST ile çeker (yalnızca bu modda; geliştirici modu MCP araçlarını kullanır)
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -1880,11 +1880,11 @@ function renderLinkSelect() {
   $('#linkWrap').hidden = !connected.length;
   sel.replaceChildren(el('option', { value: '', text: T('Bağlantı: yok') }), ...connected.map((id) => el('option', { value: id, text: LINKS[id].name })));
   sel.value = activeLink;
-  $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch;
+  $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch || Boolean(LINKS[activeLink]?.custom);
   sel.onchange = () => {
     activeLink = sel.value;
     loadFetchTools(activeLink);
-    $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch;
+    $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch || Boolean(LINKS[activeLink]?.custom);
     $('#linkWrap').classList.toggle('active', Boolean(activeLink));
     dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
     dom.input.focus();
@@ -1923,6 +1923,7 @@ function renderLinks() {
       el('span', { class: `links-dot${proxyUi.status?.configured ? ' on' : ''}` }), el('span', { text: 'Proxy' })));
   if (links.tab === 'repo') return renderRepoTab();
   if (links.tab === 'proxy') return renderProxyTab();
+  if (links.tab === 'tarayici') return renderBrowserTab();
 
   const id = links.tab;
   const def = LINKS[id];
@@ -2006,6 +2007,7 @@ const HELP_PROMPTS = {
   confluence: () => T('Confluence bağlantısını kurmak istiyorum ama teknik biri değilim. Confluence adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  tarayici: () => T('Yapay zekânın tarayıcıda gezinmesini (Playwright) kurmak istiyorum ve teknik biri değilim. Bu ne işe yarar, hangi tarayıcıyı seçmeliyim ve kurulumda nelere dikkat etmeliyim? Adım adım, sade bir dille anlat.'),
   repo: () => T('İlk kez bir depoyu (repository) bilgisayarıma indireceğim ve teknik biri değilim. Depo nedir, adresini nereden bulurum, indirdikten sonra dosyalara nasıl bakarım ve değişiklikleri nasıl güncel tutarım? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
 };
 function askAi(prompt) {
@@ -2225,6 +2227,105 @@ async function renderProxyTab() {
   ].filter(Boolean));
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
+}
+
+// ---------- Tarayıcı bağlantısı ----------
+// Yapay zekânın bir tarayıcıyı sürmesi için Playwright MCP sunucusu kurulur ve CLI ayarlarına yazılır.
+LINKS.tarayici = { name: 'Tarayıcı', custom: true };
+LINK_TOOLS.tarayici = 'browser_navigate, browser_snapshot, browser_click, browser_type, browser_take_screenshot';
+const browserUi = { result: null, busy: false, installed: undefined };
+const BROWSER_CHOICES = [
+  ['chrome', () => T('Google Chrome (bilgisayarda kurulu olan)')],
+  ['msedge', () => T('Microsoft Edge (bilgisayarda kurulu olan)')],
+  ['chromium', () => T("Chromium (Playwright'ın kendi tarayıcısı; ilk kullanımda indirilir)")],
+  ['firefox', () => T("Firefox (Playwright'ın kendi tarayıcısı; ilk kullanımda indirilir)")],
+  ['webkit', () => T("WebKit / Safari motoru (Playwright'ın kendi tarayıcısı; ilk kullanımda indirilir)")],
+];
+
+async function renderBrowserTab() {
+  const st = links.status?.services?.tarayici || { connected: false, browser: 'chrome', headless: false };
+  // Paket zaten kuruluysa kurulum adımı gösterilmez
+  if (browserUi.installed === undefined) {
+    $('#linksBody').replaceChildren(el('div', { class: 'links-result', text: T('Yükleniyor…') }));
+    browserUi.installed = await fetch('/api/browser/installed').then((r) => r.json()).then((d) => d.version || null).catch(() => null);
+    if (links.tab !== 'tarayici') return;
+  }
+  const installed = browserUi.installed;
+  const pick = el('select', { class: 'links-select' }, ...BROWSER_CHOICES.map(([v, label]) => el('option', { value: v, text: label() })));
+  pick.value = st.browser || 'chrome';
+  const headless = el('input', { type: 'checkbox', checked: Boolean(st.headless) });
+  const result = el('div', { class: 'links-result' });
+  result.hidden = true;
+  const show = (r) => {
+    browserUi.result = r;
+    result.hidden = !r;
+    if (!r) return;
+    result.className = `links-result ${r.ok ? 'ok' : r.pending ? '' : 'err'}`;
+    result.replaceChildren(...(r.pending ? [el('span', { class: 'btn-spin' })] : []), el('span', { text: r.text }));
+    if (!r.ok && !r.pending) result.append(el('div', {}, askErrorButton(T('Tarayıcı bağlantısını kurma'), r.text)));
+  };
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: installed ? T('Kaydet') : T('Kur ve etkinleştir'), onclick: async () => {
+    if (browserUi.busy) return;
+    const browser = pick.value;
+    browserUi.busy = true;
+    saveBtn.disabled = true;
+    try {
+      show({ pending: true, text: T('Ön koşullar denetleniyor…') });
+      const check = await fetch(`/api/browser/check?browser=${browser}`).then((r) => r.json()).catch(() => ({}));
+      if (check.browser === 'missing') return show({ ok: false, text: T('Seçtiğiniz tarayıcı bu bilgisayarda bulunamadı. Kurulu olan bir tarayıcıyı ya da Playwright\'ın kendi tarayıcılarından birini seçin.') });
+      let version = check.installed;
+      if (!version) {
+      if (!check.available) return show({ ok: false, text: T('Playwright MCP paketine ulaşılamadı: npm kayıt defterine erişilemiyor. Şirket ağı npm\'e izin vermiyor olabilir; kurulum yapılamadı.') });
+      // Kurulum gerektiği kullanıcıya bildirilir; onay vermeden hiçbir şey indirilmez
+      const ownBrowser = check.browser === 'managed';
+      const browserNote = ownBrowser
+        ? T('Seçtiğiniz tarayıcı Playwright\'a aittir; dosyaları ilk kullanımda ayrıca indirilir (yaklaşık 150 MB).')
+        : T('Bilgisayarda kurulu tarayıcı kullanılacak; ayrıca tarayıcı indirilmeyecek.');
+      const ask = T('Tarayıcı bağlantısı için kurulum gerekiyor:\n\n• Playwright MCP paketi (sürüm {version}) npm üzerinden bu bilgisayara indirilecek.\n• {browserNote}\n\nKurulum birkaç dakika sürebilir. Devam edilsin mi?', { version: check.available, browserNote });
+      if (!confirm(ask)) return show(null);
+      show({ pending: true, text: T('Kuruluyor… Bu pencereyi kapatmayın.') });
+      const inst = await fetch('/api/browser/install', { method: 'POST' }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+      if (!inst.ok) return show({ ok: false, text: T('Kurulum başarısız: {error}', { error: inst.error }) });
+      version = inst.version;
+      browserUi.installed = version;
+      }
+      const res = await fetch('/api/browser', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ browser, headless: headless.checked }) });
+      const data = await res.json();
+      if (!res.ok) return show({ ok: false, text: data.error });
+      links.status = data;
+      renderLinksBadge();
+      renderLinkSelect();
+      browserUi.result = { ok: true, text: T('Tarayıcı bağlantısı hazır (Playwright MCP {version}). Yeni açtığınız oturumlarda kullanılabilir.', { version }) };
+      renderLinks();
+    } finally { browserUi.busy = false; saveBtn.disabled = false; }
+  } });
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Bağlantıyı kaldır'), onclick: async () => {
+    if (!confirm(T('Tarayıcı bağlantısı kaldırılsın mı?'))) return;
+    links.status = await fetch('/api/browser', { method: 'DELETE' }).then((r) => r.json());
+    browserUi.result = null;
+    renderLinksBadge();
+    renderLinkSelect();
+    renderLinks();
+  } });
+
+  $('#linksBody').replaceChildren(...[
+    el('ol', { class: 'links-steps' },
+      el('li', { text: T('Bu bağlantı, yapay zekânın bir tarayıcı açıp sayfalarda gezinmesini sağlar: sayfa açma, tıklama, form doldurma, ekran görüntüsü alma. Web arayüzlerini denemek ve hataları yeniden üretmek için kullanılır.') }),
+      el('li', { text: T('Aşağıdan hangi tarayıcının açılacağını seçin. Açılan tarayıcı ayrı ve boş bir profildir; kendi tarayıcınızdaki oturumlar ve şirket girişleri orada olmaz.') }),
+      el('li', { text: T('"Kur ve etkinleştir" dediğinizde gereken kurulum size bildirilir; onay verirseniz Microsoft\'un Playwright MCP paketi indirilir ve bağlantı etkinleşir.') }),
+      el('li', { text: T('Yapay zekâ tarayıcıda her işlem için izninizi ister. Açtığı sayfadaki metinlerden etkilenebileceği için güvenmediğiniz sitelerde ve gerçek (üretim) sistemlerde dikkatli kullanın.') })),
+    el('div', { class: `links-result ${installed ? 'ok' : ''}`, text: installed ? T('Playwright MCP kurulu (sürüm {version}); yeniden kurulum gerekmez.', { version: installed }) : T('Playwright MCP henüz kurulu değil; etkinleştirirken kurulum için onayınız istenir.') }),
+    el('label', { class: 'links-field' }, el('span', { text: T('Tarayıcı') }), pick),
+    el('label', { class: 'links-check' }, headless, el('span', { text: T('Pencere açmadan (arka planda) çalıştır') })),
+    el('div', { class: 'links-actions' }, saveBtn, st.connected ? removeBtn : null, helpButton('tarayici')),
+    result,
+    el('p', { class: 'links-intro', text: T('Örnek: "localhost:8080 adresini aç, giriş formunu doldur ve çıkan hatanın ekran görüntüsünü al".') }),
+  ].filter(Boolean));
+  show(browserUi.result);
+  const f = links.status?.files;
+  $('#linksNote').textContent = f
+    ? T('Ayar, Claude Code ve Copilot CLI ayar dosyalarına "tarayici" adıyla yazılır: {claude} ve {copilot}. Şirketinizin Copilot politikası üçüncü taraf MCP sunucularını kapatmışsa tarayıcı yalnızca Claude Code oturumlarında kullanılabilir.', f)
+    : '';
 }
 
 // ---------- Yapay zekâ ister, Atölye getirir (analist modu) ----------

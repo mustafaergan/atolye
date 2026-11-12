@@ -39,6 +39,8 @@ export const EN = {
   'Geçerli bir adres girin (https://… ile başlamalı)': 'Enter a valid address (it must start with https://…)',
   'API anahtarı gerekli': 'An API key is required',
   'Bağlantı bilgileri eksik': 'The connection details are incomplete',
+  'Geçersiz tarayıcı seçimi': 'Invalid browser choice',
+  'Önce Playwright MCP kurulmalı': 'Playwright MCP must be installed first',
   'Geçerli bir proxy adresi girin (ör. proxy.sirket.com:8080)': 'Enter a valid proxy address (e.g. proxy.company.com:8080)',
   'Proxy kullanıcı adını ya da parolayı kabul etmedi (407).': 'The proxy rejected the username or password (407).',
   'Proxy sunucusuna ulaşılamadı; adresi ve portu kontrol edin.': 'Could not reach the proxy server; check the address and port.',
