@@ -320,7 +320,7 @@ function handleEvent(ev) {
     case 'question': return renderQuestion(ev);
     case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
     case 'mode': return setMode(ev.mode, false);
-    case 'model': return setModelValue(ev.model || '');
+    case 'model': setModelValue(ev.model || ''); store.set(modelKey(currentEngine()), ev.model || ''); return;
     case 'effort': $('#effortSelect').value = ev.effort || ''; return;
     case 'credits': state.credits = ev.credits; return updateStatus();
     case 'capabilities': return setCapabilities(ev);

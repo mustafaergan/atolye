@@ -32,6 +32,7 @@ const GENERAL_PROMPT = [
 ].join(' ');
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const MODEL_RETRY_MS = Number(process.env.ATOLYE_MODEL_RETRY_MS) || 1500;
 
 // Kullanım rolüne göre Claude'a verilen ek yönerge (bilinmeyen rolde eklenmez). Yeni rol eklemek için buraya
 // bir satır ve arayüzdeki ROLES tanımına bir kayıt yeterlidir.
@@ -80,6 +81,7 @@ export class AgentSession {
     this.closed = false;
     this.busy = false;
     this.q = null;
+    this.gen = 0; // Claude Code sürecinin kaçıncı başlatılışı
   }
 
   start() {
@@ -99,9 +101,24 @@ export class AgentSession {
         if (process.env.ATOLYE_DEBUG) process.stderr.write(`[claude] ${data}`);
       },
     };
-    this.q = query({ prompt: this.#input(), options });
-    this.#pump();
+    const gen = ++this.gen;
+    this.q = query({ prompt: this.#input(gen), options });
+    this.#pump(this.q, gen);
     this.#sendCapabilities();
+  }
+
+  /**
+   * Claude Code sürecini aynı konuşmayla (resume) yeniden başlatır. Oturum sürerken yapılamayan ayar değişiklikleri
+   * (ör. gateway'in doğrulayamadığı model değişimi) için kullanılır; konuşma kaybolmaz.
+   */
+  #restart() {
+    const old = this.q;
+    const wakeOld = this.wake; // eski sürecin girdi döngüsü bekliyorsa uyandırılıp bitirilir
+    this.wake = null;
+    this.resume = this.sessionId || this.resume;
+    this.start(); // yeni kuşak: eski döngüler sessizce biter
+    wakeOld?.();
+    try { old?.close(); } catch { /* zaten kapanmış */ }
   }
 
   /** Sistem yönergesine eklenenler: klasörsüz sohbet ve kullanım rolü */
@@ -109,10 +126,11 @@ export class AgentSession {
     return [this.general ? GENERAL_PROMPT : '', ROLE_PROMPTS[this.role] || ''].filter(Boolean).join('\n\n');
   }
 
-  async *#input() {
-    while (!this.closed) {
+  async *#input(gen) {
+    while (!this.closed && gen === this.gen) {
       if (this.inbox.length === 0) {
         await new Promise((r) => (this.wake = r));
+        if (gen !== this.gen) return; // yeniden başlatıldı: yeni döngünün bekleyicisine dokunma
         this.wake = null;
         continue;
       }
@@ -120,9 +138,10 @@ export class AgentSession {
     }
   }
 
-  async #pump() {
+  async #pump(q, gen) {
     try {
-      for await (const msg of this.q) {
+      for await (const msg of q) {
+        if (gen !== this.gen) return; // yeniden başlatıldı: bu süreç artık geçerli değil
         if (msg.type === 'system' && msg.subtype === 'init') {
           this.sessionId = msg.session_id;
           this.permissionMode = msg.permissionMode;
@@ -135,8 +154,9 @@ export class AgentSession {
         if (FORWARDED.has(msg.type)) this.emit({ type: 'sdk', msg });
       }
     } catch (err) {
-      if (!this.closed) this.emit({ type: 'error', message: friendlyError(err, this.lang) });
+      if (!this.closed && gen === this.gen) this.emit({ type: 'error', message: friendlyError(err, this.lang) });
     } finally {
+      if (gen !== this.gen) return; // eski sürecin kapanışı oturumu sonlandırmaz
       this.#setBusy(false);
       this.#cancelPending(msg(this.lang, 'Oturum kapandı'));
       if (!this.closed) this.emit({ type: 'session_ended' });
@@ -217,8 +237,38 @@ export class AgentSession {
   }
 
   async setModel(model) {
+    const previous = this.model;
     this.model = model || undefined;
-    await this.q?.setModel(this.model);
+    try {
+      // Claude Code yeni modeli gateway'e sorarak doğrular; anlık ağ hatasında bir kez daha denenir
+      try {
+        await this.q?.setModel(this.model);
+      } catch (err) {
+        if (!/network error|internet connection|timed? ?out|ECONN|fetch failed/i.test(String(err?.message || err))) throw err;
+        await new Promise((r) => setTimeout(r, MODEL_RETRY_MS));
+        await this.q?.setModel(this.model);
+      }
+    } catch (err) {
+      // Gateway, süren oturumda model doğrulamasına cevap vermeyebilir; oysa oturum açılırken model sorunsuz
+      // seçilir. Boştaysa oturum aynı konuşmayla, yeni modelle yeniden başlatılır.
+      const network = /network error|internet connection|timed? ?out|ECONN|fetch failed/i.test(String(err?.message || err));
+      if (network && !this.busy && this.pending.size === 0 && !this.closed) {
+        console.log(`[oturum] model doğrulanamadı; oturum '${model || 'varsayılan'}' modeliyle yeniden başlatılıyor`);
+        this.#restart();
+        this.emit({ type: 'model', model: model || '' });
+        return;
+      }
+      // Değişiklik başarısız: önceki model geçerli kalır ve arayüzdeki seçim geri alınır
+      this.model = previous;
+      this.emit({ type: 'model', model: previous || '' });
+      const text = String(err?.message || err);
+      const key = /network error|internet connection|timed? ?out|ECONN|fetch failed/i.test(text)
+        ? "Model değiştirilemedi: Claude Code '{model}' modelini doğrulamak için gateway'e ulaşamadı. Bağlantı anlık kesilmiş ya da bu model gateway'de tanımlı olmayabilir. Önceki modelle devam ediliyor. ({error})"
+        : "Model değiştirilemedi: '{model}' bu bağlantıda kullanılamıyor. Önceki modelle devam ediliyor. ({error})";
+      const shown = model || 'default';
+      const detail = text.slice(0, 200);
+      throw new Error(msg(this.lang, key, { model: shown, error: detail }));
+    }
     this.emit({ type: 'model', model: model || '' });
     this.#emitCapabilities(); // düşünme seviyeleri modele göre değişir
   }
