@@ -33,6 +33,12 @@ export const EN = {
   'Geçerli bir adres girin (https://… ile başlamalı)': 'Enter a valid address (it must start with https://…)',
   'API anahtarı gerekli': 'An API key is required',
   'Bağlantı bilgileri eksik': 'The connection details are incomplete',
+  'Geçerli bir proxy adresi girin (ör. proxy.sirket.com:8080)': 'Enter a valid proxy address (e.g. proxy.company.com:8080)',
+  'Proxy kullanıcı adını ya da parolayı kabul etmedi (407).': 'The proxy rejected the username or password (407).',
+  'Proxy sunucusuna ulaşılamadı; adresi ve portu kontrol edin.': 'Could not reach the proxy server; check the address and port.',
+  'Proxy cevap vermedi (zaman aşımı).': 'The proxy did not respond (timed out).',
+  'Proxy ayarı yok.': 'No proxy is configured.',
+  "Proxy GitHub'a bağlanmayı reddetti (HTTP {status}).": 'The proxy refused the connection to GitHub (HTTP {status}).',
   'Geçerli bir depo adresi girin (ör. https://…/depo-adi.git)': 'Enter a valid repository address (e.g. https://…/repo-name.git)',
   "Git kurulu değil. https://git-scm.com adresinden kurup Atölye'yi yeniden başlatın.": 'Git is not installed. Install it from https://git-scm.com and restart Atölye.',
   'Bu klasör zaten var: {dir}. Depo daha önce indirilmiş olabilir; soldan "Klasör ekle" ile açabilirsiniz.':

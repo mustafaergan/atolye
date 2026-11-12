@@ -23,6 +23,7 @@ import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
 import * as transcript from './transcript.js';
+import * as proxy from './proxy.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -122,6 +123,32 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     else if (r.code === 'bad-url') r.error = msg(lang, 'Geçerli bir depo adresi girin (ör. https://…/depo-adi.git)');
     else if (r.code === 'no-git') r.error = msg(lang, 'Git kurulu değil. https://git-scm.com adresinden kurup Atölye\'yi yeniden başlatın.');
     else if (r.code === 'exists') r.error = msg(lang, 'Bu klasör zaten var: {dir}. Depo daha önce indirilmiş olabilir; soldan "Klasör ekle" ile açabilirsiniz.', { dir: r.dir });
+    res.json(r);
+  }));
+
+  // Kurumsal proxy ayarı (bkz. proxy.js). Parola arayüze geri gönderilmez.
+  app.get('/api/proxy', wrap(async (_req, res) => res.json(proxy.status())));
+  app.post('/api/proxy', wrap(async (req, res) => {
+    try {
+      const st = await proxy.save(req.body || {});
+      console.log('[proxy] ayar kaydedildi');
+      res.json(st);
+    } catch (err) {
+      res.status(400).json({ error: err.code === 'bad-address' ? msg(req.query.lang, 'Geçerli bir proxy adresi girin (ör. proxy.sirket.com:8080)') : err.message });
+    }
+  }));
+  app.delete('/api/proxy', wrap(async (_req, res) => { console.log('[proxy] ayar kaldırıldı'); res.json(await proxy.remove()); }));
+  app.post('/api/proxy/test', wrap(async (req, res) => {
+    const lang = req.query.lang;
+    const r = await proxy.test();
+    console.log(`[proxy] sınama: ${r.ok ? 'başarılı' : `${r.code}${r.status ? ` (${r.status})` : ''}`}`);
+    if (!r.ok) {
+      r.error = r.code === 'auth' ? msg(lang, 'Proxy kullanıcı adını ya da parolayı kabul etmedi (407).')
+        : r.code === 'unreachable' ? msg(lang, 'Proxy sunucusuna ulaşılamadı; adresi ve portu kontrol edin.')
+          : r.code === 'timeout' ? msg(lang, 'Proxy cevap vermedi (zaman aşımı).')
+            : r.code === 'not-configured' ? msg(lang, 'Proxy ayarı yok.')
+              : msg(lang, 'Proxy GitHub\'a bağlanmayı reddetti (HTTP {status}).', { status: r.status || '?' });
+    }
     res.json(r);
   }));
 

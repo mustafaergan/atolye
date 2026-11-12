@@ -149,6 +149,10 @@ Günlük denetimi beklemeden bakmak için kenar çubuğunun altındaki **Güncel
 Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanmış açık kayıtları listele", "ABC-123'ü oku",
 "Confluence'ta kurulum dokümanını bul", "şu deponun açık çekme isteklerini incele".
 
+- **Proxy** sekmesi, şirket ağı internete proxy üzerinden çıkıyorsa kullanılır: adres, kullanıcı adı, parola ve proxy
+  kullanılmayacak adresler girilir; **Kaydet ve sına** proxy üzerinden GitHub'a ulaşılabildiğini denetler. Ayar Windows'ta
+  kullanıcı ortam değişkenlerine (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), diğer sistemlerde `.env` dosyasına yazılır;
+  terminaldeki `copilot` ve `claude` da aynı ayarı kullanır.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adresini yapıştırıp (Bitbucket bağlıysa listeden seçip)
   **Depoyu indir** demek yeterli; depo `~/repos` altına iner, proje olarak eklenir ve o klasörde oturum açılır.
 - Her sekmede **Yapay zekâdan yardım al** düğmesi, hazır bir soruyla klasörsüz sohbet açar; bir hata çıktığında

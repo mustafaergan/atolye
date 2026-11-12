@@ -1668,8 +1668,11 @@ function renderLinks() {
     el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(id === links.tab), onclick: () => { links.tab = id; renderLinks(); } },
       el('span', { class: `links-dot${services[id]?.connected ? ' on' : ''}` }), el('span', { text: def.name }))),
     el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'repo'), onclick: () => { links.tab = 'repo'; renderLinks(); } },
-      el('span', { text: T('İlk repom') })));
+      el('span', { text: T('İlk repom') })),
+    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'proxy'), onclick: () => { links.tab = 'proxy'; renderLinks(); } },
+      el('span', { class: `links-dot${proxyUi.status?.configured ? ' on' : ''}` }), el('span', { text: 'Proxy' })));
   if (links.tab === 'repo') return renderRepoTab();
+  if (links.tab === 'proxy') return renderProxyTab();
 
   const id = links.tab;
   const def = LINKS[id];
@@ -1737,6 +1740,7 @@ function renderLinks() {
 $('#linksBtn').onclick = async () => {
   await loadLinks();
   repoUi.info = null; // Git ve Bitbucket durumu her açılışta yeniden okunur
+  proxyUi.status = await fetch('/api/proxy').then((r) => r.json()).catch(() => null);
   renderLinks();
   linksDlg.showModal();
 };
@@ -1848,6 +1852,76 @@ async function renderRepoTab() {
     result.replaceChildren(el('div', { text: T('Olmadı: {error}', { error: repoUi.result.error }) }), askErrorButton(repoUi.result.what, repoUi.result.error));
   }
   $('#linksNote').textContent = T('İndirme, bilgisayarınızdaki Git ile yapılır. Bitbucket bağlıysa kayıtlı API anahtarı yalnızca bu indirme için kullanılır; sonraki çekme/gönderme işlemlerinde Git kendi giriş penceresini açabilir.');
+}
+
+// ---------- Proxy (kurumsal ağ) ----------
+const proxyUi = { status: null, result: null };
+
+async function renderProxyTab() {
+  const body = $('#linksBody');
+  if (!proxyUi.status) {
+    body.replaceChildren(el('div', { class: 'links-result', text: T('Yükleniyor…') }));
+    proxyUi.status = await fetch('/api/proxy').then((r) => r.json()).catch(() => ({}));
+    if (links.tab !== 'proxy') return;
+  }
+  const st = proxyUi.status;
+  const address = el('input', { type: 'text', value: st.address || '', placeholder: 'proxy.sirket.com:8080', spellcheck: 'false', autocomplete: 'off' });
+  const username = el('input', { type: 'text', value: st.username || '', placeholder: T('gerekmiyorsa boş bırakın'), spellcheck: 'false', autocomplete: 'off' });
+  const password = el('input', { type: 'password', placeholder: st.hasPassword ? T('kayıtlı (değiştirmek için yenisini yazın)') : T('gerekmiyorsa boş bırakın'), autocomplete: 'new-password' });
+  const noProxy = el('input', { type: 'text', value: st.noProxy || 'localhost,127.0.0.1', placeholder: 'localhost,127.0.0.1,.sirket.com', spellcheck: 'false', autocomplete: 'off' });
+  const result = el('div', { class: 'links-result' });
+  result.hidden = true;
+  const show = (r) => {
+    proxyUi.result = r;
+    result.hidden = !r;
+    if (!r) return;
+    result.className = `links-result ${r.ok ? 'ok' : r.pending ? '' : 'err'}`;
+    result.replaceChildren(el('div', { text: r.pending ? T('Proxy sınanıyor…') : r.ok ? T('Proxy çalışıyor: GitHub\'a ulaşılabiliyor. Yeni açtığınız oturumlar bu ayarı kullanır.') : T('Olmadı: {error}', { error: r.error }) }));
+    if (!r.ok && !r.pending) result.append(askErrorButton(T('Proxy ayarını yapma'), r.error));
+  };
+  const runTest = async () => {
+    show({ pending: true });
+    show(await fetch(`/api/proxy/test?lang=${getLang()}`, { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message })));
+  };
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet ve sına'), onclick: async () => {
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/proxy?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ address: address.value, username: username.value, password: password.value, noProxy: noProxy.value }) });
+      const data = await res.json();
+      if (!res.ok) return show({ ok: false, error: data.error });
+      proxyUi.status = data;
+      password.value = '';
+      await runTest();
+    } finally { saveBtn.disabled = false; }
+  } });
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Proxy ayarını kaldır'), onclick: async () => {
+    if (!confirm(T('Proxy ayarı ve kayıtlı parola silinsin mi?'))) return;
+    proxyUi.status = await fetch('/api/proxy', { method: 'DELETE' }).then((r) => r.json());
+    proxyUi.result = null;
+    renderLinks();
+  } });
+
+  body.replaceChildren(...[
+    el('ol', { class: 'links-steps' },
+      el('li', { text: T('Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot (ve gerekirse Claude Code) bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir.') }),
+      el('li', { text: T('Proxy adresini, kullanıcı adını ve parolayı BT ekibinizden ya da şirket içi kurulum dokümanınızdan alın. Kullanıcı adındaki @ gibi özel karakterleri olduğu gibi yazın; Atölye gerekli dönüşümü kendisi yapar.') }),
+      el('li', { text: T('"Proxy kullanılmayacak adresler" alanına şirket içi adresleri yazın (ör. .sirket.com); bunlara proxy olmadan gidilir.') }),
+      el('li', { text: T('"Kaydet ve sına" deyin, sonra yeni bir oturum açın. Açık terminalleri de kapatıp yeniden açın.') })),
+    el('label', { class: 'links-field' }, el('span', { text: T('Proxy adresi') }), address),
+    el('label', { class: 'links-field' }, el('span', { text: T('Kullanıcı adı') }), username),
+    el('label', { class: 'links-field' }, el('span', { text: T('Parola') }), password),
+    el('label', { class: 'links-field' }, el('span', { text: T('Proxy kullanılmayacak adresler') }), noProxy, el('small', { text: T('Virgülle ayırın. localhost ve 127.0.0.1 her zaman eklenir.') })),
+    el('div', { class: 'links-actions' }, saveBtn,
+      st.configured ? el('button', { class: 'btn', type: 'button', text: T('Proxy\'yi sına'), onclick: runTest }) : null,
+      st.configured ? removeBtn : null,
+      el('button', { class: 'btn ghost links-help', type: 'button', text: T('Yapay zekâdan yardım al'), onclick: () => askAi(T('Şirket ağında proxy ayarı yapmam gerekiyor ve teknik biri değilim. Proxy nedir, adresini ve kullanıcı bilgilerini kimden öğrenirim, HTTPS_PROXY ve NO_PROXY ne işe yarar? Adım adım, sade bir dille anlat.')) })),
+    result,
+  ].filter(Boolean));
+  show(proxyUi.result);
+  $('#linksNote').textContent = st.store === 'windows-user-env'
+    ? T('Ayar, Windows kullanıcı ortam değişkenlerine (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) yazılır; komut satırı araçlarının baktığı yer burasıdır, bu yüzden terminaldeki copilot ve claude da aynı ayarı kullanır. Parola orada düz metin olarak durur ve Atölye\'nin kayıtlarına yazılmaz.')
+    : T('Ayar, Atölye\'nin .env dosyasına (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) yazılır. Parola orada düz metin olarak durur ve Atölye\'nin kayıtlarına yazılmaz.');
 }
 
 // ---------- Güncelleme bildirimi ----------
