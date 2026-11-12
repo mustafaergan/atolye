@@ -1849,10 +1849,10 @@ async function renderRepoTab() {
 
 // ---------- Güncelleme bildirimi ----------
 // Depoda daha yeni bir Atölye sürümü varsa sağ üstte "Güncelleme var" görünür (bkz. src/update.js).
-async function checkUpdate() {
-  const u = await fetch('/api/update').then((r) => r.json()).catch(() => null);
+async function checkUpdate(manual = false) {
+  const u = await fetch(`/api/update${manual ? '?refresh=1' : ''}`).then((r) => r.json()).catch(() => null);
   $('#updateWrap').hidden = !u?.available;
-  if (!u?.available) return;
+  if (!u?.available) return u;
   $('#updatePop').replaceChildren(...[
     el('strong', { text: T('Atölye {latest} yayımlandı (kurulu sürüm: {current}).', u) }),
     ...(u.how === 'git'
@@ -1862,7 +1862,26 @@ async function checkUpdate() {
     u.canApply ? el('button', { class: 'btn primary', type: 'button', text: T('Şimdi güncelle'), onclick: () => applyUpdate(u) }) : null,
     u.canApply ? el('div', { class: 'update-status', id: 'updateStatus' }) : null,
   ].filter(Boolean));
+  return u;
 }
+
+// Elle denetim (kenar çubuğunun altındaki düğme): günlük denetimi beklemeden hemen bakar.
+// Kendiliğinden yapılan denetimde hata kullanıcıya gösterilmez; burada kullanıcı sorduğu için sonuç söylenir.
+$('#checkUpdateBtn').onclick = async () => {
+  const btn = $('#checkUpdateBtn');
+  const label = T('Güncellemeleri denetle');
+  btn.disabled = true;
+  btn.textContent = T('Denetleniyor…');
+  const u = await checkUpdate(true);
+  btn.disabled = false;
+  if (u?.available) {
+    btn.textContent = label;
+    $('#updatePop').hidden = false; // sağ üstteki düğme ve ayrıntısı açılır
+    return;
+  }
+  btn.textContent = u?.latest ? T('Güncel (sürüm {current})', u) : T('Şu an denetlenemedi');
+  setTimeout(() => { btn.textContent = label; }, 5000);
+};
 
 // Güncellemeyi sunucuda başlatır; Atölye yeni sürümle yeniden başlayınca sayfa kendiliğinden yenilenir.
 // Çalışan oturumlar yeniden başlatmada kapanır (konuşmalar kaybolmaz, listeden yeniden açılır).
