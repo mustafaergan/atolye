@@ -671,3 +671,4 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .links-tabs { flex-wrap: wrap; }
 .update-pop .btn { margin-top: 8px; }
 .update-status { margin-top: 6px; font-size: 12.5px; }
+.spend-wrap.other-engine { display: none; }

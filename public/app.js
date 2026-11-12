@@ -259,6 +259,8 @@ function applyEngineUi() {
   const copilot = engine === 'copilot';
   // Model listesi seçili motorun kendi listesidir; Copilot model bildirmiyorsa seçici gizlenir (/model komutu kullanılır)
   dom.modelSelect.parentElement.hidden = copilot && dom.modelSelect.options.length < 2;
+  // Harcama göstergesi Claude gateway'inin bütçesidir; Copilot oturumunda gösterilmez (Copilot'un kotası değildir)
+  $('#spendWrap').classList.toggle('other-engine', copilot);
   // Copilot'ta plan modu /plan komutuyla kullanılır
   const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
   planOpt.hidden = copilot;

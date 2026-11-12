@@ -180,7 +180,7 @@ export const EN = {
   'Klasör ekle': 'Add folder',
   'Projeler ve oturumlar': 'Projects and sessions',
   'Menü': 'Menu',
-  'Harcama ve bütçe (ayrıntı için tıklayın)': 'Spend and budget (click for details)',
+  'Claude harcaması ve bütçesi (ayrıntı için tıklayın)': 'Claude spend and budget (click for details)',
   'Yenile': 'Refresh',
   'Bağlantı durumu': 'Connection status',
   'Bağlam': 'Context',
