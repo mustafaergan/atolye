@@ -790,6 +790,13 @@ function Install-Atolye {
 # ayrı bir klasörde hazırlar, ancak her şey hazır olunca Atölye'yi durdurup dosyaları değiştirir. İndirme ya da
 # paket kurulumu başarısız olursa çalışan kurulum olduğu gibi kalır.
 #   ATOLYE_UPDATE_ZIP: farklı bir depo/ayna için zip adresi
+# Klasörü hedefe aynalar: önce yeni/değişen dosyalar kopyalanır, hedefteki fazlalıklar sonra silinir.
+# Kilitli dosyalarda birkaç kez yeniden dener; başarısız olursa hata fırlatır (robocopy: 8 ve üstü hata).
+function Copy-Mirror($from, $to) {
+  cmd /d /c "robocopy `"$from`" `"$to`" /MIR /NFL /NDL /NJH /NJS /NP /R:5 /W:1 >nul"
+  if ($LASTEXITCODE -ge 8) { throw "Dosyalar kopyalanamadı: $to (robocopy kodu $LASTEXITCODE)" }
+}
+
 function Update-PackageInstall {
   $info = Read-PaketInfo $InstallDir
   $current = (Get-Content (Join-Path $InstallDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
@@ -828,19 +835,46 @@ function Update-PackageInstall {
       } finally { Pop-Location }
     }
 
+    # Dosya değişimi: önce yedek alınır; yeni dosyalar yazılmadan eskiler silinmez (robocopy /MIR önce kopyalar,
+    # fazlalıkları sonra temizler). Herhangi bir adım başarısız olursa eski sürüm geri konur ve Atölye yeniden başlatılır.
     $wasRunning = Test-Running
-    if ($wasRunning) { Stop-Atolye; Start-Sleep -Seconds 1 }
-    foreach ($d in @('src', 'public', 'scripts')) {
-      $p = Join-Path $InstallDir $d
-      if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+    $backup = Join-Path $tmp 'yedek'
+    $rootFiles = @('package.json', 'package-lock.json', 'atolye.ps1', 'README.md', 'LICENSE', '.env.example')
+    try {
+      if ($wasRunning) { Stop-Atolye; Start-Sleep -Seconds 1 }
+      New-Item -ItemType Directory -Force $backup | Out-Null
+      foreach ($d in @('src', 'public')) {
+        if (Test-Path (Join-Path $InstallDir $d)) { Copy-Mirror (Join-Path $InstallDir $d) (Join-Path $backup $d) }
+      }
+      foreach ($f in $rootFiles) {
+        if (Test-Path (Join-Path $InstallDir $f)) { Copy-Item (Join-Path $InstallDir $f) -Destination $backup -Force }
+      }
+      if ($depsChanged) { Copy-Mirror (Join-Path $src 'node_modules') $modules }
+      foreach ($d in @('src', 'public', 'scripts')) {
+        if (Test-Path (Join-Path $src $d)) { Copy-Mirror (Join-Path $src $d) (Join-Path $InstallDir $d) }
+      }
+      foreach ($f in $rootFiles) {
+        if (Test-Path (Join-Path $src $f)) { Copy-Item (Join-Path $src $f) -Destination $InstallDir -Force }
+      }
+      $tam = [bool]($info -and $info.tam)
+      Set-Content (Join-Path $InstallDir '.paket') (@{ version = $new.version; commit = ''; tam = $tam; tarih = (Get-Date -Format s) } | ConvertTo-Json) -Encoding UTF8
+      Set-Content (Join-Path $InstallDir '.kurulu') (Get-Date -Format s) -Encoding ASCII
+    } catch {
+      $problem = $_.Exception.Message
+      Write-Warn "Güncelleme sırasında hata oluştu: $problem"
+      Write-Step 'Eski sürüm geri yükleniyor…'
+      try {
+        foreach ($d in @('src', 'public')) {
+          if (Test-Path (Join-Path $backup $d)) { Copy-Mirror (Join-Path $backup $d) (Join-Path $InstallDir $d) }
+        }
+        foreach ($f in $rootFiles) {
+          if (Test-Path (Join-Path $backup $f)) { Copy-Item (Join-Path $backup $f) -Destination $InstallDir -Force }
+        }
+        Write-Ok 'Eski sürüm geri yüklendi'
+      } catch { Write-Warn "Eski sürüm geri yüklenemedi: $($_.Exception.Message). Paketi Kur.bat ile yeniden kurun." }
+      if ($wasRunning) { try { $script:TarayiciAcma = $true; Start-Atolye } catch { } }
+      Stop-WithError "Güncelleme tamamlanamadı; önceki sürüm ($($current.version)) kullanılmaya devam ediyor. Sebep: $problem"
     }
-    Get-ChildItem $src -Force | Where-Object { @('.env', 'node_modules', '.git', '.github', 'test', 'dist') -notcontains $_.Name } | ForEach-Object {
-      Copy-Item $_.FullName -Destination $InstallDir -Recurse -Force
-    }
-    if ($depsChanged) { cmd /d /c "robocopy `"$(Join-Path $src 'node_modules')`" `"$modules`" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >nul" }
-    $tam = [bool]($info -and $info.tam)
-    Set-Content (Join-Path $InstallDir '.paket') (@{ version = $new.version; commit = ''; tam = $tam; tarih = (Get-Date -Format s) } | ConvertTo-Json) -Encoding UTF8
-    Set-Content (Join-Path $InstallDir '.kurulu') (Get-Date -Format s) -Encoding ASCII
     Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike '*\node_modules\*' } | Unblock-File -ErrorAction SilentlyContinue
     Write-Ok "Güncellendi: $($current.version) → $($new.version)"
     Install-EnvFile
@@ -855,6 +889,10 @@ function Update-PackageInstall {
 }
 
 function Update-Atolye {
+  # Arayüzden başlatılan güncelleme gizli pencerede çalışır; ne olduğu sonradan görülebilsin diye kaydedilir
+  if ($env:ATOLYE_GUNCELLEME_KAYDI -eq '1') {
+    try { Start-Transcript -Path (Join-Path $InstallDir 'atolye-guncelle.log') -Force | Out-Null } catch { }
+  }
   if (-not (Test-AtolyeDir $InstallDir)) { Stop-WithError "Kurulum bulunamadı: $InstallDir. Önce 'kur' komutunu çalıştırın." }
   if (-not (Test-Path (Join-Path $InstallDir '.git'))) {
     Update-PackageInstall

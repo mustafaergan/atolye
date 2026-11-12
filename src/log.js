@@ -30,3 +30,20 @@ export function installLogCapture() {
 }
 
 export const recentLog = (n = MAX) => lines.slice(-Math.min(Math.max(Number(n) || MAX, 1), MAX));
+
+/**
+ * Son güncelleme denemesinin çıktısını (atolye-guncelle.log; arayüzden başlatılan güncelleme gizli pencerede
+ * çalışır) kayıtlara ekler. Böylece güncelleme yarıda kaldıysa sebebi Kayıtlar sayfasında görünür.
+ */
+export function recordUpdateLog(file, readFile) {
+  let raw;
+  try { raw = readFile(file); } catch { return 0; }
+  // PowerShell kaydı UTF-16 ya da UTF-8 olabilir
+  let text = raw[0] === 0xff && raw[1] === 0xfe ? raw.toString('utf16le') : raw.toString('utf8');
+  text = text.replace(/^\uFEFF/, '');
+  const lines = text.split(/\r?\n/).map((l) => l.trim())
+    .filter((l) => l && !/^\*+$/.test(l) && !/^(Windows PowerShell transcript|Transcript started|Start time|End time|Username|RunAs User|Configuration Name|Machine|Host Application|Process ID|PS\w*Version|PSEdition|PSCompatibleVersions|BuildVersion|CLRVersion|WSManStackVersion|PSRemotingProtocolVersion|SerializationVersion)\b/i.test(l));
+  const tail = lines.slice(-25);
+  for (const l of tail) record('log', [`[güncelleme kaydı] ${l}`]);
+  return tail.length;
+}

@@ -166,7 +166,11 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   // Yeni Atölye sürümü var mı? (sağ üstteki "Güncelleme var" bildirimi)
   app.get('/api/update', wrap(async (req, res) => res.json(await checkUpdate({ force: req.query.refresh === '1' }))));
-  app.post('/api/update/apply', wrap(async (_req, res) => res.json(applyUpdate())));
+  app.post('/api/update/apply', wrap(async (_req, res) => {
+    const r = applyUpdate();
+    console.log(`[güncelleme] arayüzden başlatıldı: ${r.started ? 'evet (çıktı: atolye-guncelle.log)' : 'başlatılamadı'}`);
+    res.json(r);
+  }));
 
   // Jira / Confluence / Bitbucket bağlantıları (bkz. integrations.js). API anahtarı arayüze geri gönderilmez.
   const integrationError = (lang, err) => {
@@ -177,7 +181,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.get('/api/integrations', wrap(async (_req, res) => res.json(integrations.status())));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
     try {
-      res.json(integrations.save(req.params.service, req.body || {}));
+      const st = integrations.save(req.params.service, req.body || {});
+      console.log(`[bağlantı] ${req.params.service} kaydedildi`);
+      res.json(st);
     } catch (err) {
       res.status(400).json({ error: integrationError(req.query.lang, err) });
     }

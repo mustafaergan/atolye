@@ -4,9 +4,10 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createServer } from './server.js';
-import { installLogCapture } from './log.js';
+import fs from 'node:fs';
+import { installLogCapture, recordUpdateLog } from './log.js';
 
-installLogCapture(); // arayüzdeki "Kayıtlar" penceresi için
+installLogCapture(); // arayüzdeki "Kayıtlar" sayfası için
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Önce uygulama klasöründeki .env, sonra çalıştırılan klasördeki .env (varsa) okunur.
@@ -41,6 +42,12 @@ try {
 }
 
 const url = `http://127.0.0.1:${port}`;
+// Teşhis için: sürüm, Node ve kurulum türü; varsa son güncelleme denemesinin çıktısı
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  console.log(`[atölye] sürüm ${pkg.version}, Node ${process.version}, ${process.platform}, kurulum: ${fs.existsSync(path.join(ROOT, '.git')) ? 'git' : 'paket'}`);
+} catch { /* yoksay */ }
+recordUpdateLog(path.join(ROOT, 'atolye-guncelle.log'), fs.readFileSync);
 console.log(`\n  Atölye çalışıyor → ${url}`);
 console.log(`  Varsayılan klasör: ${defaultCwd}`);
 if (process.env.ANTHROPIC_BASE_URL) console.log(`  Gateway: ${process.env.ANTHROPIC_BASE_URL}`);

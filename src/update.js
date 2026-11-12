@@ -33,7 +33,7 @@ export function applyUpdate() {
   const script = path.join(ROOT, 'atolye.ps1');
   const child = spawn(process.env.ComSpec || 'cmd.exe',
     ['/d', '/s', '/c', `"start "" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script}" guncelle"`],
-    { cwd: ROOT, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true, env: { ...process.env, ATOLYE_SORMA: '1' } });
+    { cwd: ROOT, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true, env: { ...process.env, ATOLYE_SORMA: '1', ATOLYE_GUNCELLEME_KAYDI: '1' } }); // çıktı: atolye-guncelle.log
   child.unref();
   return { started: true };
 }
