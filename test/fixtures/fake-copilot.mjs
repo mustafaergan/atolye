@@ -46,6 +46,7 @@ acp.agent({ name: 'sahte-copilot' })
   })
   .onRequest('session/load', async (ctx) => {
     const { sessionId, cwd } = ctx.params;
+    if (sessionId.startsWith("yok-")) throw new acp.RequestError(-32002, `Resource not found: Session ${sessionId} not found`);
     const s = sessions.get(sessionId) || { cwd, history: [{ role: 'user', text: 'önceki soru' }, { role: 'agent', text: 'önceki cevap' }] };
     sessions.set(sessionId, s);
     for (const h of s.history) {

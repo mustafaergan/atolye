@@ -195,6 +195,7 @@ export class CopilotSession {
       if (this.loading && skipReplay && !['capabilities', 'model', 'session_title', 'error'].includes(ev.type)) return;
       emit(ev);
     };
+    this.hadHistory = skipReplay; // yerel kopyada konuşma var mı
     this.booted = false; // Copilot oturumu hazır mı (arayüzde "bağlanılıyor" göstergesi)
     this.permissionMode = permissionMode === 'plan' ? 'default' : permissionMode || 'default';
     this.model = ''; // Copilot'un kendi model kimliği (Claude modelleriyle karışmaz)
@@ -253,17 +254,29 @@ export class CopilotSession {
     const tInit = Date.now();
     let opened = null;
 
-    if (this.resume && init?.agentCapabilities?.loadSession) {
+    const canLoad = Boolean(init?.agentCapabilities?.loadSession);
+    let loaded = false;
+    if (this.resume && canLoad) {
       // Copilot eski konuşmayı session/update mesajlarıyla yeniden gönderir
       this.loading = true;
-      const res = await this.#withRetry(() => this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] }));
-      opened = res;
-      this.#readModels(res);
-      this.#flushUser();
-      this.#closeBlock();
-      this.loading = false;
-    } else {
-      if (this.resume) this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: msg(this.lang, 'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.') } });
+      try {
+        const res = await this.#withRetry(() => this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] }));
+        opened = res;
+        this.#readModels(res);
+        loaded = true;
+      } catch (err) {
+        // Hiç mesaj yazılmamış (ya da Copilot'un sildiği) oturum yüklenemez: hata göstermek yerine yenisi açılır
+        if (err?.code !== -32002 && !/not found|no such session|unknown session|does not exist/i.test(String(err?.message || err))) throw err;
+        console.warn(`[copilot] oturum bulunamadı, yenisi açılıyor (${String(err.message).slice(0, 80)})`);
+      } finally {
+        this.#flushUser();
+        this.#closeBlock();
+        this.loading = false;
+      }
+    }
+    if (!loaded) {
+      if (this.resume && !canLoad) this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: msg(this.lang, 'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.') } });
+      else if (this.resume && this.hadHistory) this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: msg(this.lang, 'Copilot bu oturumu artık bulamıyor; önceki konuşma ekranda duruyor ama yeni mesajlarınız yeni bir Copilot oturumuyla devam edecek.') } });
       const res = await this.#withRetry(() => this.conn.request('session/new', { cwd: this.cwd, mcpServers: [] }));
       this.sessionId = res.sessionId;
       opened = res;
@@ -591,7 +604,7 @@ const strip = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => k !
 
 function friendlyError(err, lang) {
   const text = String(err?.message || err);
-  if (/ENOENT|not recognized|tanınmıyor|bulunamad|not found/i.test(text))
+  if (/ENOENT|is not recognized|tanınmıyor|command not found|copilot bulunamad|copilot: not found/i.test(text))
     return msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: text });
   if (/timed out|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text))
     return msg(lang, "Copilot, GitHub sunucularına ulaşamadı (zaman aşımı). Şirket ağı ya da proxy engelliyor olabilir: bir terminalde 'copilot' çalıştırıp aynı sorunun orada da olup olmadığına bakın; proxy gerekiyorsa Atölye'nin .env dosyasına HTTPS_PROXY ekleyip Atölye'yi yeniden başlatın. ({error})", { error: text.slice(0, 200) });

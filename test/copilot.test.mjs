@@ -203,3 +203,22 @@ test('COPILOT_EXTRA_ARGS yalnızca basit seçenekleri kabul eder', async () => {
   assert.deepEqual(extraArgs({ COPILOT_EXTRA_ARGS: '--x & calc.exe "a b" | del' }), ['--x', 'calc.exe', 'del']);
   assert.deepEqual(extraArgs({}), []);
 });
+
+test('yüklenemeyen (bulunamayan) oturum hata vermez; yeni oturum açılır', async () => {
+  const events = [];
+  const s = new CopilotSession({ cwd, resume: 'yok-123', emit: (e) => events.push(e) });
+  s.start();
+  await until(() => events.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.equal(events.filter((e) => e.type === 'error').length, 0);
+  assert.match(s.sessionId, /^sahte-/);
+  assert.equal(events.filter((e) => e.type === 'sdk' && e.msg.subtype === 'local_command_output').length, 0, 'boş oturumda not gösterilmez');
+  s.close();
+
+  // Yerel kopyada konuşma varsa kullanıcıya haber verilir
+  const events2 = [];
+  const s2 = new CopilotSession({ cwd, resume: 'yok-456', skipReplay: true, emit: (e) => events2.push(e) });
+  s2.start();
+  await until(() => events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.ok(events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'local_command_output' && /artık bulamıyor/.test(e.msg.content)));
+  s2.close();
+});
