@@ -77,6 +77,8 @@ fs.writeFileSync(path.join(stage, 'KURULUM.txt'), BOM + [
   '',
   'Kurulum başında kullanım koşulları gösterilir: şirketinizin Claude Code, GitHub Copilot ve',
   '(bağlanacaksa) Atlassian ürünleri için lisansı olduğunu "evet" yazarak kabul etmeniz istenir.',
+  'Kurulumdan ve kullanımdan doğacak tüm sorumluluk (veri paylaşımı, lisans ve şirket kurallarına',
+  'uygunluk dahil) kurulumu yapan ve kullanan kişiye aittir.',
   '',
   'Kur.bat şunları da denetler ve eksik olanı adım adım anlatır (kurulum yarıda kalmaz):',
   '  - Claude Code CLI kurulu mu, bağlantı ayarı (gateway adresi ve token) var mı',
