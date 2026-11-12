@@ -254,6 +254,8 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'Bu klasöre birden fazla depo indirdim ({names}) ve teknik biri değilim. Her birinin ne işe yaradığını ve birbirleriyle ilişkisini sade bir dille özetle.':
+    'I downloaded several repositories into this folder ({names}) and I am not a technical person. Summarize in plain language what each one does and how they relate to each other.',
   'İndiriliyor… ({i}/{n})': 'Downloading… ({i}/{n})',
   'Soruyu seçtiğiniz bağlantıyla (Jira, Confluence, Bitbucket, Graylog) ilişkilendirir': 'Relates your question to the connection you choose (Jira, Confluence, Bitbucket, Graylog)',
   'Bağlantı': 'Connection',

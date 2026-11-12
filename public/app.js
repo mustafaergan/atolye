@@ -1897,14 +1897,23 @@ async function renderRepoTab() {
     }
     repoUi.busy = false;
     for (const d of done) { setCollapsed(pathKey(d.dir), false); addProject(d.dir); }
+    // Aynı klasörde birden fazla depo varsa o kök klasör de proje olarak eklenir: depoların tümü hakkında
+    // (birbirleriyle ilişkisi, ortak arama vb.) oradan soru sorulabilir.
+    const parentOf = (d) => d.replace(/[\\/]+[^\\/]+[\\/]*$/, '');
+    const root = done.length ? parentOf(done[0].dir) : '';
+    const inRoot = root ? state.projects.filter((p) => samePath(parentOf(p), root)).length : 0;
+    const addRoot = Boolean(root) && inRoot >= 2;
+    if (addRoot) { setCollapsed(pathKey(root), false); addProject(root); }
     // İndirilenler listeden düşer; olmayanlar yeniden denenebilsin diye kalır
     urls.value = failed.map((f) => f.url).join('\n');
     repoUi.url = urls.value;
     if (done.length && !failed.length) {
       repoUi.result = null;
       linksDlg.close();
-      newSession(done[0].dir);
-      dom.input.value = T('Bu depoyu yeni indirdim ve teknik biri değilim. Ne işe yaradığını, klasör yapısını ve nereden başlamam gerektiğini sade bir dille özetle.');
+      newSession(addRoot && done.length > 1 ? root : done[0].dir);
+      dom.input.value = addRoot && done.length > 1
+        ? T('Bu klasöre birden fazla depo indirdim ({names}) ve teknik biri değilim. Her birinin ne işe yaradığını ve birbirleriyle ilişkisini sade bir dille özetle.', { names: done.map((d) => d.name).join(', ') })
+        : T('Bu depoyu yeni indirdim ve teknik biri değilim. Ne işe yaradığını, klasör yapısını ve nereden başlamam gerektiğini sade bir dille özetle.');
       autoGrow();
       updateSendBtn();
       return;

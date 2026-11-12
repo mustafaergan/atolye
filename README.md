@@ -156,8 +156,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Bağlantı kurulduktan sonra mesaj kutusunun altında bir **Bağlantı** seçicisi belirir. Bir bağlantı (ör. Jira) seçiliyken
   yazdığınız soruya, yapay zekânın o bağlantının araçlarını kullanması için kısa bir not eklenir.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
-  işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner, proje
-  olarak eklenir ve ilkinde oturum açılır.
+  işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner ve ayrı ayrı proje
+  olarak eklenir; aynı klasörde birden fazla depo olunca o kök klasör de proje olarak eklenir (depoların tümü hakkında oradan soru sorulur).
 - Her sekmede **Yapay zekâdan yardım al** düğmesi, hazır bir soruyla klasörsüz sohbet açar; bir hata çıktığında
   **Bu hatayı yapay zekâya sor** düğmesi hatayı soruya ekler.
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
