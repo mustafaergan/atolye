@@ -254,6 +254,22 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'listede ara…': 'search the list…',
+  'Eşleşen depo yok.': 'No matching repositories.',
+  "Bağlı Bitbucket'tan seçin (birden fazla işaretleyebilirsiniz)": 'Choose from the connected Bitbucket (you can tick more than one)',
+  'Depoları indir': 'Download repositories',
+  'Önce en az bir depo adresi girin ya da listeden seçin.': 'Enter at least one repository address or choose from the list first.',
+  'İndiriliyor ({i}/{n}): {name}… Büyük depolarda birkaç dakika sürebilir.': 'Downloading ({i}/{n}): {name}… Large repositories can take a few minutes.',
+  'Aşağıdaki listeden depoları işaretleyin ya da depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp yapıştırın. Birden fazla depo için her satıra bir adres yazın.':
+    'Tick repositories in the list below, or copy the HTTPS address from the "Clone" button on the repository page and paste it. For several repositories, put one address per line.',
+  'Depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp aşağıya yapıştırın; birden fazla depo için her satıra bir adres yazın. Bitbucket sekmesinden bağlantı kurarsanız depolar burada listelenir ve giriş otomatik yapılır.':
+    'Copy the HTTPS address from the "Clone" button on the repository page and paste it below; for several repositories, put one address per line. If you connect Bitbucket in its tab, repositories are listed here and sign-in is automatic.',
+  '"Depoları indir" deyin: depolar aşağıdaki klasöre iner, solda proje olarak eklenir ve ilkinde yeni bir oturum açılır.':
+    'Click "Download repositories": they are downloaded into the folder below, added as projects on the left, and a new session opens in the first one.',
+  'Depo adresleri (her satıra bir tane)': 'Repository addresses (one per line)',
+  'Her depo bu klasörün içinde kendi adıyla bir alt klasöre iner.': 'Each repository goes into a subfolder with its own name inside this folder.',
+  'İndirildi: {name} → {dir}': 'Downloaded: {name} → {dir}',
+  'Olmadı ({name}): {error}': 'Failed ({name}): {error}',
   'oturum: {n} {unit}': 'session: {n} {unit}',
   'kredi': 'credits',
   'Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir. Bu ayar yalnızca Copilot içindir; Claude Code etkilenmez.':
