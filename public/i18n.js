@@ -254,6 +254,8 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'Not: şirketinizin Copilot politikası üçüncü taraf MCP sunucularını kapatmışsa bu araçlar yalnızca Claude Code oturumlarında kullanılabilir.': 'Note: if your organization\'s Copilot policy disables third-party MCP servers, these tools are only available in Claude Code sessions.',
+  "Copilot'a bağlanılıyor… Hazır olunca mesajınız gönderilir; bu, şirket ağında bir dakikaya kadar sürebilir.": 'Connecting to Copilot… Your message is sent once it is ready; on a company network this can take up to a minute.',
   '"Şimdi güncelle" son sürümü indirir, kurar ve Atölye\'yi yeniden başlatır. Ayarlarınız ve oturumlarınız korunur.': '"Update now" downloads and installs the latest version and restarts Atölye. Your settings and sessions are kept.',
   'Kayıtlar': 'Logs',
   'Atölye kayıtları': 'Atölye logs',

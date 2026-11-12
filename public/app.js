@@ -299,6 +299,8 @@ function applyOpened(ev) {
     else if (m.type === 'user') renderUserFromSdk(m, true);
   }
   for (const e of ev.events || []) handleEvent(e);
+  // Copilot oturumu arka planda hazırlanırken (GitHub'a bağlanma, model listesi) bunu göster
+  if (ev.engine === 'copilot' && ev.ready === false) append(el('div', { class: 'notice info boot-notice', text: T("Copilot'a bağlanılıyor… Hazır olunca mesajınız gönderilir; bu, şirket ağında bir dakikaya kadar sürebilir.") }));
   requestContext();
   setBusy(ev.busy);
 
@@ -319,7 +321,7 @@ function handleEvent(ev) {
     case 'mode': return setMode(ev.mode, false);
     case 'model': return setModelValue(ev.model || '');
     case 'capabilities': return setCapabilities(ev);
-    case 'error': clearTimeout(openWatch); setBusy(false); return notice(ev.message);
+    case 'error': clearTimeout(openWatch); setBusy(false); $('.boot-notice', dom.messages)?.remove(); return notice(ev.message);
     case 'opened': return applyOpened(ev);
     case 'context': return onContext(ev);
     case 'live': return onLiveList(ev.sessions || []);
@@ -335,6 +337,7 @@ function handleSdk(msg) {
   if (state.busy && (msg.type === 'stream_event' || msg.type === 'assistant')) setWorking(T('Çalışıyor…'));
   if (msg.type === 'system') {
     if (msg.subtype === 'init') {
+      $('.boot-notice', dom.messages)?.remove();
       const isNew = state.sessionId !== msg.session_id;
       state.sessionId = msg.session_id;
       setMode(msg.permissionMode, false);
@@ -1727,7 +1730,7 @@ function renderLinks() {
   show(links.result[id] || null);
   const f = links.status?.files;
   $('#linksNote').textContent = f
-    ? T('Bilgiler yalnızca bu bilgisayarda, Claude Code ve Copilot CLI ayar dosyalarında saklanır: {claude} ve {copilot}. API anahtarı bu dosyalarda düz metin olarak durur; anahtara gereğinden geniş izin vermeyin.', f)
+    ? T('Bilgiler yalnızca bu bilgisayarda, Claude Code ve Copilot CLI ayar dosyalarında saklanır: {claude} ve {copilot}. API anahtarı bu dosyalarda düz metin olarak durur; anahtara gereğinden geniş izin vermeyin.', f) + ' ' + T('Not: şirketinizin Copilot politikası üçüncü taraf MCP sunucularını kapatmışsa bu araçlar yalnızca Claude Code oturumlarında kullanılabilir.')
     : '';
 }
 

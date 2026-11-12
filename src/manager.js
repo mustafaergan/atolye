@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import { AgentSession } from './session.js';
+import * as transcript from './transcript.js';
 import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
 
@@ -46,12 +47,17 @@ export class SessionManager {
     const raced = this.find({ sessionId });
     if (raced) return raced;
 
+    // Copilot konuşmasının yerel kopyası: Copilot o an yüklenemese bile geçmiş hemen görünür.
+    // Kopya varsa Copilot'un yükleme sırasında yeniden gönderdiği eski mesajlar yok sayılır (çift görünmesin).
+    const saved = sessionId && engine === 'copilot' ? transcript.read(sessionId) : [];
+
     const entry = {
       liveId: randomUUID(),
       engine: engine === 'copilot' ? 'copilot' : 'claude',
       cwd,
       historyCount,
-      buffer: [],
+      buffer: saved.slice(),
+      unsaved: [], // oturum kimliği belli olana kadar bekleyen kalıcı olaylar
       subs: new Set(),
       capabilities: null,
       title: null,
@@ -69,6 +75,7 @@ export class SessionManager {
       general,
       lang,
       emit: (ev) => this.#onEvent(entry, ev),
+      skipReplay: saved.length > 0,
     });
     this.entries.set(entry.liveId, entry);
     entry.agent.start();
@@ -94,6 +101,7 @@ export class SessionManager {
       model: entry.agent.model || '',
       busy: entry.agent.busy,
       capabilities: entry.capabilities,
+      ready: entry.agent.ready !== false && entry.agent.booted !== false,
       history,
       events: entry.buffer.slice(),
     });
@@ -146,7 +154,11 @@ export class SessionManager {
   #onEvent(entry, ev) {
     entry.lastActivity = Date.now();
     if (ev.type === 'error') console.warn(`[oturum] ${entry.engine}: ${ev.message}`);
-    if (entry.engine === 'copilot') this.#recordCopilot(entry, ev);
+    if (entry.engine === 'copilot') {
+      this.#recordCopilot(entry, ev);
+      if (transcript.shouldKeep(ev)) entry.unsaved.push(ev);
+      if (entry.agent.sessionId && entry.unsaved.length) transcript.append(entry.agent.sessionId, entry.unsaved.splice(0));
+    }
     if (ev.type === 'session_title') {
       if (ev.title) entry.title = ev.title;
       this.#broadcast();

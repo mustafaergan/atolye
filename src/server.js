@@ -22,6 +22,7 @@ import * as integrations from './integrations.js';
 import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
+import * as transcript from './transcript.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -196,7 +197,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const dir = req.query.dir ? String(req.query.dir) : undefined;
     manager.closeBySessionId(req.params.id);
     // Copilot oturumu: listeden kaldırılır (Copilot'un kendi kayıtlarına dokunulmaz)
-    if (req.query.engine === 'copilot') store.deleteCopilotSession(req.params.id);
+    if (req.query.engine === 'copilot') { store.deleteCopilotSession(req.params.id); transcript.remove(req.params.id); }
     else await deleteSession(req.params.id, { dir });
     res.json({ ok: true });
   }));
