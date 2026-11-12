@@ -164,6 +164,19 @@ function resultText(tc) {
   return parts.join('\n');
 }
 
+/** Copilot'un oturum cevabındaki alanların kısa dökümü (değerler değil, yalnızca yapı) */
+export function describeSession(res) {
+  if (!res || typeof res !== 'object') return 'alanlar: yok';
+  const parts = Object.keys(res).map((k) => {
+    const v = res[k];
+    if (k === 'configOptions' && Array.isArray(v)) return `configOptions[${v.map((o) => `${o.id}:${o.category || o.type || '?'}`).join(', ')}]`;
+    if (k === 'models' && v && typeof v === 'object') return `models{${Object.keys(v).join(', ')}}`;
+    if (k === 'modes' && v && typeof v === 'object') return `modes{${Object.keys(v).join(', ')}}`;
+    return k;
+  });
+  return `alanlar: ${parts.join(', ') || 'yok'}`;
+}
+
 // ---------- Oturum ----------
 export class CopilotSession {
   constructor({ cwd, resume, permissionMode, model, emit, lang = 'tr' }) {
@@ -206,6 +219,7 @@ export class CopilotSession {
   }
 
   async #boot() {
+    const t0 = Date.now();
     const child = spawnCopilot(['--acp', '--stdio'], { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: process.env });
     this.conn = new AcpConnection(child, {
       onRequest: (method, params) => this.#onRequest(method, params),
@@ -225,11 +239,14 @@ export class CopilotSession {
       clientInfo: { name: 'atolye', version: '1' },
     });
     this.promptCaps = init?.agentCapabilities?.promptCapabilities || {};
+    const tInit = Date.now();
+    let opened = null;
 
     if (this.resume && init?.agentCapabilities?.loadSession) {
       // Copilot eski konuşmayı session/update mesajlarıyla yeniden gönderir
       this.loading = true;
       const res = await this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] });
+      opened = res;
       this.#readModels(res);
       this.#flushUser();
       this.#closeBlock();
@@ -238,8 +255,11 @@ export class CopilotSession {
       if (this.resume) this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: msg(this.lang, 'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.') } });
       const res = await this.conn.request('session/new', { cwd: this.cwd, mcpServers: [] });
       this.sessionId = res.sessionId;
+      opened = res;
       this.#readModels(res);
     }
+    // Teşhis satırı (atolye.log): açılış süreleri ve Copilot'un bildirdiği alanlar. Gizli bilgi içermez.
+    console.log(`[copilot] ${init?.agentInfo?.version || '?'} başlatma ${((tInit - t0) / 1000).toFixed(1)} sn, oturum ${((Date.now() - tInit) / 1000).toFixed(1)} sn; ${describeSession(opened)}; model sayısı ${this.models.length}`);
     // Arayüzde Copilot için daha önce seçilen model bu oturuma da uygulanır
     if (this.wantModel && this.wantModel !== this.model && this.models.some((m) => m.value === this.wantModel)) {
       await this.setModel(this.wantModel).catch(() => {});
@@ -253,6 +273,7 @@ export class CopilotSession {
     if (!u || this.closed) return;
     const kind = u.sessionUpdate;
     if (kind !== 'user_message_chunk') this.#flushUser();
+    if (!this.firstChunk && this.promptStart && !this.loading) this.firstChunk = Date.now();
     switch (kind) {
       case 'user_message_chunk':
         if (this.loading && u.content?.type === 'text') this.userBuf += u.content.text;
@@ -301,7 +322,7 @@ export class CopilotSession {
   // Copilot modellerini iki biçimde bildirebilir: "models" (availableModels/currentModelId) ya da
   // "configOptions" içinde model kategorisindeki seçenek. İkisi de okunur.
   #readModels(res) {
-    const opt = (res?.configOptions || []).find((o) => o.category === 'model' && Array.isArray(o.options));
+    const opt = (res?.configOptions || []).find((o) => (o.category === 'model' || /model/i.test(o.id || '')) && Array.isArray(o.options));
     if (opt) {
       const flat = opt.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o]));
       this.modelConfigId = opt.id;
@@ -452,7 +473,10 @@ export class CopilotSession {
         let stopReason = 'end_turn';
         let error = null;
         try {
+          this.promptStart = Date.now();
           stopReason = (await this.conn.request('session/prompt', { sessionId: this.sessionId, prompt }))?.stopReason || 'end_turn';
+          console.log(`[copilot] tur ${((Date.now() - this.promptStart) / 1000).toFixed(1)} sn (ilk yanıt ${this.firstChunk ? ((this.firstChunk - this.promptStart) / 1000).toFixed(1) : '?'} sn)`);
+          this.firstChunk = null;
         } catch (err) {
           error = err;
         }
