@@ -1392,7 +1392,10 @@ function sessionRow(s) {
   const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
     status,
     el('span', { class: 's-title', text: s.title }),
-    (s.engine || s.run?.engine) === 'copilot' ? el('span', { class: 's-engine', text: 'Copilot', title: 'GitHub Copilot' }) : null,
+    // Liste zaten seçili motorun oturumlarını gösterir; etiket yalnızca diğer motorda hâlâ çalışan oturumda çıkar
+    !s.draft && (s.engine || s.run?.engine || 'claude') !== currentEngine()
+      ? el('span', { class: 's-engine', text: (s.engine || s.run?.engine) === 'copilot' ? 'Copilot' : 'Claude', title: (s.engine || s.run?.engine) === 'copilot' ? 'GitHub Copilot' : 'Claude Code' })
+      : null,
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
     s.id && !s.run?.busy ? el('span', { class: 's-actions' },
       el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
