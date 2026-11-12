@@ -1893,6 +1893,7 @@ async function renderProxyTab() {
       proxyUi.status = data;
       password.value = '';
       await runTest();
+      if (links.tab === 'proxy') renderLinks(); // sekmedeki nokta ve "sına / kaldır" düğmeleri güncellensin (sonuç korunur)
     } finally { saveBtn.disabled = false; }
   } });
   const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Proxy ayarını kaldır'), onclick: async () => {
