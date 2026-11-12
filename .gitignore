@@ -5,3 +5,5 @@ node_modules/
 dist/
 .kurulu
 atolye-guncelle.log
+.guncelleme/
+*.eski/
