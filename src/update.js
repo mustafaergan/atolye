@@ -59,5 +59,6 @@ export async function checkUpdate({ force = false } = {}) {
     }
   } catch { /* ağ yok / engelli: bildirim gösterilmez */ }
   cache = { at: Date.now(), value };
+  console.log(`[güncelleme] kurulu ${current}, depodaki ${value.latest || 'okunamadı'}`);
   return { ...base, ...value };
 }

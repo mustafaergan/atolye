@@ -4,6 +4,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createServer } from './server.js';
+import { installLogCapture } from './log.js';
+
+installLogCapture(); // arayüzdeki "Kayıtlar" penceresi için
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Önce uygulama klasöründeki .env, sonra çalıştırılan klasördeki .env (varsa) okunur.

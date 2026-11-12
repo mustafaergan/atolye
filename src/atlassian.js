@@ -67,8 +67,9 @@ async function call(cfg, url, { method = 'GET', body, text = false } = {}) {
   const basic = `Basic ${Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64')}`;
   const bearer = `Bearer ${cfg.token}`;
   const cloud = isCloud(cfg.url);
-  // Şirket içi kurulumda e-posta yanlışlıkla doldurulmuşsa kişisel erişim belirteci (Bearer) de denenir
-  const schemes = cfg.email ? (cloud ? [basic] : [basic, bearer]) : [bearer];
+  // Şirket içi kurulumda erişim belirteci Bearer ile gönderilir; e-posta doldurulmuşsa (kullanıcı adı + belirteç)
+  // Basic de denenir. Cloud'da e-posta + API belirteci (Basic) kullanılır.
+  const schemes = cloud ? [cfg.email ? basic : bearer] : (cfg.email ? [bearer, basic] : [bearer]);
   let res; let raw;
   for (const auth of schemes) {
     try {
@@ -186,8 +187,13 @@ export const bitbucket = {
       return me.display_name || me.username || 'bilinmiyor';
     }
     const name = (await call(cfg, `${cfg.url}/plugins/servlet/applinks/whoami`, { text: true })).trim();
-    if (!name) throw new Error('API anahtarı kabul edilmedi (anonim erişim)');
-    return name;
+    if (name) return name;
+    // Proje/depo düzeyindeki erişim belirteçleri bir kullanıcıya bağlı değildir: ad dönmez ama depolara erişir.
+    // Geçersiz belirteçte bu çağrı 401 verir (yukarıdaki ipucuyla); boş listede belirteç hiçbir depoyu görmüyordur.
+    const repos = await call(cfg, `${cfg.url}/rest/api/1.0/repos?limit=1`);
+    if ((repos.values || []).length) return 'erişim belirteci (kullanıcı adı yok)';
+    throw new Error('Belirteç kabul edildi ama hiçbir depoya erişemiyor, ya da sunucu sizi tanımadı (anonim). '
+      + 'Bitbucket\'ta profil resmi → Hesabı yönet → HTTP erişim belirteçleri\'nden, depo okuma izniyle yeni bir belirteç oluşturup yalnızca onu yapıştırın; e-posta alanını boş bırakın');
   },
   /** Depolar, indirme (clone) adresleriyle: [{ name, cloneUrl }] */
   async repos(cfg, { project } = {}) {

@@ -72,6 +72,7 @@ export class SessionManager {
     });
     this.entries.set(entry.liveId, entry);
     entry.agent.start();
+    console.log(`[oturum] ${entry.engine} oturumu açılıyor: ${cwd}${sessionId ? ' (kayıtlı oturum)' : ''}`);
     return entry;
   }
 
@@ -144,6 +145,7 @@ export class SessionManager {
 
   #onEvent(entry, ev) {
     entry.lastActivity = Date.now();
+    if (ev.type === 'error') console.warn(`[oturum] ${entry.engine}: ${ev.message}`);
     if (entry.engine === 'copilot') this.#recordCopilot(entry, ev);
     if (ev.type === 'session_title') {
       if (ev.title) entry.title = ev.title;

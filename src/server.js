@@ -21,6 +21,7 @@ import { detectCopilot } from './copilot.js';
 import * as integrations from './integrations.js';
 import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
+import { recentLog } from './log.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,7 +58,10 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.use('/vendor/dompurify', express.static(path.join(ROOT, 'node_modules/dompurify/dist')));
 
   const wrap = (fn) => (req, res) =>
-    fn(req, res).catch((err) => res.status(500).json({ error: String(err?.message || err) }));
+    fn(req, res).catch((err) => {
+      console.error(`[istek] ${req.method} ${req.path}: ${err?.message || err}`);
+      res.status(500).json({ error: String(err?.message || err) });
+    });
 
   app.get('/api/config', wrap(async (_req, res) => {
     res.json({
@@ -112,12 +116,16 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.post('/api/repo/clone', wrap(async (req, res) => {
     const lang = req.query.lang;
     const r = await repo.cloneRepo({ url: req.body?.url, parent: req.body?.parent, bitbucketCfg: integrations.config('bitbucket') });
+    console.log(`[depo] indirme: ${r.ok ? `tamam → ${r.dir}` : `olmadı (${r.code}) ${r.error || ''}`}`);
     if (r.ok) store.addProject(r.dir);
     else if (r.code === 'bad-url') r.error = msg(lang, 'Geçerli bir depo adresi girin (ör. https://…/depo-adi.git)');
     else if (r.code === 'no-git') r.error = msg(lang, 'Git kurulu değil. https://git-scm.com adresinden kurup Atölye\'yi yeniden başlatın.');
     else if (r.code === 'exists') r.error = msg(lang, 'Bu klasör zaten var: {dir}. Depo daha önce indirilmiş olabilir; soldan "Klasör ekle" ile açabilirsiniz.', { dir: r.dir });
     res.json(r);
   }));
+
+  // Son kayıt satırları (kenar çubuğundaki "Kayıtlar" penceresi)
+  app.get('/api/log', wrap(async (req, res) => res.json({ lines: recentLog(req.query.lines) })));
 
   // Yeni Atölye sürümü var mı? (sağ üstteki "Güncelleme var" bildirimi)
   app.get('/api/update', wrap(async (req, res) => res.json(await checkUpdate({ force: req.query.refresh === '1' }))));
@@ -140,6 +148,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.delete('/api/integrations/:service', wrap(async (req, res) => res.json(integrations.remove(req.params.service))));
   app.post('/api/integrations/:service/test', wrap(async (req, res) => {
     const r = await integrations.test(req.params.service);
+    console.log(`[bağlantı] ${req.params.service} sınaması: ${r.ok ? `başarılı (${r.user})` : r.error}`);
     if (r.error === 'not-configured') r.error = msg(req.query.lang, 'Bağlantı bilgileri eksik');
     res.json(r);
   }));
