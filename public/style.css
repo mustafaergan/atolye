@@ -714,3 +714,10 @@ a.check-update { color: var(--text-2); }
 @container (max-width: 560px) { .composer-bar .select-wrap select { max-width: 120px; } }
 .copilot-credit.warn { border-color: #c98a1a; color: #c98a1a; }
 .copilot-credit.err { border-color: var(--err); color: var(--err); }
+
+/* ---------- Kullanım modu (rol) ---------- */
+.role-wrap { display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.role-label { font-size: 11.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.role-wrap select { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; padding: 4px 2px; cursor: pointer; }
+.role-wrap select:focus { outline: none; }
+.role-wrap select option { background: var(--surface); color: var(--text); }

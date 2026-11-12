@@ -33,6 +33,23 @@ const GENERAL_PROMPT = [
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+// Kullanım rolüne göre Claude'a verilen ek yönerge (bilinmeyen rolde eklenmez). Yeni rol eklemek için buraya
+// bir satır ve arayüzdeki ROLES tanımına bir kayıt yeterlidir.
+export const ROLE_PROMPTS = {
+  analist: [
+    'The user is a business analyst, not a software developer.',
+    'Explain in plain, non-technical language; avoid jargon, or explain a term briefly the first time you use it.',
+    'Focus on what the system does: business rules, validations, data flow, screens, integrations and the impact of a change.',
+    'Prefer reading and explaining over changing things: do not modify files, commit, or run commands that change anything unless the user explicitly asks for it.',
+    'When you reference code, say where it is and what it means for the business rather than quoting long code blocks.',
+  ].join(' '),
+  gelistirici: [
+    'The user is a software developer.',
+    'Be concise and technical; show the relevant code, commands and file paths.',
+    'When build, security-scan or server tools are available (Jenkins, Fortify, WebLogic), use them to check facts instead of guessing.',
+  ].join(' '),
+};
+
 export class AgentSession {
   /**
    * @param {object} opts
@@ -42,10 +59,11 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, lang = 'tr' }) {
+  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr' }) {
     this.cwd = cwd;
     this.lang = lang;
     this.general = general;
+    this.role = role;
     this.resume = resume;
     this.model = model || undefined;
     this.effort = EFFORTS.includes(effort) ? effort : undefined; // düşünme seviyesi (boş: modelin varsayılanı)
@@ -75,7 +93,7 @@ export class AgentSession {
       includePartialMessages: true,
       // CLAUDE.md, ~/.claude/settings.json (gateway adresi, token, izinler) yüklensin
       settingSources: ['user', 'project', 'local'],
-      systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.general ? { append: GENERAL_PROMPT } : {}) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.#promptAppend() ? { append: this.#promptAppend() } : {}) },
       canUseTool: (toolName, input, ctx) => this.#askPermission(toolName, input, ctx),
       stderr: (data) => {
         if (process.env.ATOLYE_DEBUG) process.stderr.write(`[claude] ${data}`);
@@ -84,6 +102,11 @@ export class AgentSession {
     this.q = query({ prompt: this.#input(), options });
     this.#pump();
     this.#sendCapabilities();
+  }
+
+  /** Sistem yönergesine eklenenler: klasörsüz sohbet ve kullanım rolü */
+  #promptAppend() {
+    return [this.general ? GENERAL_PROMPT : '', ROLE_PROMPTS[this.role] || ''].filter(Boolean).join('\n\n');
   }
 
   async *#input() {

@@ -91,8 +91,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     res.json(store.get());
   }));
   app.post('/api/state/remember', wrap(async (req, res) => {
-    const { cwd, selected, open, engine } = req.body || {};
-    res.json(store.remember({ cwd, selected, open, engine }));
+    const { cwd, selected, open, engine, role } = req.body || {};
+    res.json(store.remember({ cwd, selected, open, engine, role }));
   }));
   app.post('/api/state/import', wrap(async (req, res) => {
     const { projects, collapsed } = req.body || {};
@@ -337,6 +337,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
         model: m.model || undefined,
         effort: typeof m.effort === 'string' && m.effort ? m.effort : undefined,
         general: samePath(cwd, GENERAL_DIR),
+        role: typeof m.role === 'string' ? m.role : undefined,
         lang,
       });
       const history = next.historyCount
