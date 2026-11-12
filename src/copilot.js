@@ -19,7 +19,12 @@ export const COPILOT_MODEL_LABEL = 'GitHub Copilot';
 const copilotPath = () => process.env.COPILOT_CLI_PATH?.trim() || 'copilot';
 const isScript = (p) => /\.(mjs|cjs|js)$/i.test(p);
 
-function spawnCopilot(args, opts) {
+// COPILOT_EXTRA_ARGS: Copilot'a eklenecek seçenekler (ör. --disable-builtin-mcps: şirket ağı GitHub'ın kendi
+// MCP sunucusuna izin vermiyorsa açılıştaki beklemeyi kaldırır). Yalnızca "--seçenek" ve basit değerler kabul edilir.
+export const extraArgs = (env = process.env) => String(env.COPILOT_EXTRA_ARGS || '').split(/\s+/).filter((a) => /^[\w=.,:@/-]+$/.test(a));
+
+function spawnCopilot(baseArgs, opts) {
+  const args = [...baseArgs, ...extraArgs()];
   const exe = copilotPath();
   if (isScript(exe)) return spawn(process.execPath, [exe, ...args], opts);
   // Windows'ta npm ile kurulan "copilot" bir .cmd dosyasıdır; kabuk üzerinden çalıştırılır
@@ -179,12 +184,17 @@ export function describeSession(res) {
 
 // ---------- Oturum ----------
 export class CopilotSession {
-  constructor({ cwd, resume, permissionMode, model, emit, lang = 'tr' }) {
+  constructor({ cwd, resume, permissionMode, model, emit, lang = 'tr', skipReplay = false }) {
     this.engine = 'copilot';
     this.cwd = cwd;
     this.resume = resume;
     this.lang = lang;
-    this.emit = emit;
+    // Yerel kopyası olan oturum yüklenirken Copilot'un yeniden gönderdiği eski mesajlar arayüze iletilmez
+    this.emit = (ev) => {
+      if (this.loading && skipReplay && !['capabilities', 'model', 'session_title', 'error'].includes(ev.type)) return;
+      emit(ev);
+    };
+    this.booted = false; // Copilot oturumu hazır mı (arayüzde "bağlanılıyor" göstergesi)
     this.permissionMode = permissionMode === 'plan' ? 'default' : permissionMode || 'default';
     this.model = ''; // Copilot'un kendi model kimliği (Claude modelleriyle karışmaz)
     this.wantModel = model || null; // arayüzde Copilot için son seçilen model
@@ -245,7 +255,7 @@ export class CopilotSession {
     if (this.resume && init?.agentCapabilities?.loadSession) {
       // Copilot eski konuşmayı session/update mesajlarıyla yeniden gönderir
       this.loading = true;
-      const res = await this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] });
+      const res = await this.#withRetry(() => this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] }));
       opened = res;
       this.#readModels(res);
       this.#flushUser();
@@ -253,11 +263,12 @@ export class CopilotSession {
       this.loading = false;
     } else {
       if (this.resume) this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: msg(this.lang, 'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.') } });
-      const res = await this.conn.request('session/new', { cwd: this.cwd, mcpServers: [] });
+      const res = await this.#withRetry(() => this.conn.request('session/new', { cwd: this.cwd, mcpServers: [] }));
       this.sessionId = res.sessionId;
       opened = res;
       this.#readModels(res);
     }
+    this.booted = true;
     // Teşhis satırı (atolye.log): açılış süreleri ve Copilot'un bildirdiği alanlar. Gizli bilgi içermez.
     console.log(`[copilot] ${init?.agentInfo?.version || '?'} başlatma ${((tInit - t0) / 1000).toFixed(1)} sn, oturum ${((Date.now() - tInit) / 1000).toFixed(1)} sn; ${describeSession(opened)}; model sayısı ${this.models.length}`);
     // Arayüzde Copilot için daha önce seçilen model bu oturuma da uygulanır
@@ -266,6 +277,17 @@ export class CopilotSession {
     }
     this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.#modelName() } });
     this.#drain();
+  }
+
+  // Copilot açılışta GitHub'dan model listesini çeker; ağ yavaşsa zaman aşımına düşebilir. Bir kez daha denenir.
+  async #withRetry(fn) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (this.closed || !/timed out|timeout|ETIMEDOUT|ECONNRESET|fetch failed/i.test(String(err?.message || err))) throw err;
+      console.warn(`[copilot] ${String(err.message).slice(0, 120)} — yeniden deneniyor`);
+      return fn();
+    }
   }
 
   // ----- Copilot'tan gelen akış -----

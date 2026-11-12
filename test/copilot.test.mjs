@@ -159,3 +159,45 @@ test("model listesi Copilot'un kendisinden gelir; seçilen model oturuma uygulan
   assert.equal(sdk(events2, 'system').find((m) => m.subtype === 'init').model, 'Sahte Güçlü');
   s2.close();
 });
+
+test('yerel kopya: Copilot geçmişi yeniden göndermese de konuşma görünür; çift mesaj olmaz', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-tr-'));
+  process.env.ATOLYE_STATE_FILE = path.join(dir, 'durum.json');
+  const transcript = await import('../src/transcript.js');
+  const m = new SessionManager({ store: new StateStore(process.env.ATOLYE_STATE_FILE) });
+  const entry = await m.open({ cwd, mode: 'bypassPermissions', engine: 'copilot' });
+  const seen = [];
+  const unsub = m.subscribe(entry, (e) => seen.push(e), []);
+  m.send(entry, 'portu düzelt', []);
+  await until(() => seen.some((e) => e.type === 'sdk' && e.msg.type === 'result'));
+  const id = entry.agent.sessionId;
+  unsub();
+  m.close(entry);
+
+  const saved = transcript.read(id);
+  assert.equal(saved[0].type, 'user_prompt');
+  assert.equal(saved[0].text, 'portu düzelt');
+  assert.ok(saved.some((e) => e.type === 'sdk' && e.msg.type === 'assistant'));
+  assert.ok(!saved.some((e) => e.type === 'sdk' && e.msg.type === 'stream_event'), 'akış parçaları saklanmaz');
+
+  // Yeniden açılış: geçmiş anında (Copilot hazır olmadan) görünür ve yükleme sırasında tekrar eklenmez
+  const again = await m.open({ cwd, sessionId: id, engine: 'copilot' });
+  const first = [];
+  m.subscribe(again, (e) => first.push(e), []);
+  assert.equal(first[0].ready, false);
+  assert.equal(first[0].events.filter((e) => e.type === 'user_prompt').length, 1);
+  await until(() => first.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.equal(first.slice(1).filter((e) => e.type === 'user_prompt').length, 0, 'eski mesajlar ikinci kez gelmez');
+  assert.equal(transcript.read(id).length, saved.length, 'yerel kopya büyümez');
+  m.close(again);
+  transcript.remove(id);
+  assert.deepEqual(transcript.read(id), []);
+  delete process.env.ATOLYE_STATE_FILE;
+});
+
+test('COPILOT_EXTRA_ARGS yalnızca basit seçenekleri kabul eder', async () => {
+  const { extraArgs } = await import('../src/copilot.js');
+  assert.deepEqual(extraArgs({ COPILOT_EXTRA_ARGS: ' --disable-builtin-mcps  --model=auto ' }), ['--disable-builtin-mcps', '--model=auto']);
+  assert.deepEqual(extraArgs({ COPILOT_EXTRA_ARGS: '--x & calc.exe "a b" | del' }), ['--x', 'calc.exe', 'del']);
+  assert.deepEqual(extraArgs({}), []);
+});
