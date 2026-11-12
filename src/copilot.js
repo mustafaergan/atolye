@@ -10,6 +10,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { msg } from './messages.js';
+import { copilotEnv } from './proxy.js';
 
 const PROTOCOL_VERSION = 1;
 const isWin = process.platform === 'win32';
@@ -230,7 +231,7 @@ export class CopilotSession {
 
   async #boot() {
     const t0 = Date.now();
-    const child = spawnCopilot(['--acp', '--stdio'], { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: process.env });
+    const child = spawnCopilot(['--acp', '--stdio'], { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: copilotEnv() });
     this.conn = new AcpConnection(child, {
       onRequest: (method, params) => this.#onRequest(method, params),
       onNotification: (method, params) => { if (method === 'session/update') this.#onUpdate(params.update); },

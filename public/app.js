@@ -1876,7 +1876,7 @@ async function renderProxyTab() {
     result.hidden = !r;
     if (!r) return;
     result.className = `links-result ${r.ok ? 'ok' : r.pending ? '' : 'err'}`;
-    result.replaceChildren(el('div', { text: r.pending ? T('Proxy sınanıyor…') : r.ok ? T('Proxy çalışıyor: GitHub\'a ulaşılabiliyor. Yeni açtığınız oturumlar bu ayarı kullanır.') : T('Olmadı: {error}', { error: r.error }) }));
+    result.replaceChildren(el('div', { text: r.pending ? T('Proxy sınanıyor…') : r.ok ? T('Proxy çalışıyor: GitHub\'a ulaşılabiliyor. Yeni açtığınız Copilot oturumları bu ayarı kullanır.') : T('Olmadı: {error}', { error: r.error }) }));
     if (!r.ok && !r.pending) result.append(askErrorButton(T('Proxy ayarını yapma'), r.error));
   };
   const runTest = async () => {
@@ -1904,10 +1904,10 @@ async function renderProxyTab() {
 
   body.replaceChildren(...[
     el('ol', { class: 'links-steps' },
-      el('li', { text: T('Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot (ve gerekirse Claude Code) bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir.') }),
+      el('li', { text: T('Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir. Bu ayar yalnızca Copilot içindir; Claude Code etkilenmez.') }),
       el('li', { text: T('Proxy adresini, kullanıcı adını ve parolayı BT ekibinizden ya da şirket içi kurulum dokümanınızdan alın. Kullanıcı adındaki @ gibi özel karakterleri olduğu gibi yazın; Atölye gerekli dönüşümü kendisi yapar.') }),
       el('li', { text: T('"Proxy kullanılmayacak adresler" alanına şirket içi adresleri yazın (ör. .sirket.com); bunlara proxy olmadan gidilir.') }),
-      el('li', { text: T('"Kaydet ve sına" deyin, sonra yeni bir oturum açın. Açık terminalleri de kapatıp yeniden açın.') })),
+      el('li', { text: T('"Kaydet ve sına" deyin, sonra yeni bir Copilot oturumu açın.') })),
     el('label', { class: 'links-field' }, el('span', { text: T('Proxy adresi') }), address),
     el('label', { class: 'links-field' }, el('span', { text: T('Kullanıcı adı') }), username),
     el('label', { class: 'links-field' }, el('span', { text: T('Parola') }), password),
@@ -1919,9 +1919,7 @@ async function renderProxyTab() {
     result,
   ].filter(Boolean));
   show(proxyUi.result);
-  $('#linksNote').textContent = st.store === 'windows-user-env'
-    ? T('Ayar, Windows kullanıcı ortam değişkenlerine (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) yazılır; komut satırı araçlarının baktığı yer burasıdır, bu yüzden terminaldeki copilot ve claude da aynı ayarı kullanır. Parola orada düz metin olarak durur ve Atölye\'nin kayıtlarına yazılmaz.')
-    : T('Ayar, Atölye\'nin .env dosyasına (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) yazılır. Parola orada düz metin olarak durur ve Atölye\'nin kayıtlarına yazılmaz.');
+  $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve bilgisayardaki diğer programlar etkilenmez. Atölye\'nin .env dosyasında saklanır; parola orada düz metin olarak durur ve Atölye\'nin kayıtlarına yazılmaz.');
 }
 
 // ---------- Güncelleme bildirimi ----------

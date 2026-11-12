@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 
 process.env.ATOLYE_PROXY_STORE = 'none'; // gerçek ortam değişkenlerine / .env dosyasına dokunma
-for (const k of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy']) delete process.env[k];
+for (const k of ['COPILOT_PROXY', 'COPILOT_NO_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY']) delete process.env[k];
 const proxy = await import('../src/proxy.js');
 const { mask } = await import('../src/log.js');
 
@@ -19,22 +19,29 @@ test('adres kurma ve çözme: kullanıcı adındaki ve paroladaki özel karakter
 
 test('kaydet: ortam değişkenleri uygulanır, parola arayüze dönmez; boş parola eskisini korur; kaldır temizler', async () => {
   const st = await proxy.save({ address: 'proxy.ornek.com:8081', username: 'biri@ornek.com', password: 'gizli', noProxy: '.ornek.com' });
-  assert.deepEqual(st, { configured: true, address: 'proxy.ornek.com:8081', username: 'biri@ornek.com', hasPassword: true, noProxy: 'localhost,127.0.0.1,.ornek.com', store: st.store });
+  assert.deepEqual(st, { configured: true, address: 'proxy.ornek.com:8081', username: 'biri@ornek.com', hasPassword: true, noProxy: 'localhost,127.0.0.1,.ornek.com' });
   assert.equal(JSON.stringify(st).includes('gizli'), false);
-  assert.equal(process.env.HTTPS_PROXY, 'http://biri%40ornek.com:gizli@proxy.ornek.com:8081');
-  assert.equal(process.env.HTTP_PROXY, process.env.HTTPS_PROXY);
+  assert.equal(process.env.COPILOT_PROXY, 'http://biri%40ornek.com:gizli@proxy.ornek.com:8081');
+  // Atölye'nin kendi ortamı (dolayısıyla Claude Code) değişmez; ayar yalnızca Copilot sürecine verilir
+  assert.equal(process.env.HTTPS_PROXY, undefined);
+  assert.equal(process.env.HTTP_PROXY, undefined);
+  const forCopilot = proxy.copilotEnv();
+  assert.equal(forCopilot.HTTPS_PROXY, process.env.COPILOT_PROXY);
+  assert.equal(forCopilot.HTTP_PROXY, process.env.COPILOT_PROXY);
+  assert.equal(forCopilot.NO_PROXY, 'localhost,127.0.0.1,.ornek.com');
 
   await proxy.save({ address: 'proxy.ornek.com:9000', username: 'biri@ornek.com', password: '' });
-  assert.equal(process.env.HTTPS_PROXY, 'http://biri%40ornek.com:gizli@proxy.ornek.com:9000');
+  assert.equal(process.env.COPILOT_PROXY, 'http://biri%40ornek.com:gizli@proxy.ornek.com:9000');
   // Kullanıcı değişirse eski parola taşınmaz
   await proxy.save({ address: 'proxy.ornek.com:9000', username: 'baskasi', password: '' });
-  assert.equal(process.env.HTTPS_PROXY, 'http://baskasi@proxy.ornek.com:9000');
+  assert.equal(process.env.COPILOT_PROXY, 'http://baskasi@proxy.ornek.com:9000');
 
   await assert.rejects(proxy.save({ address: 'adres değil', username: '', password: '' }), { code: 'bad-address' });
   await assert.rejects(proxy.save({ address: 'proxy.ornek.com:99999' }), { code: 'bad-address' });
 
   assert.equal((await proxy.remove()).configured, false);
-  assert.equal(process.env.HTTPS_PROXY, undefined);
+  assert.equal(process.env.COPILOT_PROXY, undefined);
+  assert.equal(proxy.copilotEnv(), process.env, 'ayar yokken ortam olduğu gibi kullanılır');
   assert.deepEqual(await proxy.test(), { ok: false, code: 'not-configured' });
 });
 
@@ -69,4 +76,22 @@ test('sınama: proxy üzerinden tünel açılır; yanlış parola ve ulaşılama
 test('kayıtlarda adres içindeki kullanıcı adı ve parola gizlenir', () => {
   assert.equal(mask('HTTPS_PROXY=http://biri%40ornek.com:gizli@proxy.ornek.com:8081 kullanılıyor'), 'HTTPS_PROXY=http://***@proxy.ornek.com:8081 kullanılıyor');
   assert.equal(mask('https://github.com/ornek/depo.git'), 'https://github.com/ornek/depo.git');
+});
+
+test('.env dosyası: proxy satırları yazılır, diğer ayarlar korunur ve değer aynen geri okunur', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dotenv = (await import('dotenv')).default;
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-env-')), '.env');
+  fs.writeFileSync(file, 'ATOLYE_PORT=3210\n# COPILOT_PROXY=eski\nCOPILOT_PROXY=http://eski:1\n');
+  const url = proxy.buildProxyUrl({ host: 'proxy.ornek.com', port: 8081, username: 'biri@ornek.com', password: 'p@ss#w0rd =x' });
+  proxy.persistEnvFile({ COPILOT_PROXY: url, COPILOT_NO_PROXY: 'localhost,127.0.0.1,.ornek.com' }, file);
+  const parsed = dotenv.parse(fs.readFileSync(file));
+  assert.equal(parsed.ATOLYE_PORT, '3210');
+  assert.equal(parsed.COPILOT_PROXY, url);
+  assert.equal(proxy.parseProxy(parsed.COPILOT_PROXY).password, 'p@ss#w0rd =x');
+  assert.equal(fs.readFileSync(file, 'utf8').match(/COPILOT_PROXY=/g).length, 1, 'eski satırlar temizlenir');
+  proxy.persistEnvFile({}, file);
+  assert.equal(dotenv.parse(fs.readFileSync(file)).COPILOT_PROXY, undefined);
 });
