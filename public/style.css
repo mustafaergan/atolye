@@ -694,3 +694,5 @@ a.check-update { color: var(--text-2); }
 .repo-item:hover { background: var(--surface-2); }
 .repo-empty { padding: 8px; font-size: 12.5px; color: var(--text-3); }
 .repo-ok { color: #2e9e5b; }
+.link-wrap.active select { border-color: var(--accent); color: var(--accent); }
+.link-wrap[hidden] { display: none; }

@@ -1029,7 +1029,7 @@ function send() {
   const images = state.attachments.map(({ mediaType, data }) => ({ mediaType, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
-  wsSend({ type: 'send', text: text || T('Bu görsele bak.'), images });
+  wsSend({ type: 'send', text: withLinkHint(text || T('Bu görsele bak.')), images });
   dom.input.value = '';
   state.attachments = [];
   renderAttachments();
@@ -1670,6 +1670,36 @@ LINKS.graylog = {
   examples: () => T('Örnek: "Graylog\'da son 30 dakikada uygulama-adi için hata kayıtlarını bul ve sebebini özetle".'),
 };
 const links = { status: null, tab: 'jira', result: {} };
+
+// ---------- Soruyu bir bağlantıyla ilişkilendirme ----------
+// Mesaj kutusunun altındaki seçici yalnızca kurulmuş bağlantıları gösterir. Bir bağlantı seçiliyken gönderilen
+// soruya, yapay zekânın o bağlantının araçlarını kullanması için kısa bir not eklenir (mesajda görünür).
+const LINK_TOOLS = {
+  jira: 'jira_search, jira_get_issue, jira_add_comment',
+  confluence: 'confluence_search, confluence_get_page',
+  bitbucket: 'bitbucket_list_repos, bitbucket_list_pull_requests, bitbucket_get_pull_request, bitbucket_get_file',
+  graylog: 'graylog_search, graylog_list_streams',
+};
+let activeLink = '';
+function renderLinkSelect() {
+  const sel = $('#linkSelect');
+  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id]).map(([id]) => id);
+  if (!connected.includes(activeLink)) activeLink = '';
+  $('#linkWrap').hidden = !connected.length;
+  sel.replaceChildren(el('option', { value: '', text: T('Bağlantı: yok') }), ...connected.map((id) => el('option', { value: id, text: LINKS[id].name })));
+  sel.value = activeLink;
+  sel.onchange = () => {
+    activeLink = sel.value;
+    $('#linkWrap').classList.toggle('active', Boolean(activeLink));
+    dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
+    dom.input.focus();
+  };
+}
+const linkPlaceholder = dom.input.placeholder;
+function withLinkHint(text) {
+  if (!activeLink || text.startsWith('/')) return text; // komutlara not eklenmez
+  return `${text}\n\n${T('({name} bağlantısını kullan; araçlar: {tools})', { name: LINKS[activeLink].name, tools: LINK_TOOLS[activeLink] })}`;
+}
 const linksDlg = $('#linksDialog');
 
 async function loadLinks() {
@@ -1678,6 +1708,7 @@ async function loadLinks() {
   const badge = $('#linksCount');
   badge.hidden = !n;
   badge.textContent = String(n);
+  renderLinkSelect();
 }
 
 function renderLinks() {
@@ -1747,7 +1778,7 @@ function renderLinks() {
       helpButton(id)),
     result,
     el('p', { class: 'links-intro', text: def.examples() }),
-  ]);
+  ].filter(Boolean));
   show(links.result[id] || null);
   const f = links.status?.files;
   $('#linksNote').textContent = f

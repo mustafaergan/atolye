@@ -153,6 +153,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   parola ve proxy kullanılmayacak adresler girilir; **Kaydet ve sına** proxy üzerinden GitHub'a ulaşılabildiğini denetler.
   Ayar yalnızca Atölye'nin başlattığı Copilot süreçlerine verilir (Claude Code ve diğer programlar etkilenmez) ve `.env`
   dosyasında `COPILOT_PROXY` / `COPILOT_NO_PROXY` olarak saklanır.
+- Bağlantı kurulduktan sonra mesaj kutusunun altında bir **Bağlantı** seçicisi belirir. Bir bağlantı (ör. Jira) seçiliyken
+  yazdığınız soruya, yapay zekânın o bağlantının araçlarını kullanması için kısa bir not eklenir.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
   işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner, proje
   olarak eklenir ve ilkinde oturum açılır.
