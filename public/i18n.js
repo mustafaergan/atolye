@@ -254,6 +254,12 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  "Graylog'u tarayıcıda açın ve ana adresi kopyalayın (ör. https://graylog.sirket.com).": 'Open Graylog in your browser and copy the base address (e.g. https://graylog.company.com).',
+  'Sağ üstteki kullanıcı simgesi → "Edit Profile" (Profili düzenle) → "Edit Tokens" (Belirteçleri düzenle). Bir ad yazıp "Create Token" deyin.': 'User icon at the top right → "Edit Profile" → "Edit Tokens". Type a name and click "Create Token".',
+  'Listede yeni belirtecin yanındaki kopyalama düğmesiyle değeri kopyalayın. Menüyü göremiyorsanız belirteç oluşturma yetkiniz yoktur; Graylog yöneticinizden isteyin.': 'Copy the value with the copy button next to the new token in the list. If you cannot see the menu, you are not allowed to create tokens; ask your Graylog administrator.',
+  'Örnek: "Graylog\'da son 30 dakikada uygulama-adi için hata kayıtlarını bul ve sebebini özetle".': 'Example: "Find the error logs for app-name in Graylog over the last 30 minutes and summarize the cause".',
+  'Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.':
+    'I want to set up the Graylog connection but I am not a technical person. Where do I find my Graylog address and how do I create an access token (API token)? Explain step by step in plain language; I will ask when I get stuck.',
   'listede ara…': 'search the list…',
   'Eşleşen depo yok.': 'No matching repositories.',
   "Bağlı Bitbucket'tan seçin (birden fazla işaretleyebilirsiniz)": 'Choose from the connected Bitbucket (you can tick more than one)',
@@ -325,9 +331,9 @@ export const EN = {
   "Güncellemek için yeni paketi indirip içindeki Kur.bat'ı çalıştırın. Ayarlarınız ve oturumlarınız korunur.": 'To update, download the new package and run the Kur.bat inside it. Your settings and sessions are kept.',
   'Güncellemeden sonra bu sayfayı yenileyin.': 'Refresh this page after updating.',
   'optona.tr tarafından yazılmıştır': 'Written by optona.tr',
-  'Jira, Confluence ve Bitbucket bağlantıları': 'Jira, Confluence and Bitbucket connections',
-  'Jira, Confluence ve Bitbucket bağlantılarını buradan kurun; Claude Code ve Copilot oturumları kayıtları, sayfaları ve çekme isteklerini okuyabilsin. Bağlantı yeni açılan oturumlarda kullanılır.':
-    'Set up Jira, Confluence and Bitbucket here so Claude Code and Copilot sessions can read issues, pages and pull requests. A connection is used by sessions opened after it is saved.',
+  'Jira, Confluence, Bitbucket ve Graylog bağlantıları': 'Jira, Confluence, Bitbucket and Graylog connections',
+  'Jira, Confluence, Bitbucket ve Graylog bağlantılarını buradan kurun; Claude Code ve Copilot oturumları kayıtları, sayfaları, çekme isteklerini ve logları okuyabilsin. Bağlantı yeni açılan oturumlarda kullanılır.':
+    'Set up Jira, Confluence, Bitbucket and Graylog here so Claude Code and Copilot sessions can read issues, pages, pull requests and logs. A connection is used by sessions opened after it is saved.',
   'Oluşan anahtarı kopyalayıp aşağıya yapıştırın (yalnızca bir kez gösterilir) ve "Kaydet ve sına" deyin.':
     'Copy the generated key (it is shown only once), paste it below and click "Save and test".',
   "Jira'yı tarayıcıda açın ve adres çubuğundaki ana adresi kopyalayın (ör. https://jira.sirket.com ya da https://sirket.atlassian.net).":
