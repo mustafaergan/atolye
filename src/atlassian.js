@@ -43,29 +43,59 @@ export function htmlToText(html = '') {
     .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** Hata cevabından kısa, okunur bir açıklama (HTML sayfasının betikleri/biçemleri atılır) */
+export function errorSummary(raw = '') {
+  const body = String(raw).trim();
+  if (!body) return '';
+  if (body.startsWith('{') || body.startsWith('[')) {
+    try {
+      const j = JSON.parse(body);
+      const parts = [...(j.errorMessages || []), j.message, j.error?.message, ...(Array.isArray(j.errors) ? j.errors : Object.values(j.errors || {})).map((e) => e?.message || e)].filter((x) => typeof x === 'string' && x);
+      if (parts.length) return parts.join('; ').slice(0, 300);
+    } catch { /* düz metin gibi ele alınır */ }
+  }
+  if (/<html|<!doctype|<body|<script/i.test(body)) {
+    const title = body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+    if (title) return htmlToText(title).slice(0, 150);
+    return htmlToText(body.replace(/<(script|style|head)\b[\s\S]*?<\/\1>/gi, '')).split('\n')[0].slice(0, 150);
+  }
+  return body.slice(0, 300);
+}
+
 async function call(cfg, url, { method = 'GET', body, text = false } = {}) {
   trustSystemCertificates();
-  const auth = cfg.email
-    ? `Basic ${Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64')}`
-    : `Bearer ${cfg.token}`;
-  let res;
-  try {
-    res = await fetch(url, {
-      method,
-      headers: { authorization: auth, accept: text ? 'text/plain, */*' : 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30_000),
-      redirect: 'follow',
-    });
-  } catch (err) {
-    throw new Error(`Sunucuya ulaşılamadı (${new URL(url).host}): ${err.cause?.code || err.cause?.message || err.message}`);
+  const basic = `Basic ${Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64')}`;
+  const bearer = `Bearer ${cfg.token}`;
+  const cloud = isCloud(cfg.url);
+  // Şirket içi kurulumda e-posta yanlışlıkla doldurulmuşsa kişisel erişim belirteci (Bearer) de denenir
+  const schemes = cfg.email ? (cloud ? [basic] : [basic, bearer]) : [bearer];
+  let res; let raw;
+  for (const auth of schemes) {
+    try {
+      res = await fetch(url, {
+        method,
+        headers: { authorization: auth, accept: text ? 'text/plain, */*' : 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(30_000),
+        redirect: 'follow',
+      });
+    } catch (err) {
+      throw new Error(`Sunucuya ulaşılamadı (${new URL(url).host}): ${err.cause?.code || err.cause?.message || err.message}`);
+    }
+    raw = await res.text();
+    if (res.status !== 401) break;
   }
-  const raw = await res.text();
   if (!res.ok) {
-    const hint = res.status === 401 ? ' — API anahtarı geçersiz ya da süresi dolmuş'
+    const hint = res.status === 401
+      ? (cloud && !cfg.email
+        ? ' — giriş kabul edilmedi. Cloud (atlassian.net / bitbucket.org) için e-posta alanı da doldurulmalı'
+        : cloud
+          ? ' — giriş kabul edilmedi. E-postanın Atlassian hesabınızın e-postası olduğundan ve API belirtecini eksiksiz kopyaladığınızdan emin olun'
+          : ' — API anahtarı kabul edilmedi. Kişisel erişim belirtecini eksiksiz kopyaladığınızdan ve süresinin dolmadığından emin olun (hesap parolası anahtar olarak kullanılamaz); gerekirse yeni bir belirteç oluşturun')
       : res.status === 403 ? ' — bu işlem için yetki yok'
-      : res.status === 404 ? ' — bulunamadı (adresi ve adları kontrol edin)' : '';
-    throw new Error(`HTTP ${res.status}${hint}: ${htmlToText(raw).slice(0, 300)}`);
+        : res.status === 404 ? ' — bulunamadı (adresi ve adları kontrol edin)' : '';
+    const detail = errorSummary(raw);
+    throw new Error(`HTTP ${res.status}${hint}${detail ? ` (${detail})` : ''}`);
   }
   // Oturum açma sayfasına yönlendirme: anahtar kabul edilmemiş demektir
   if (!text && /^\s*</.test(raw)) throw new Error('Sunucu JSON yerine bir sayfa döndürdü; API anahtarı kabul edilmemiş olabilir');
