@@ -7,6 +7,7 @@ const lines = [];
 
 /** Kayıtlara yanlışlıkla düşebilecek anahtarları gizler */
 export const mask = (s) => String(s)
+  .replace(/(\/\/)[^\s/@:]+:[^\s/@]+@/g, '$1***@')
   .replace(/(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 ***')
   .replace(/((?:token|api[_-]?key|authorization|password|secret)["']?\s*[:=]\s*["']?)(?!Bearer|Basic|\*\*\*)[^\s"',;]{6,}/gi, '$1***');
 
