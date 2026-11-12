@@ -32,6 +32,11 @@ test('tarayıcı seçimi CLI ayar dosyalarına "tarayici" sunucusu olarak yazıl
   // Tarayıcı değiştirme
   assert.deepEqual(integrations.saveBrowser({ browser: 'chrome', headless: false, cli }).services.tarayici, { connected: true, browser: 'chrome', headless: false });
   assert.deepEqual(read(process.env.ATOLYE_CLAUDE_JSON).mcpServers.tarayici.args, [cli, '--browser', 'chrome']);
+  // "Arka planda" işaretli değilse --headless hiçbir biçimde yazılmaz: tarayıcı görünür pencerede açılır
+  for (const headless of [false, undefined, null, 0, '']) {
+    integrations.saveBrowser({ browser: 'chrome', headless, cli });
+    for (const f of [process.env.ATOLYE_CLAUDE_JSON, process.env.ATOLYE_COPILOT_MCP]) assert.ok(!read(f).mcpServers.tarayici.args.includes('--headless'));
+  }
 });
 
 test('geçersiz seçim ya da kurulmamış paket kaydedilmez; kaldırınca yalnızca tarayıcı silinir', () => {
