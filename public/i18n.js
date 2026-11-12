@@ -411,7 +411,7 @@ function detect() {
     const saved = localStorage.getItem(STORE_KEY);
     if (saved === 'tr' || saved === 'en') return saved;
   } catch { /* yoksay */ }
-  return (navigator.language || '').toLowerCase().startsWith('tr') ? 'tr' : 'en';
+  return 'tr'; // varsayılan her zaman Türkçe; İngilizce yalnızca kullanıcı EN'i seçerse
 }
 
 let lang = detect();
