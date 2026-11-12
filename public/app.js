@@ -545,7 +545,13 @@ function renderCopilotCredit() {
   const tips = [];
   if (q?.available) {
     if (q.unlimited) parts.push(T('Copilot: sınırsız'));
-    else if (q.remaining != null && q.total != null) parts.push(T('Copilot: {remaining} / {total} kaldı', { remaining: Number(q.remaining.toFixed(1)), total: q.total }) + (q.percentRemaining != null ? ` · %${Math.round(q.percentRemaining)}` : ''));
+    else if (q.remaining != null && q.total != null) {
+      // GitHub'ın kendi ekranlarındaki gibi "kullanılan / toplam" gösterilir; kalan miktar ipucunda yazar
+      const fmt = (n) => Number(n.toFixed(1)).toLocaleString(locale());
+      const used = Math.max(0, q.total - q.remaining);
+      parts.push(T('Copilot: {used} / {total} kredi kullanıldı', { used: fmt(used), total: fmt(q.total) }));
+      tips.push(T('Kalan: {remaining} kredi (%{pct})', { remaining: fmt(q.remaining), pct: q.percentRemaining != null ? Math.round(q.percentRemaining) : Math.round((q.remaining / q.total) * 100) }));
+    }
     else if (q.percentRemaining != null) parts.push(T('Copilot: %{n} kaldı', { n: Math.round(q.percentRemaining) }));
     if (q.plan) tips.push(T('Plan: {plan}', q));
     if (q.overage) tips.push(T('Aşım: {n}', { n: q.overage }));
