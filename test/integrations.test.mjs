@@ -14,7 +14,7 @@ process.env.ATOLYE_CLAUDE_JSON = path.join(dir, '.claude.json');
 process.env.ATOLYE_COPILOT_MCP = path.join(dir, 'copilot', 'mcp-config.json');
 const integrations = await import('../src/integrations.js');
 const { availableTools, callTool, handleMessage } = await import('../src/mcp-server.js');
-const { htmlToText } = await import('../src/atlassian.js');
+const { errorSummary, htmlToText } = await import('../src/atlassian.js');
 
 // Sahte şirket içi (Data Center) sunucu: Bearer anahtarını denetler
 const seen = [];
@@ -80,7 +80,11 @@ test('bağlantı sınama: doğru anahtarla kullanıcı adı, yanlış anahtarla 
   integrations.save('confluence', { url: base, token: 'yanlis' });
   const bad = await integrations.test('confluence');
   assert.equal(bad.ok, false);
-  assert.match(bad.error, /401.*API anahtarı geçersiz/);
+  assert.match(bad.error, /401.*API anahtarı kabul edilmedi/);
+  // Şirket içi kurulumda e-posta yanlışlıkla doldurulsa da kişisel erişim belirteci denenir
+  integrations.save('confluence', { url: base, token: 'gizli-anahtar', email: 'biri@ornek.com' });
+  assert.equal((await integrations.test('confluence')).ok, false); // sahte sunucuda bu uç yok: 404, ama 401 değil
+  assert.doesNotMatch((await integrations.test('confluence')).error, /401/);
   integrations.save('confluence', { url: base, token: 'gizli-anahtar' });
 });
 
@@ -107,6 +111,10 @@ test('araçlar yalnızca bağlı servisler için sunulur ve doğru adreslere gid
   assert.match(missing.content[0].text, /"key" gerekli/);
   assert.equal((await callTool('jira_get_issue', { key: 'YOK-9' }, env)).isError, true);
   assert.equal(htmlToText('<p>a</p><ul><li>b</li></ul>'), 'a\n- b');
+  // Hata sayfasındaki betikler kullanıcıya gösterilmez
+  assert.equal(errorSummary('<html><head><title>Unauthorized (401)</title><script>var contextPath = "";function f() { console.warn("x"); }</script></head><body><h1>x</h1></body></html>'), 'Unauthorized (401)');
+  assert.equal(errorSummary('<div><script>var a = 1;</script><p>Oturum gerekli</p></div>'), 'Oturum gerekli');
+  assert.equal(errorSummary('{"errorMessages":["Kayıt yok"],"errors":{}}'), 'Kayıt yok');
 });
 
 test('MCP sunucusu gerçek bir alt süreç olarak konuşur', async () => {
