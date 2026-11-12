@@ -138,7 +138,9 @@ kurar ve kurulumu her durumda tamamlar:
 
 `atolye.ps1 durum` aynı bilgileri sonradan gösterir. Arayüzde yeni oturumlar varsayılan olarak **GitHub Copilot** ile açılır
 (kurulu değilse Claude Code ile); sağ üstten yaptığınız seçim saklanır. Model listesi ve oturum listesi seçili motora göre gelir.
-Atölye günde bir kez depoya bakar; daha yeni bir sürüm varsa sağ üstte **Güncelleme var** düğmesi belirir (güncelleme yoksa düğme hiç görünmez). Git ile indirilmiş kurulumlarda düğmedeki **Şimdi güncelle**, son sürümü çekip paketleri kurar ve Atölye'yi yeniden başlatır; paketten kurulumda yeni paketin nasıl kurulacağını söyler. Günlük denetimi beklemeden bakmak için kenar çubuğunun altındaki **Güncellemeleri denetle** kullanılır. Güncelleme kendiliğinden yapılmaz, siz başlatırsınız (`ATOLYE_UPDATE_CHECK=0` denetimi kapatır).
+Atölye günde bir kez depoya bakar; daha yeni bir sürüm varsa sağ üstte **Güncelleme var** düğmesi belirir (güncelleme yoksa düğme hiç görünmez). Düğmedeki **Şimdi güncelle** (Windows) son sürümü indirir, gerekiyorsa kütüphaneleri kurar ve Atölye'yi yeniden başlatır: git ile indirilmiş kurulumda `git pull` ile, paketten (zip) kurulumda son sürümü GitHub'dan zip olarak indirerek. İndirme ya da kütüphane kurulumu başarısız olursa çalışan sürüme dokunulmaz. Kenar çubuğunun altındaki **Kayıtlar** bağlantısı ayrı bir sayfa (`/log.html`) açar: oturum açılışları, süreler, bağlantı ve güncelleme denetimleri ile hatalar (anahtarlar gizlenir, konuşma içeriği yer almaz). **Teams için kopyala** son satırları bir Teams mesajına sığacak uzunlukta, kod bloğu olarak panoya alır.
+
+Günlük denetimi beklemeden bakmak için kenar çubuğunun altındaki **Güncellemeleri denetle** kullanılır. Güncelleme kendiliğinden yapılmaz, siz başlatırsınız (`ATOLYE_UPDATE_CHECK=0` denetimi kapatır).
 
 ### Jira, Confluence ve Bitbucket bağlantıları
 

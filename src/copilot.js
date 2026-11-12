@@ -563,6 +563,8 @@ function friendlyError(err, lang) {
   const text = String(err?.message || err);
   if (/ENOENT|not recognized|tanınmıyor|bulunamad|not found/i.test(text))
     return msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: text });
+  if (/timed out|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text))
+    return msg(lang, "Copilot, GitHub sunucularına ulaşamadı (zaman aşımı). Şirket ağı ya da proxy engelliyor olabilir: bir terminalde 'copilot' çalıştırıp aynı sorunun orada da olup olmadığına bakın; proxy gerekiyorsa Atölye'nin .env dosyasına HTTPS_PROXY ekleyip Atölye'yi yeniden başlatın. ({error})", { error: text.slice(0, 200) });
   if (/not authorized to use this Copilot|\b403\b|permission_denied/i.test(text))
     return msg(lang, "GitHub hesabınızın Copilot kullanma yetkisi yok (lisans tanımlı değil ya da yanlış hesapla giriş yapılmış). Bir terminalde 'copilot login' ile Copilot lisansı olan hesabınızla giriş yapın. ({error})", { error: text.slice(0, 200) });
   if (/auth|login|401/i.test(text))

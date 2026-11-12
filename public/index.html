@@ -47,7 +47,7 @@
       <div class="credit">
         <span class="foot-links">
           <button type="button" class="check-update" id="checkUpdateBtn" data-i18n>Güncellemeleri denetle</button>
-          <button type="button" class="check-update" id="logBtn" data-i18n>Kayıtlar</button>
+          <a class="check-update" id="logBtn" href="/log.html" target="_blank" rel="noopener" data-i18n>Kayıtlar</a>
         </span>
         <a href="https://optona.tr" target="_blank" rel="noopener noreferrer" data-i18n>optona.tr tarafından yazılmıştır</a>
       </div>
@@ -189,21 +189,6 @@
       <div class="links-tabs" id="linksTabs" role="tablist"></div>
       <div class="links-body" id="linksBody"></div>
       <p class="links-note" id="linksNote"></p>
-    </div>
-  </dialog>
-
-  <dialog id="logDialog" class="dialog log-dialog">
-    <div class="dialog-inner">
-      <div class="dialog-head">
-        <h2 data-i18n>Kayıtlar</h2>
-        <button class="icon-btn" id="logClose" type="button" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-      </div>
-      <p class="links-intro" data-i18n>Atölye'nin son çalışma kayıtları: oturum açılışları, süreler, bağlantı ve güncelleme denetimleri, hatalar. Konuşma içeriği ve anahtarlar burada yer almaz. Bir sorun bildirirken bu metni kopyalayıp gönderebilirsiniz.</p>
-      <pre class="log-view" id="logView"></pre>
-      <div class="dialog-foot">
-        <button class="btn ghost" id="logRefresh" type="button" data-i18n>Yenile</button>
-        <button class="btn primary" id="logCopy" type="button" data-i18n>Kopyala</button>
-      </div>
     </div>
   </dialog>
 

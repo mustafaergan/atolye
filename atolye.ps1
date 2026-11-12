@@ -8,7 +8,8 @@
                     Windows açılışında otomatik başlatma, ardından başlatıp tarayıcıyı açar.
     baslat          Arka planda başlatır (zaten çalışıyorsa sadece tarayıcıyı açar).
     durdur          Çalışan Atölye'yi durdurur.
-    guncelle        Son sürümü indirir, paketleri günceller ve yeniden başlatır.
+    guncelle        Son sürümü indirir (git ile ya da paketten kurulumda zip olarak), paketleri günceller
+                    ve yeniden başlatır.
     durum           Kurulum ve çalışma durumunu gösterir.
     otomatik-ac     Windows açılışında otomatik başlatmayı açar.
     otomatik-kapat  Windows açılışında otomatik başlatmayı kapatır.
@@ -785,11 +786,78 @@ function Install-Atolye {
   Write-Host ''
 }
 
+# Paketten (zip) yapılmış kurulumu GitHub'daki son sürümle günceller: zip'i indirir, gerekiyorsa paketleri
+# ayrı bir klasörde hazırlar, ancak her şey hazır olunca Atölye'yi durdurup dosyaları değiştirir. İndirme ya da
+# paket kurulumu başarısız olursa çalışan kurulum olduğu gibi kalır.
+#   ATOLYE_UPDATE_ZIP: farklı bir depo/ayna için zip adresi
+function Update-PackageInstall {
+  $info = Read-PaketInfo $InstallDir
+  $current = (Get-Content (Join-Path $InstallDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
+  $zipUrl = if ($env:ATOLYE_UPDATE_ZIP) { $env:ATOLYE_UPDATE_ZIP } else { ($RepoUrl -replace '\.git$', '') + '/archive/refs/heads/main.zip' }
+  $tmp = Join-Path $env:TEMP ('atolye-guncelle-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Force $tmp | Out-Null
+  try {
+    Write-Step 'Son sürüm indiriliyor…'
+    $zip = Join-Path $tmp 'atolye.zip'
+    try {
+      [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+      $oldProgress = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+      Invoke-WebRequest -Uri $zipUrl -OutFile $zip -UseBasicParsing -TimeoutSec 120
+      $ProgressPreference = $oldProgress
+    } catch {
+      Stop-WithError "Son sürüm indirilemedi ($zipUrl): $($_.Exception.Message). Ağ bu adrese izin vermiyor olabilir; yeni paketi elle indirip Kur.bat ile kurabilirsiniz."
+    }
+    Expand-Archive -Path $zip -DestinationPath (Join-Path $tmp 'x') -Force
+    $src = Get-ChildItem (Join-Path $tmp 'x') -Directory | Select-Object -First 1
+    if (-not $src -or -not (Test-AtolyeDir $src.FullName)) { Stop-WithError 'İndirilen dosya bir Atölye sürümü değil; güncelleme yapılmadı.' }
+    $src = $src.FullName
+    $new = (Get-Content (Join-Path $src 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
+    if ([version]$new.version -le [version]$current.version) { Write-Ok "Zaten güncel ($($current.version))"; return }
+    Write-Step "Güncelleniyor: $($current.version) → $($new.version)"
+
+    # Kütüphaneler değiştiyse: mevcut node_modules'un kopyası üzerinde, çalışan kuruluma dokunmadan hazırla
+    $depsChanged = (($new.dependencies | ConvertTo-Json -Compress) -ne ($current.dependencies | ConvertTo-Json -Compress))
+    $modules = Join-Path $InstallDir 'node_modules'
+    if ($depsChanged) {
+      Write-Step 'Kütüphaneler güncelleniyor (birkaç dakika sürebilir)…'
+      if (Test-Path $modules) { cmd /d /c "robocopy `"$modules`" `"$(Join-Path $src 'node_modules')`" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 >nul" }
+      Push-Location $src
+      try {
+        cmd /d /c 'npm install --omit=dev --no-audit --no-fund --loglevel=error'
+        if ($LASTEXITCODE -ne 0) { Stop-WithError 'Kütüphaneler indirilemedi (şirket ağı npm erişimini engelliyor olabilir). Güncelleme yapılmadı; çalışan sürüm olduğu gibi duruyor. Tam paketi (node_modules dahil) Kur.bat ile kurabilirsiniz.' }
+      } finally { Pop-Location }
+    }
+
+    $wasRunning = Test-Running
+    if ($wasRunning) { Stop-Atolye; Start-Sleep -Seconds 1 }
+    foreach ($d in @('src', 'public', 'scripts')) {
+      $p = Join-Path $InstallDir $d
+      if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+    }
+    Get-ChildItem $src -Force | Where-Object { @('.env', 'node_modules', '.git', '.github', 'test', 'dist') -notcontains $_.Name } | ForEach-Object {
+      Copy-Item $_.FullName -Destination $InstallDir -Recurse -Force
+    }
+    if ($depsChanged) { cmd /d /c "robocopy `"$(Join-Path $src 'node_modules')`" `"$modules`" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >nul" }
+    $tam = [bool]($info -and $info.tam)
+    Set-Content (Join-Path $InstallDir '.paket') (@{ version = $new.version; commit = ''; tam = $tam; tarih = (Get-Date -Format s) } | ConvertTo-Json) -Encoding UTF8
+    Set-Content (Join-Path $InstallDir '.kurulu') (Get-Date -Format s) -Encoding ASCII
+    Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike '*\node_modules\*' } | Unblock-File -ErrorAction SilentlyContinue
+    Write-Ok "Güncellendi: $($current.version) → $($new.version)"
+    Install-EnvFile
+    if ($wasRunning) {
+      $script:TarayiciAcma = $true
+      Start-Atolye
+      Write-Host '  Tarayıcıda sayfayı yenileyin.' -ForegroundColor Gray
+    }
+  } finally {
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Update-Atolye {
   if (-not (Test-AtolyeDir $InstallDir)) { Stop-WithError "Kurulum bulunamadı: $InstallDir. Önce 'kur' komutunu çalıştırın." }
   if (-not (Test-Path (Join-Path $InstallDir '.git'))) {
-    $info = Read-PaketInfo $InstallDir
-    Write-Warn "Bu kurulum paketten yapıldı (sürüm $($info.version)). Güncellemek için yeni paketi indirip içindeki Kur.bat'ı çalıştırın."
+    Update-PackageInstall
     return
   }
   Push-Location $InstallDir
