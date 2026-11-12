@@ -180,7 +180,7 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Geliştirici modundaki bağlantılar:
   - **Jenkins** (kullanıcı adı + API belirteci): `jenkins_list_jobs`, `jenkins_get_build`, `jenkins_get_console`,
     `jenkins_trigger_build` (derleme başlatır; diğer yazan araçlar gibi önce izin sorar).
-  - **OpenText Fortify SSC** (erişim belirteci): `fortify_list_versions`, `fortify_list_issues`, `fortify_get_issue`.
+  - **OpenText Fortify SSC** (erişim belirteci, ya da kullanıcı adı + parola; ikincisinde her oturumda geçici belirteç alınır): `fortify_list_versions`, `fortify_list_issues`, `fortify_get_issue`.
   - **WebLogic** (REST yönetim arayüzü; kullanıcı adı + parola, yalnızca okuma): `weblogic_servers`,
     `weblogic_applications`, `weblogic_deployments`, `weblogic_datasources`. Parola düz metin saklandığı için
     yönetici hesabı yerine "Monitor" rolünde bir kullanıcı kullanın.

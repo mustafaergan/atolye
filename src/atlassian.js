@@ -357,29 +357,55 @@ export const jenkins = {
 };
 
 // ---------- OpenText Fortify (Software Security Center) ----------
-// SSC belirteci "FortifyToken" şemasıyla gönderilir. Adres genelde https://sunucu/ssc biçimindedir.
-const fy = (cfg) => ({ ...cfg, authHeader: `FortifyToken ${cfg.token}` });
+// SSC istekleri "FortifyToken" şemasındaki bir erişim belirteciyle yapılır. Adres genelde https://sunucu/ssc biçimindedir.
+// İki giriş biçimi desteklenir:
+//   - Erişim belirteci (kullanıcı adı boş): belirteç doğrudan kullanılır
+//   - Kullanıcı adı + parola: SSC'den kullanıcı adına geçici bir belirteç (UnifiedLoginToken) alınır ve bellekte
+//     tutulur; süresi dolunca (401) yenisi alınır. Parola yalnızca bu belirteci almak için gönderilir.
+const fyTokens = new Map(); // "adres|kullanıcı" -> belirteç
+async function fyLogin(cfg) {
+  const key = `${cfg.url}|${cfg.email}`;
+  if (fyTokens.has(key)) return fyTokens.get(key);
+  const res = await call({ ...cfg, basicOnly: true }, `${cfg.url}/api/v1/tokens`, { method: 'POST', body: { type: 'UnifiedLoginToken', description: 'Atolye' } });
+  const token = res?.data?.token;
+  if (!token) throw new Error('Fortify kullanıcı adı ve parolayla erişim belirteci vermedi');
+  fyTokens.set(key, token);
+  return token;
+}
+/** Fortify isteği: belirteç ya da kullanıcı adı/parola ile; geçici belirtecin süresi dolduysa bir kez yenilenir */
+async function fyCall(cfg, url, opts) {
+  if (!cfg.email) return call({ ...cfg, authHeader: `FortifyToken ${cfg.token}` }, url, opts);
+  for (let attempt = 1; ; attempt++) {
+    const token = await fyLogin(cfg);
+    try {
+      return await call({ ...cfg, authHeader: `FortifyToken ${token}` }, url, opts);
+    } catch (err) {
+      if (attempt > 1 || !/HTTP 401/.test(err.message)) throw err;
+      fyTokens.delete(`${cfg.url}|${cfg.email}`);
+    }
+  }
+}
 export const fortify = {
   async whoami(cfg) {
-    const data = await call(fy(cfg), `${cfg.url}/api/v1/projectVersions?limit=1&fields=id`);
+    const data = await fyCall(cfg, `${cfg.url}/api/v1/projectVersions?limit=1&fields=id`);
     return `Fortify SSC (${data.count ?? (data.data || []).length} uygulama sürümü görünüyor)`;
   },
   async listVersions(cfg, { query, limit } = {}) {
-    const data = await call(fy(cfg), `${cfg.url}/api/v1/projectVersions?limit=200&fields=${enc('id,name,project,currentState')}`);
+    const data = await fyCall(cfg, `${cfg.url}/api/v1/projectVersions?limit=200&fields=${enc('id,name,project,currentState')}`);
     const q = String(query || '').toLowerCase();
     const rows = (data.data || []).filter((v) => !q || `${v.project?.name} ${v.name}`.toLowerCase().includes(q)).slice(0, clamp(limit, 50, 200));
     return rows.map((v) => `${v.id} | ${v.project?.name || '?'} / ${v.name}`).join('\n') || 'Eşleşen uygulama sürümü yok.';
   },
   async listIssues(cfg, { versionId, severity, limit }) {
     const fields = 'id,issueName,friority,primaryLocation,lineNumber,kingdom,audited,issueStatus';
-    const data = await call(fy(cfg), `${cfg.url}/api/v1/projectVersions/${enc(versionId)}/issues?limit=${clamp(limit, 50, 200)}&orderby=friority&fields=${enc(fields)}`);
+    const data = await fyCall(cfg, `${cfg.url}/api/v1/projectVersions/${enc(versionId)}/issues?limit=${clamp(limit, 50, 200)}&orderby=friority&fields=${enc(fields)}`);
     const sev = String(severity || '').toLowerCase();
     const rows = (data.data || []).filter((i) => !sev || String(i.friority || '').toLowerCase() === sev);
     if (!rows.length) return 'Bulgu yok.';
     return `Toplam ${data.count ?? rows.length} bulgu (gösterilen ${rows.length}):\n${rows.map((i) => `${i.id} | ${i.friority || '?'} | ${i.issueName} | ${i.primaryLocation || ''}${i.lineNumber ? `:${i.lineNumber}` : ''}${i.audited ? ' | incelendi' : ''}`).join('\n')}`;
   },
   async getIssue(cfg, { id }) {
-    const d = (await call(fy(cfg), `${cfg.url}/api/v1/issueDetails/${enc(id)}`)).data || {};
+    const d = (await fyCall(cfg, `${cfg.url}/api/v1/issueDetails/${enc(id)}`)).data || {};
     return cut([
       `${d.issueName || id} [${d.friority || '?'}]`,
       `Dosya: ${d.fullFileName || d.primaryLocation || '?'}${d.lineNumber ? `:${d.lineNumber}` : ''}`,

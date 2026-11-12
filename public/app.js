@@ -1768,12 +1768,13 @@ LINKS.jenkins = {
 LINKS.fortify = {
   name: 'Fortify',
   urlHint: 'https://fortify.sirket.com/ssc',
-  noEmail: true,
-  tokenLabel: () => T('Erişim belirteci'),
+  userLabel: () => T('Kullanıcı adı'),
+  userHint: () => T('Parolayla giriş yapacaksanız doldurun; erişim belirteci kullanacaksanız boş bırakın.'),
+  tokenLabel: () => T('Parola ya da erişim belirteci'),
   steps: () => [
     T("Fortify Software Security Center'ı (SSC) tarayıcıda açın ve adresi /ssc ile biten kısma kadar kopyalayın (ör. https://fortify.sirket.com/ssc)."),
-    T('Sağ üstteki kullanıcı simgesi → "Administration" → "Users" → "Token Management" → "New". Tür olarak "UnifiedLoginToken" (ya da yalnızca okuma için "CIToken") seçip oluşturun.'),
-    T('Gösterilen "encoded token" değerini kopyalayıp aşağıya yapıştırın. Menüyü göremiyorsanız yetkiniz yoktur; Fortify yöneticinizden isteyin.'),
+    T('Elinizde yalnızca kullanıcı adı ve parola varsa: ikisini de aşağıya yazın. Atölye her oturumda sizin adınıza geçici bir erişim belirteci alır; parola bilgisayarınızda düz metin olarak saklanır.'),
+    T('Erişim belirteciniz varsa (ya da oluşturabiliyorsanız: kullanıcı simgesi → "Administration" → "Users" → "Token Management" → "New", tür "UnifiedLoginToken" ya da "CIToken"): kullanıcı adını boş bırakıp belirteci yapıştırın. Parola saklamadığı için bu yol daha güvenlidir.'),
     T('"Kaydet ve sına" deyin.'),
   ],
   examples: () => T('Örnek: "Fortify\'da proje-adi sürümündeki kritik bulguları listele ve ilkinin nasıl düzeltileceğini anlat".'),

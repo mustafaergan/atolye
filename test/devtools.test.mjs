@@ -7,6 +7,9 @@ import { availableTools, callTool, TOOLS } from '../src/mcp-server.js';
 
 const basic = (u, p) => `Basic ${Buffer.from(`${u}:${p}`).toString('base64')}`;
 const seen = [];
+let tokenRequests = 0;
+let issuedToken = 'fy-belirtec';
+let validToken = 'fy-belirtec';
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = decodeURIComponent(u.pathname);
@@ -31,8 +34,14 @@ const server = http.createServer((req, res) => {
   }
   // ----- Fortify SSC: "FortifyToken" şeması -----
   if (p.startsWith('/ssc')) {
-    if (auth !== 'FortifyToken fy-belirtec') return deny();
     const q = p.slice('/ssc'.length);
+    // Kullanıcı adı + parolayla geçici belirteç alma
+    if (req.method === 'POST' && q === '/api/v1/tokens') {
+      if (auth !== basic('fy-kullanici', 'fy-parola')) return deny();
+      tokenRequests++;
+      return json({ data: { token: issuedToken, type: 'UnifiedLoginToken' } });
+    }
+    if (auth !== `FortifyToken ${validToken}`) return deny();
     if (q === '/api/v1/projectVersions') return json({ count: 2, data: [{ id: 7, name: '1.0', project: { name: 'Rezervasyon' } }, { id: 8, name: 'main', project: { name: 'Bilet' } }] });
     if (q === '/api/v1/projectVersions/7/issues') return json({ count: 2, data: [
       { id: 101, issueName: 'SQL Injection', friority: 'Critical', primaryLocation: 'Dao.java', lineNumber: 55 },
@@ -103,4 +112,24 @@ test('WebLogic: sunucular, uygulamalar, dağıtımlar ve veri kaynakları (yaln�
   // Konsol adresi yapıştırılsa da REST adresi doğru kurulur
   assert.equal(await text('weblogic_servers', {}, { ...env, WEBLOGIC_URL: `${base}/console` }), await text('weblogic_servers'));
   assert.ok(!seen.some((s) => s.startsWith('POST /management')), 'WebLogic\'e yazma isteği gitmez');
+});
+
+test('Fortify: yalnızca kullanıcı adı ve parolayla da çalışır; geçici belirteç alınır ve süresi dolunca yenilenir', async () => {
+  const e = { FORTIFY_URL: `${base}/ssc`, FORTIFY_EMAIL: 'fy-kullanici', FORTIFY_TOKEN: 'fy-parola' };
+  tokenRequests = 0;
+  assert.equal(await text('fortify_list_versions', { query: 'bilet' }, e), '8 | Bilet / main');
+  assert.equal(await text('fortify_list_versions', { query: 'rezer' }, e), '7 | Rezervasyon / 1.0');
+  assert.equal(tokenRequests, 1, 'belirteç bir kez alınır ve yeniden kullanılır');
+  assert.ok(!seen.some((s) => s.includes('fy-parola')), 'parola adrese yazılmaz');
+
+  // Sunucu belirteci geçersiz kıldı (süresi doldu): yenisi alınır ve istek tekrarlanır
+  validToken = 'fy-yeni'; issuedToken = 'fy-yeni';
+  assert.match(await text('fortify_list_issues', { versionId: 7 }, e), /^Toplam 2 bulgu/);
+  assert.equal(tokenRequests, 2);
+  validToken = 'fy-belirtec'; issuedToken = 'fy-belirtec';
+
+  // Yanlış parola: anlaşılır hata, sonsuz deneme yok
+  const bad = await callTool('fortify_list_versions', {}, { ...e, FORTIFY_EMAIL: 'baskasi', FORTIFY_TOKEN: 'yanlis' });
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0].text, /401/);
 });
