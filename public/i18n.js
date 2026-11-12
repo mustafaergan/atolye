@@ -254,6 +254,7 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'İndiriliyor… ({i}/{n})': 'Downloading… ({i}/{n})',
   'Soruyu seçtiğiniz bağlantıyla (Jira, Confluence, Bitbucket, Graylog) ilişkilendirir': 'Relates your question to the connection you choose (Jira, Confluence, Bitbucket, Graylog)',
   'Bağlantı': 'Connection',
   'Bağlantı: yok': 'Connection: none',

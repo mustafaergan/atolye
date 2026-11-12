@@ -1866,6 +1866,7 @@ async function renderRepoTab() {
     filter.oninput = () => { repoUi.filter = filter.value; drawList(); };
     const listBtn = el('button', { class: 'btn', type: 'button', text: T('Depoları listele'), onclick: async () => {
       listBtn.disabled = true;
+      listBtn.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: T('Yükleniyor…') }));
       const r = await fetch(`/api/repo/list?project=${encodeURIComponent(project.value.trim())}`).then((x) => x.json()).catch((e) => ({ error: e.message }));
       if (r.error) { repoUi.repos = null; repoUi.result = { failed: [{ name: T('Depo listesini alma'), error: r.error }] }; } else { repoUi.repos = r.repos; repoUi.result = null; }
       if (links.tab === 'repo') renderRepoTab();
@@ -1886,7 +1887,10 @@ async function renderRepoTab() {
     const failed = [];
     for (const [i, url] of todo.entries()) {
       const name = url.replace(/[\\/]+$/, '').split(/[\\/:]/).pop().replace(/\.git$/i, '');
-      result.textContent = T('İndiriliyor ({i}/{n}): {name}… Büyük depolarda birkaç dakika sürebilir.', { i: i + 1, n: todo.length, name });
+      // İlerleme hem düğmede (her zaman görünür) hem altındaki kutuda gösterilir
+      cloneBtn.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: T('İndiriliyor… ({i}/{n})', { i: i + 1, n: todo.length }) }));
+      result.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: T('İndiriliyor ({i}/{n}): {name}… Büyük depolarda birkaç dakika sürebilir.', { i: i + 1, n: todo.length, name }) }));
+      result.scrollIntoView({ block: 'nearest' });
       const r = await fetch(`/api/repo/clone?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, parent: parent.value }) })
         .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
       if (r.ok) done.push({ name, dir: r.dir, url }); else failed.push({ name, error: r.error, url });
