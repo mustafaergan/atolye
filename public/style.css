@@ -701,3 +701,14 @@ a.check-update { color: var(--text-2); }
 .info-dot { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--text-3); font: italic 600 10px/13px Georgia, serif; text-align: center; margin-top: 1px; }
 .copilot-credit { cursor: default; }
 .copilot-credit[hidden] { display: none; }
+
+/* Mesaj kutusu araç çubuğu: seçiciler çoğalınca üst üste binmesin */
+.composer { container-type: inline-size; }
+.composer-bar .left { flex: 1 1 auto; flex-wrap: wrap; row-gap: 2px; }
+.composer-bar .right { flex: 0 0 auto; }
+.composer-bar .select-wrap select { max-width: 170px; text-overflow: ellipsis; }
+@container (max-width: 640px) { .hint { display: none; } }
+/* Düşünme ve Bağlantı seçicilerinin ikisi de görünürken klavye ipucuna yer kalmaz */
+.composer-bar .left:has(#effortWrap:not([hidden])):has(#linkWrap:not([hidden])) ~ .right .hint { display: none; }
+@container (max-width: 760px) { .composer-bar .left:has(#effortWrap:not([hidden])) ~ .right .hint, .composer-bar .left:has(#linkWrap:not([hidden])) ~ .right .hint { display: none; } }
+@container (max-width: 560px) { .composer-bar .select-wrap select { max-width: 120px; } }
