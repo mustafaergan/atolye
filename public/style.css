@@ -679,3 +679,12 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .foot-links { display: inline-flex; gap: 12px; }
 .log-dialog { width: min(860px, calc(100vw - 32px)); }
 .log-view { margin: 0; height: min(56vh, 520px); overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); user-select: text; }
+.check-update { text-decoration: underline; }
+a.check-update { color: var(--text-2); }
+.log-page { margin: 0; padding: 20px 24px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; background: var(--bg); color: var(--text); }
+.log-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.log-head h1 { margin: 0 0 4px; font-size: 20px; }
+.log-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.log-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.log-status { font-size: 12px; color: var(--text-3); }
+.log-view-page { flex: 1; height: auto; min-height: 0; background: var(--surface); }

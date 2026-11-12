@@ -1847,24 +1847,6 @@ async function renderRepoTab() {
   $('#linksNote').textContent = T('İndirme, bilgisayarınızdaki Git ile yapılır. Bitbucket bağlıysa kayıtlı API anahtarı yalnızca bu indirme için kullanılır; sonraki çekme/gönderme işlemlerinde Git kendi giriş penceresini açabilir.');
 }
 
-// ---------- Kayıtlar ----------
-const logDlg = $('#logDialog');
-async function loadLog() {
-  const r = await fetch('/api/log').then((x) => x.json()).catch(() => ({ lines: [] }));
-  const view = $('#logView');
-  view.textContent = r.lines.length ? r.lines.join('\n') : T('Henüz kayıt yok.');
-  view.scrollTop = view.scrollHeight;
-}
-$('#logBtn').onclick = async () => { await loadLog(); logDlg.showModal(); };
-$('#logRefresh').onclick = loadLog;
-$('#logClose').onclick = () => logDlg.close();
-logDlg.addEventListener('click', (e) => { if (e.target === logDlg) logDlg.close(); });
-$('#logCopy').onclick = async () => {
-  const btn = $('#logCopy');
-  try { await navigator.clipboard.writeText($('#logView').textContent); btn.textContent = T('Kopyalandı'); } catch { btn.textContent = T('Kopyalanamadı'); }
-  setTimeout(() => { btn.textContent = T('Kopyala'); }, 2000);
-};
-
 // ---------- Güncelleme bildirimi ----------
 // Depoda daha yeni bir Atölye sürümü varsa sağ üstte "Güncelleme var" görünür (bkz. src/update.js).
 async function checkUpdate(manual = false) {
@@ -1873,7 +1855,9 @@ async function checkUpdate(manual = false) {
   if (!u?.available) return u;
   $('#updatePop').replaceChildren(...[
     el('strong', { text: T('Atölye {latest} yayımlandı (kurulu sürüm: {current}).', u) }),
-    ...(u.how === 'git'
+    ...(u.canApply
+      ? [el('div', { text: T('"Şimdi güncelle" son sürümü indirir, kurar ve Atölye\'yi yeniden başlatır. Ayarlarınız ve oturumlarınız korunur.') })]
+      : u.how === 'git'
       ? [el('div', { text: T('Güncellemek için kurulum klasöründe PowerShell ile şunu çalıştırın:') }), el('code', { text: '.\\atolye.ps1 guncelle' })]
       : [el('div', { text: T("Güncellemek için yeni paketi indirip içindeki Kur.bat'ı çalıştırın. Ayarlarınız ve oturumlarınız korunur.") })]),
     u.canApply ? null : el('div', { text: T('Güncellemeden sonra bu sayfayı yenileyin.') }),

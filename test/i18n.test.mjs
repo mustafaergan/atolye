@@ -46,6 +46,7 @@ test('arayüz: T(...) ile kullanılan her metnin İngilizcesi var', () => {
   const src = read('../public/app.js');
   const keys = new Set();
   for (const body of callBodies(src, 'T')) for (const s of stringLiterals(body)) keys.add(s);
+  for (const body of callBodies(read('../public/log.js'), 'T')) for (const s of stringLiterals(body)) keys.add(s);
   // Sonradan T() ile çizilen sözlükler
   for (const name of ['const EMPTY = {', 'const ALWAYS_LABEL = {']) for (const s of stringLiterals(block(src, name))) keys.add(s);
   // T(...) içindeki karşılaştırmalarda geçen kod değerleri metin değildir
@@ -55,7 +56,7 @@ test('arayüz: T(...) ile kullanılan her metnin İngilizcesi var', () => {
 });
 
 test('sayfa: data-i18n ile işaretli her metnin İngilizcesi var', () => {
-  const html = read('../public/index.html');
+  const html = read('../public/index.html') + read('../public/log.html');
   const keys = new Set();
   for (const m of html.matchAll(/<[^>]*\sdata-i18n(?=[\s>])[^>]*>([^<]*)/g)) if (m[1].trim()) keys.add(m[1].trim());
   for (const m of html.matchAll(/<[^>]*data-i18n-attr="([^"]+)"[^>]*>/g)) {

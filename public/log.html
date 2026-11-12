@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atölye · Kayıtlar</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23c96442'/%3E%3Cpath d='M9 22l7-13 7 13M12 17h8' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="log-page">
+  <header class="log-head">
+    <div>
+      <h1 data-i18n>Atölye kayıtları</h1>
+      <p class="links-intro" data-i18n>Atölye'nin son çalışma kayıtları: oturum açılışları, süreler, bağlantı ve güncelleme denetimleri, hatalar. Konuşma içeriği ve anahtarlar burada yer almaz.</p>
+    </div>
+    <div class="log-actions">
+      <label class="log-auto"><input type="checkbox" id="logAuto" checked> <span data-i18n>Kendiliğinden yenile</span></label>
+      <button class="btn" id="logRefresh" type="button" data-i18n>Yenile</button>
+      <button class="btn" id="logCopyAll" type="button" data-i18n>Tümünü kopyala</button>
+      <button class="btn primary" id="logCopyTeams" type="button" title="Son satırları, bir Teams mesajına sığacak uzunlukta ve kod bloğu olarak kopyalar" data-i18n data-i18n-attr="title">Teams için kopyala</button>
+    </div>
+  </header>
+  <div class="log-status" id="logStatus"></div>
+  <pre class="log-view log-view-page" id="logView"></pre>
+  <script type="module" src="/log.js"></script>
+</body>
+</html>

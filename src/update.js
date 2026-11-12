@@ -21,15 +21,15 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-const canApply = (how) => how === 'git' && process.platform === 'win32' && fs.existsSync(path.join(ROOT, 'atolye.ps1'));
+// Windows'ta atolye.ps1 hem git hem paket kurulumunu günceller (paket kurulumunda son sürümü zip olarak indirir)
+const canApply = () => process.platform === 'win32' && fs.existsSync(path.join(ROOT, 'atolye.ps1'));
 
 /**
  * Güncellemeyi başlatır: "atolye.ps1 guncelle" son sürümü çeker, paketleri kurar ve Atölye'yi yeniden başlatır.
  * Betik Atölye'yi durduracağı için bu sürecin alt süreci olmamalıdır; "start" ile bağımsız başlatılır.
  */
 export function applyUpdate() {
-  const how = fs.existsSync(path.join(ROOT, '.git')) ? 'git' : 'paket';
-  if (!canApply(how)) return { started: false };
+  if (!canApply()) return { started: false };
   const script = path.join(ROOT, 'atolye.ps1');
   const child = spawn(process.env.ComSpec || 'cmd.exe',
     ['/d', '/s', '/c', `"start "" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script}" guncelle"`],
@@ -42,8 +42,7 @@ export async function checkUpdate({ force = false } = {}) {
   const current = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
   // Git ile indirilmişse "atolye.ps1 guncelle", paketten kurulmuşsa yeni paket
   const how = fs.existsSync(path.join(ROOT, '.git')) ? 'git' : 'paket';
-  // Arayüzdeki "Şimdi güncelle" düğmesi: git ile indirilmiş Windows kurulumlarında kendiliğinden günceller
-  const base = { current, latest: null, available: false, how, canApply: canApply(how) };
+  const base = { current, latest: null, available: false, how, canApply: canApply() };
   if (process.env.ATOLYE_UPDATE_CHECK === '0') return base;
   if (!force && cache && Date.now() - cache.at < CACHE_MS) return { ...base, ...cache.value };
   let value = {};

@@ -35,3 +35,15 @@ test('kayıtlar: son satırlar tutulur, anahtarlar gizlenir', async () => {
   assert.equal(recentLog().length, 500);
   assert.match(recentLog().at(-1), /satır 599$/);
 });
+
+test('Teams için kopyalama: sondan, mesaja sığacak kadar satır alınır', async () => {
+  const { tailForChat, TEAMS_MAX_CHARS } = await import('../public/log.js');
+  const all = Array.from({ length: 500 }, (_, i) => `12:00:00 [oturum] satır ${i} ${'x'.repeat(60)}`);
+  const tail = tailForChat(all);
+  assert.ok(tail.join('\n').length <= TEAMS_MAX_CHARS);
+  assert.ok(tail.length > 50 && tail.length < 500);
+  assert.equal(tail.at(-1), all.at(-1)); // en yeni satır her zaman dahil
+  assert.equal(tail[0], all[all.length - tail.length]); // aradan satır atlanmaz
+  assert.deepEqual(tailForChat(['a', 'b']), ['a', 'b']);
+  assert.equal(tailForChat(['y'.repeat(20000)])[0].length, 601); // tek dev satır kısaltılır
+});
