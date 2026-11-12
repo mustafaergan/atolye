@@ -15,7 +15,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -69,13 +69,13 @@ async function call(cfg, url, { method = 'GET', body, text = false } = {}) {
   const cloud = isCloud(cfg.url);
   // Şirket içi kurulumda erişim belirteci Bearer ile gönderilir; e-posta doldurulmuşsa (kullanıcı adı + belirteç)
   // Basic de denenir. Cloud'da e-posta + API belirteci (Basic) kullanılır.
-  const schemes = cloud ? [cfg.email ? basic : bearer] : (cfg.email ? [bearer, basic] : [bearer]);
+  const schemes = cfg.basicOnly ? [basic] : cloud ? [cfg.email ? basic : bearer] : (cfg.email ? [bearer, basic] : [bearer]);
   let res; let raw;
   for (const auth of schemes) {
     try {
       res = await fetch(url, {
         method,
-        headers: { authorization: auth, accept: text ? 'text/plain, */*' : 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
+        headers: { authorization: auth, accept: text ? 'text/plain, */*' : 'application/json', 'x-requested-by': 'atolye', ...(body ? { 'content-type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(30_000),
         redirect: 'follow',
@@ -260,4 +260,44 @@ export const bitbucket = {
   },
 };
 
-export const clients = { jira, confluence, bitbucket };
+// ---------- Graylog ----------
+// Graylog erişim belirteci Basic ile gönderilir: kullanıcı adı = belirteç, parola = "token"
+const gl = (cfg) => ({ url: cfg.url.replace(/\/api$/i, ''), email: cfg.token, token: 'token', basicOnly: true });
+const glRange = (minutes) => `${clamp(minutes, 15, 60 * 24 * 30)}m`;
+const oneLine = (v) => String(v ?? '').replace(/\s*\r?\n\s*/g, ' ⏎ ');
+export const graylog = {
+  async whoami(cfg) {
+    const sys = await call(gl(cfg), `${gl(cfg).url}/api/system`);
+    return `Graylog ${sys.version || ''}`.trim();
+  },
+  async listStreams(cfg) {
+    const data = await call(gl(cfg), `${gl(cfg).url}/api/streams`);
+    const rows = (data.streams || []).filter((s) => !s.disabled);
+    return rows.map((s) => `${s.id} | ${s.title}${s.description ? ` — ${oneLine(s.description).slice(0, 100)}` : ''}`).join('\n') || 'Akış (stream) yok.';
+  },
+  async search(cfg, { query, minutes, limit, stream, fields }) {
+    const c = gl(cfg);
+    const n = clamp(limit, 50, 200);
+    const cols = String(fields || 'timestamp,source,message').split(',').map((f) => f.trim()).filter(Boolean);
+    let rows;
+    try {
+      // Graylog 5.2+ arama ucu
+      const data = await call(c, `${c.url}/api/search/messages?query=${enc(query || '*')}&timerange=${glRange(minutes)}&limit=${n}&fields=${enc(cols.join(','))}${stream ? `&streams=${enc(stream)}` : ''}`);
+      const names = (data.schema || []).map((s) => s.field || s.name);
+      rows = (data.datarows || []).map((r) => Object.fromEntries(r.map((v, i) => [names[i], v])));
+    } catch (err) {
+      if (!/HTTP 404/.test(err.message)) throw err;
+      // Eski sürümler
+      const data = await call(c, `${c.url}/api/search/universal/relative?query=${enc(query || '*')}&range=${clamp(minutes, 15, 60 * 24 * 30) * 60}&limit=${n}&fields=${enc(cols.join(','))}${stream ? `&filter=${enc(`streams:${stream}`)}` : ''}`);
+      rows = (data.messages || []).map((m) => m.message || {});
+    }
+    if (!rows.length) return 'Sonuç yok.';
+    const rest = cols.filter((f) => !['timestamp', 'source', 'message'].includes(f));
+    return cut(rows.map((r) => {
+      const extra = rest.map((f) => `${f}=${oneLine(r[f])}`).join(' ');
+      return `${r.timestamp || ''} ${r.source || ''}: ${oneLine(r.message).slice(0, 1500)}${extra ? ` [${extra}]` : ''}`.trim();
+    }).join('\n'));
+  },
+};
+
+export const clients = { jira, confluence, bitbucket, graylog };

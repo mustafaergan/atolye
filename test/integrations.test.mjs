@@ -23,8 +23,20 @@ let reposVisible = true;
 const server = http.createServer((req, res) => {
   seen.push(`${req.method} ${req.url}`);
   const json = (o) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
-  if (req.headers.authorization !== 'Bearer gizli-anahtar') { res.statusCode = 401; return res.end('Unauthorized'); }
   const u = new URL(req.url, 'http://x');
+  // Graylog: belirteç Basic ile gelir (kullanıcı adı = belirteç, parola = "token")
+  if (u.pathname.startsWith('/api/')) {
+    if (req.headers.authorization !== `Basic ${Buffer.from('gl-belirtec:token').toString('base64')}`) { res.statusCode = 401; return res.end('{"type":"ApiError","message":"Unauthorized"}'); }
+    if (u.pathname === '/api/system') return json({ version: '7.0.5', hostname: 'x' });
+    if (u.pathname === '/api/streams') return json({ streams: [{ id: 's1', title: 'Uygulama', description: 'uygulama logları' }, { id: 's2', title: 'Kapalı', disabled: true }] });
+    if (u.pathname === '/api/search/messages') return json({
+      schema: [{ field: 'timestamp' }, { field: 'source' }, { field: 'message' }],
+      datarows: [['2026-01-02T10:00:00.000Z', 'sunucu-1', `sorgu=${u.searchParams.get('query')} aralik=${u.searchParams.get('timerange')} akis=${u.searchParams.get('streams')}
+ikinci satır`]],
+    });
+    res.statusCode = 404; return res.end('{}');
+  }
+  if (req.headers.authorization !== 'Bearer gizli-anahtar') { res.statusCode = 401; return res.end('Unauthorized'); }
   if (u.pathname === '/rest/api/2/myself') return json({ displayName: 'Deneme Kullanıcı' });
   if (u.pathname === '/rest/api/2/search') return json({ issues: [{ key: 'ABC-1', fields: { summary: `jql=${u.searchParams.get('jql')}`, status: { name: 'Açık' }, issuetype: { name: 'Hata' } } }] });
   if (u.pathname === '/rest/api/2/issue/ABC-1') return json({ key: 'ABC-1', fields: { summary: 'Port hatası', status: { name: 'Açık' }, description: 'Port dolu', comment: { comments: [{ author: { displayName: 'Ali' }, created: '2026-01-02T10:00', body: 'bakıyorum' }] } } });
@@ -164,4 +176,17 @@ test('bağlantı kaldırılınca bilgiler iki dosyadan da silinir', () => {
   assert.deepEqual(claude.mcpServers.baska, { command: 'x' });
   assert.equal(read(process.env.ATOLYE_COPILOT_MCP).mcpServers.atolye, undefined);
   assert.equal(integrations.status().services.jira.connected, false);
+});
+
+test('Graylog: belirteçle giriş, log arama ve akış listesi', async () => {
+  integrations.save('graylog', { url: `${base}/`, token: 'gl-belirtec' });
+  assert.deepEqual(await integrations.test('graylog'), { ok: true, user: 'Graylog 7.0.5' });
+  const env = read(process.env.ATOLYE_CLAUDE_JSON).mcpServers.atolye.env;
+  assert.deepEqual(availableTools(env).map((t) => t.name), ['graylog_search', 'graylog_list_streams']);
+  const found = (await callTool('graylog_search', { query: 'level:3', minutes: 30, stream: 's1' }, env)).content[0].text;
+  assert.equal(found, '2026-01-02T10:00:00.000Z sunucu-1: sorgu=level:3 aralik=30m akis=s1 ⏎ ikinci satır');
+  assert.equal((await callTool('graylog_list_streams', {}, env)).content[0].text, 's1 | Uygulama — uygulama logları');
+  integrations.save('graylog', { url: base, token: 'yanlis' });
+  assert.match((await integrations.test('graylog')).error, /401/);
+  integrations.remove('graylog');
 });

@@ -1657,6 +1657,18 @@ const LINKS = {
     examples: () => T('Örnek: "ABC projesindeki depo-adi deposunun açık çekme isteklerini listele ve 42 numaralıyı incele".'),
   },
 };
+LINKS.graylog = {
+  name: 'Graylog',
+  urlHint: 'https://graylog.sirket.com',
+  noEmail: true,
+  steps: () => [
+    T("Graylog'u tarayıcıda açın ve ana adresi kopyalayın (ör. https://graylog.sirket.com)."),
+    T('Sağ üstteki kullanıcı simgesi → "Edit Profile" (Profili düzenle) → "Edit Tokens" (Belirteçleri düzenle). Bir ad yazıp "Create Token" deyin.'),
+    T('Listede yeni belirtecin yanındaki kopyalama düğmesiyle değeri kopyalayın. Menüyü göremiyorsanız belirteç oluşturma yetkiniz yoktur; Graylog yöneticinizden isteyin.'),
+    SAVE_STEP(),
+  ],
+  examples: () => T('Örnek: "Graylog\'da son 30 dakikada uygulama-adi için hata kayıtlarını bul ve sebebini özetle".'),
+};
 const links = { status: null, tab: 'jira', result: {} };
 const linksDlg = $('#linksDialog');
 
@@ -1727,7 +1739,7 @@ function renderLinks() {
   $('#linksBody').replaceChildren(...[
     steps,
     el('label', { class: 'links-field' }, el('span', { text: T('Adres') }), url),
-    el('label', { class: 'links-field' }, el('span', { text: T('E-posta') }), email, el('small', { text: T('Şirket içi kurulumda (kişisel erişim belirteci) boş bırakın.') })),
+    def.noEmail ? null : el('label', { class: 'links-field' }, el('span', { text: T('E-posta') }), email, el('small', { text: T('Şirket içi kurulumda (kişisel erişim belirteci) boş bırakın.') })),
     el('label', { class: 'links-field' }, el('span', { text: T('API anahtarı') }), token),
     el('div', { class: 'links-actions' }, saveBtn,
       cur.connected ? el('button', { class: 'btn', type: 'button', text: T('Bağlantıyı sına'), onclick: runTest }) : null,
@@ -1760,6 +1772,7 @@ const HELP_PROMPTS = {
   jira: () => T('Jira bağlantısını kurmak istiyorum ama teknik biri değilim. Jira adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   confluence: () => T('Confluence bağlantısını kurmak istiyorum ama teknik biri değilim. Confluence adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   repo: () => T('İlk kez bir depoyu (repository) bilgisayarıma indireceğim ve teknik biri değilim. Depo nedir, adresini nereden bulurum, indirdikten sonra dosyalara nasıl bakarım ve değişiklikleri nasıl güncel tutarım? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
 };
 function askAi(prompt) {

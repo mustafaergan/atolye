@@ -159,7 +159,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Her sekmede **Yapay zekâdan yardım al** düğmesi, hazır bir soruyla klasörsüz sohbet açar; bir hata çıktığında
   **Bu hatayı yapay zekâya sor** düğmesi hatayı soruya ekler.
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
-  `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`.
+  `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`,
+  `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
   Yazan tek araç `jira_add_comment`'tir ve diğer araçlar gibi önce izin sorar.
 - Bilgiler Atölye'de ayrıca saklanmaz; Claude Code ve Copilot CLI'ın MCP sunucularını tuttuğu kendi dosyalarına
   `atolye` adıyla yazılır (`~/.claude.json` ve `~/.copilot/mcp-config.json`). Böylece aynı araçlar terminaldeki
