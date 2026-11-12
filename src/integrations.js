@@ -1,0 +1,126 @@
+// Jira / Confluence / Bitbucket bağlantıları. Bilgiler Atölye'de ayrıca saklanmaz: Claude Code ve
+// GitHub Copilot CLI'ın MCP sunucularını tuttuğu kendi ayar dosyalarına "atolye" adlı sunucu olarak
+// yazılır; böylece aynı araçlar terminaldeki claude / copilot komutlarında da kullanılabilir.
+//   Claude Code : ~/.claude.json            → mcpServers.atolye
+//   Copilot CLI : ~/.copilot/mcp-config.json → mcpServers.atolye
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { clients, configFromEnv, envKey, SERVICES } from './atlassian.js';
+
+export const SERVER_NAME = 'atolye';
+const MCP_SCRIPT = fileURLToPath(new URL('./mcp-server.js', import.meta.url));
+
+// ATOLYE_*: testlerde gerçek ayar dosyalarına dokunmamak için
+const claudeFile = () => process.env.ATOLYE_CLAUDE_JSON
+  || path.join(process.env.CLAUDE_CONFIG_DIR || os.homedir(), '.claude.json');
+const copilotFile = () => process.env.ATOLYE_COPILOT_MCP
+  || path.join(process.env.COPILOT_HOME || path.join(os.homedir(), '.copilot'), 'mcp-config.json');
+
+/** Dosya yoksa boş nesne; bozuksa hata (üzerine yazıp kullanıcının ayarlarını silmemek için) */
+function readJson(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw err;
+  }
+  if (!raw.trim()) return {};
+  try {
+    const data = JSON.parse(raw.replace(/^﻿/, ''));
+    if (data && typeof data === 'object' && !Array.isArray(data)) return data;
+  } catch { /* aşağıda */ }
+  throw new Error(`Ayar dosyası okunamadı, değiştirilmedi: ${file}`);
+}
+
+function writeJson(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.atolye.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+}
+
+/** Kayıtlı ortam değişkenleri (önce Claude Code'un, yoksa Copilot'un dosyasından) */
+function readEnv() {
+  for (const file of [claudeFile(), copilotFile()]) {
+    try {
+      const env = readJson(file).mcpServers?.[SERVER_NAME]?.env;
+      if (env && typeof env === 'object' && Object.keys(env).length) return { ...env };
+    } catch { /* diğer dosyaya bak */ }
+  }
+  return {};
+}
+
+function writeEnv(env) {
+  const empty = !Object.keys(env).length;
+  const base = { command: process.execPath, args: [MCP_SCRIPT], env };
+  for (const [file, entry] of [
+    [claudeFile(), { type: 'stdio', ...base }],
+    [copilotFile(), { type: 'local', ...base, tools: ['*'] }],
+  ]) {
+    const data = readJson(file);
+    const servers = { ...(data.mcpServers || {}) };
+    if (empty) delete servers[SERVER_NAME];
+    else servers[SERVER_NAME] = entry;
+    if (empty && !fs.existsSync(file)) continue; // silinecek bir şey yokken dosya oluşturma
+    writeJson(file, { ...data, mcpServers: servers });
+  }
+}
+
+/** Arayüze giden durum: API anahtarı asla geri gönderilmez */
+export function status() {
+  const env = readEnv();
+  const out = { files: { claude: claudeFile(), copilot: copilotFile() }, services: {} };
+  for (const s of SERVICES) {
+    out.services[s] = {
+      url: env[envKey(s, 'url')] || '',
+      email: env[envKey(s, 'email')] || '',
+      hasToken: Boolean(env[envKey(s, 'token')]),
+      connected: Boolean(configFromEnv(s, env)),
+    };
+  }
+  return out;
+}
+
+/** Sunucu içi kullanım (depo indirme): kayıtlı bağlantı ayarı ya da null. Arayüze gönderilmez. */
+export const config = (service) => configFromEnv(service, readEnv());
+
+const check = (service) => { if (!SERVICES.includes(service)) throw new Error('Bilinmeyen servis'); };
+
+export function save(service, { url, email, token }) {
+  check(service);
+  const env = readEnv();
+  const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
+  let parsed;
+  try { parsed = new URL(cleanUrl); } catch { /* aşağıda */ }
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) throw Object.assign(new Error('bad-url'), { code: 'bad-url' });
+  const newToken = String(token || '').trim() || env[envKey(service, 'token')]; // boş bırakılırsa eski anahtar korunur
+  if (!newToken) throw Object.assign(new Error('no-token'), { code: 'no-token' });
+  env[envKey(service, 'url')] = cleanUrl;
+  env[envKey(service, 'token')] = newToken;
+  const mail = String(email || '').trim();
+  if (mail) env[envKey(service, 'email')] = mail;
+  else delete env[envKey(service, 'email')];
+  writeEnv(env);
+  return status();
+}
+
+export function remove(service) {
+  check(service);
+  const env = readEnv();
+  for (const f of ['url', 'email', 'token']) delete env[envKey(service, f)];
+  writeEnv(env);
+  return status();
+}
+
+/** Kayıtlı bilgilerle giriş dener: { ok, user } ya da { ok: false, error } */
+export async function test(service) {
+  check(service);
+  const cfg = configFromEnv(service, readEnv());
+  if (!cfg) return { ok: false, error: 'not-configured' };
+  try {
+    return { ok: true, user: await clients[service].whoami(cfg) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}

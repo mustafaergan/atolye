@@ -230,13 +230,14 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
       } }));
     append(box);
   }, OPEN_WATCH_MS);
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null, lang: getLang(), engine });
+  // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: modelFor(engine) || null, lang: getLang(), engine });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
 // Sağ üstteki seçici açık oturumun motorunu gösterir; değiştirmek o klasörde seçilen motorla
 // yeni bir oturum açar (açık oturum kendi motoruyla listede çalışmaya devam eder).
-state.engine = 'claude';        // yeni oturumlar için seçilen
+state.engine = 'copilot';       // yeni oturumlar için seçilen (varsayılan Copilot; kullanıcının seçimi sunucuda saklanır)
 state.sessionEngine = null;     // açık oturumun motoru
 state.engines = { claude: { available: true }, copilot: { available: false } };
 
@@ -256,8 +257,9 @@ function applyEngineUi() {
   dom.engineSelect.value = engine;
   dom.engineSelect.parentElement.classList.toggle('copilot', engine === 'copilot');
   const copilot = engine === 'copilot';
-  // Copilot'ta model /model komutuyla, plan /plan komutuyla seçilir
-  dom.modelSelect.parentElement.hidden = copilot;
+  // Model listesi seçili motorun kendi listesidir; Copilot model bildirmiyorsa seçici gizlenir (/model komutu kullanılır)
+  dom.modelSelect.parentElement.hidden = copilot && dom.modelSelect.options.length < 2;
+  // Copilot'ta plan modu /plan komutuyla kullanılır
   const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
   planOpt.hidden = copilot;
   planOpt.disabled = copilot;
@@ -280,14 +282,15 @@ function applyOpened(ev) {
   clearTimeout(openWatch);
   state.liveId = ev.liveId;
   state.sessionEngine = ev.engine || 'claude';
-  applyEngineUi();
   state.sessionId = ev.sessionId;
   if (ev.cwd && !samePath(ev.cwd, state.cwd)) setCwdLabel(ev.cwd);
   rememberOpen();
   resetTranscript();
-  if (ev.capabilities) setCapabilities(ev.capabilities);
+  // Önceki motorun modelleri listede kalmasın: liste her açılışta bu oturumun motorundan kurulur
+  state.model = ev.model || '';
+  setCapabilities(ev.capabilities || {});
   setMode(ev.mode, false);
-  if (ev.model) { state.model = ev.model; dom.modelSelect.value = ev.model; }
+  renderSessions();
 
   for (const m of ev.history || []) {
     if (m.type === 'assistant') renderAssistant(m, true);
@@ -312,7 +315,7 @@ function handleEvent(ev) {
     case 'question': return renderQuestion(ev);
     case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
     case 'mode': return setMode(ev.mode, false);
-    case 'model': return;
+    case 'model': return setModelValue(ev.model || '');
     case 'capabilities': return setCapabilities(ev);
     case 'error': clearTimeout(openWatch); setBusy(false); return notice(ev.message);
     case 'opened': return applyOpened(ev);
@@ -969,14 +972,29 @@ function setMode(mode, notifyServer = true) {
   if (notifyServer) wsSend({ type: 'set_mode', mode });
 }
 
+// Model seçimi motor başına saklanır
+const currentEngine = () => state.sessionEngine || state.engine;
+const modelKey = (engine) => (engine === 'copilot' ? 'atolye:model:copilot' : 'atolye:model');
+const modelFor = (engine) => store.get(modelKey(engine), '');
+
 function setCapabilities({ models = [], commands = [] }) {
   state.commands = commands;
-  const current = state.model;
-  dom.modelSelect.replaceChildren(el('option', { value: '', text: T('Varsayılan model') }),
-    ...models.filter((m) => m.value && m.value !== 'default').map((m) => el('option', { value: m.value, text: m.name || m.value, title: m.description || '' })));
-  if (current && ![...dom.modelSelect.options].some((o) => o.value === current))
-    dom.modelSelect.append(el('option', { value: current, text: current }));
-  dom.modelSelect.value = current;
+  const copilot = currentEngine() === 'copilot';
+  const options = models.filter((m) => m.value && m.value !== 'default').map((m) => el('option', { value: m.value, text: m.name || m.value, title: m.description || '' }));
+  // Claude'da "varsayılan" bir seçenektir; Copilot her zaman belirli bir model bildirir
+  if (!copilot) options.unshift(el('option', { value: '', text: T('Varsayılan model') }));
+  dom.modelSelect.replaceChildren(...options);
+  setModelValue(state.model);
+  applyEngineUi();
+}
+
+function setModelValue(model) {
+  state.model = model;
+  if (model && ![...dom.modelSelect.options].some((o) => o.value === model)) {
+    if (currentEngine() === 'copilot') return; // Copilot'un listesinde olmayan bir model gösterilmez
+    dom.modelSelect.append(el('option', { value: model, text: model }));
+  }
+  dom.modelSelect.value = model;
 }
 
 dom.modeSelect.addEventListener('change', () => {
@@ -989,7 +1007,7 @@ dom.modeSelect.addEventListener('change', () => {
 });
 dom.modelSelect.addEventListener('change', () => {
   state.model = dom.modelSelect.value;
-  store.set('atolye:model', state.model);
+  store.set(modelKey(currentEngine()), state.model);
   wsSend({ type: 'set_model', model: state.model || null });
 });
 
@@ -1275,6 +1293,13 @@ function sessionRows(dir) {
     rows.push({ id: r.sessionId, liveId: r.liveId, engine: r.engine, title: r.title || T('Yeni oturum'), lastModified: r.lastActivity, run: r, cwd: dir });
   }
   for (const s of disk) rows.push({ ...s, run: runningBySession.get(s.id), cwd: dir });
+  // Liste seçili motorun oturumlarını gösterir; diğer motorda hâlâ çalışan/onay bekleyen oturum gizlenmez
+  const engine = currentEngine();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    const other = (r.engine || r.run?.engine || 'claude') !== engine;
+    if (other && !(r.run && (r.run.busy || r.run.waiting))) rows.splice(i, 1);
+  }
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
 
   // Henüz mesaj yazılmamış yeni oturum da listede hemen görünsün
@@ -1582,13 +1607,292 @@ spend.pop.addEventListener('click', (e) => e.stopPropagation());
 document.addEventListener('click', () => { spend.pop.hidden = true; });
 setInterval(() => loadSpend(), 5 * 60_000);
 
+// ---------- Bağlantılar: Jira / Confluence / Bitbucket ----------
+// Bilgiler sunucuda Claude Code ve Copilot CLI'ın kendi ayar dosyalarına yazılır (bkz. src/integrations.js).
+const TOKEN_PAGE = 'https://id.atlassian.com/manage-profile/security/api-tokens';
+const SAVE_STEP = () => T('Oluşan anahtarı kopyalayıp aşağıya yapıştırın (yalnızca bir kez gösterilir) ve "Kaydet ve sına" deyin.');
+const LINKS = {
+  jira: {
+    name: 'Jira',
+    urlHint: 'https://jira.sirket.com',
+    steps: () => [
+      T("Jira'yı tarayıcıda açın ve adres çubuğundaki ana adresi kopyalayın (ör. https://jira.sirket.com ya da https://sirket.atlassian.net)."),
+      T('Şirket içi Jira (Data Center): sağ üstteki profil resmi → Profil → Kişisel Erişim Belirteçleri (Personal Access Tokens) → Belirteç oluştur. E-posta alanını boş bırakın.'),
+      [T('Jira Cloud (atlassian.net): şu sayfada "API belirteci oluştur" deyin ve e-posta alanına Atlassian hesabınızın e-postasını yazın:'), TOKEN_PAGE],
+      SAVE_STEP(),
+    ],
+    examples: () => T('Örnek: "Bana atanmış açık Jira kayıtlarını listele" ya da "ABC-123 kaydını oku ve çözüm öner".'),
+  },
+  confluence: {
+    name: 'Confluence',
+    urlHint: 'https://confluence.sirket.com',
+    steps: () => [
+      T("Confluence'ı tarayıcıda açın ve ana adresi kopyalayın (ör. https://confluence.sirket.com ya da https://sirket.atlassian.net/wiki)."),
+      T('Şirket içi Confluence (Data Center): sağ üstteki profil resmi → Ayarlar → Kişisel Erişim Belirteçleri (Personal Access Tokens) → Belirteç oluştur. E-posta alanını boş bırakın.'),
+      [T('Confluence Cloud: Jira ile aynı API belirteci kullanılır; şu sayfadan oluşturun ve e-posta alanına Atlassian hesabınızın e-postasını yazın:'), TOKEN_PAGE],
+      SAVE_STEP(),
+    ],
+    examples: () => T('Örnek: "Confluence içinde kurulum dokümanını bul ve özetle".'),
+  },
+  bitbucket: {
+    name: 'Bitbucket',
+    urlHint: 'https://bitbucket.sirket.com',
+    steps: () => [
+      T("Bitbucket'ı tarayıcıda açın ve ana adresi kopyalayın (ör. https://bitbucket.sirket.com; Cloud için https://bitbucket.org/calisma-alaniniz)."),
+      T('Şirket içi Bitbucket (Data Center): sağ üstteki profil resmi → Hesabı yönet → HTTP erişim belirteçleri (HTTP access tokens) → Belirteç oluştur. Depo için "okuma" izni yeterlidir. E-posta alanını boş bırakın.'),
+      [T('Bitbucket Cloud: şu sayfada "Kapsamlı API belirteci oluştur" deyip Bitbucket ile depo ve çekme isteği okuma izinlerini seçin; e-posta alanına Atlassian hesabınızın e-postasını yazın:'), TOKEN_PAGE],
+      SAVE_STEP(),
+    ],
+    examples: () => T('Örnek: "ABC projesindeki depo-adi deposunun açık çekme isteklerini listele ve 42 numaralıyı incele".'),
+  },
+};
+const links = { status: null, tab: 'jira', result: {} };
+const linksDlg = $('#linksDialog');
+
+async function loadLinks() {
+  links.status = await fetch('/api/integrations').then((r) => r.json()).catch(() => null);
+  const n = Object.values(links.status?.services || {}).filter((s) => s.connected).length;
+  const badge = $('#linksCount');
+  badge.hidden = !n;
+  badge.textContent = String(n);
+}
+
+function renderLinks() {
+  const services = links.status?.services || {};
+  $('#linksTabs').replaceChildren(...Object.entries(LINKS).map(([id, def]) =>
+    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(id === links.tab), onclick: () => { links.tab = id; renderLinks(); } },
+      el('span', { class: `links-dot${services[id]?.connected ? ' on' : ''}` }), el('span', { text: def.name }))),
+    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'repo'), onclick: () => { links.tab = 'repo'; renderLinks(); } },
+      el('span', { text: T('İlk repom') })));
+  if (links.tab === 'repo') return renderRepoTab();
+
+  const id = links.tab;
+  const def = LINKS[id];
+  const cur = services[id] || {};
+  const url = el('input', { type: 'url', value: cur.url || '', placeholder: def.urlHint, spellcheck: 'false', autocomplete: 'off' });
+  const email = el('input', { type: 'email', value: cur.email || '', placeholder: T('yalnızca Cloud (atlassian.net / bitbucket.org) için'), autocomplete: 'off' });
+  const token = el('input', { type: 'password', placeholder: cur.hasToken ? T('kayıtlı (değiştirmek için yenisini yapıştırın)') : T('API anahtarını yapıştırın'), autocomplete: 'new-password' });
+  const result = el('div', { class: 'links-result' });
+  const show = (r) => {
+    links.result[id] = r;
+    result.hidden = !r;
+    if (!r) return;
+    result.className = `links-result ${r.ok ? 'ok' : r.pending ? '' : 'err'}`;
+    result.textContent = r.pending ? T('Bağlantı sınanıyor…')
+      : r.ok ? T('Bağlantı başarılı: {user} olarak giriş yapıldı.', { user: r.user })
+        : T('Bağlanılamadı: {error}', { error: r.error });
+    if (!r.ok && !r.pending) result.append(el('div', {}, askErrorButton(T('{name} bağlantısını kurma', { name: def.name }), r.error)));
+  };
+  const runTest = async () => {
+    show({ pending: true });
+    const r = await fetch(`/api/integrations/${id}/test?lang=${getLang()}`, { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    links.result[id] = r;
+    if (links.tab === id) renderLinks(); // nokta ve düğmeler güncellensin
+  };
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet ve sına'), onclick: async () => {
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/integrations/${id}?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: url.value, email: email.value, token: token.value }) });
+      const data = await res.json();
+      if (!res.ok) return show({ ok: false, error: data.error });
+      await loadLinks();
+      await runTest();
+    } finally { saveBtn.disabled = false; }
+  } });
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Bağlantıyı kaldır'), onclick: async () => {
+    if (!confirm(T('{name} bağlantısı ve kayıtlı API anahtarı silinsin mi?', { name: def.name }))) return;
+    await fetch(`/api/integrations/${id}`, { method: 'DELETE' });
+    links.result[id] = null;
+    await loadLinks();
+    renderLinks();
+  } });
+
+  const steps = el('ol', { class: 'links-steps' }, ...def.steps().map((s) => (Array.isArray(s)
+    ? el('li', {}, el('span', { text: `${s[0]} ` }), el('a', { href: s[1], target: '_blank', rel: 'noopener noreferrer', text: s[1] }))
+    : el('li', { text: s }))));
+  $('#linksBody').replaceChildren(...[
+    steps,
+    el('label', { class: 'links-field' }, el('span', { text: T('Adres') }), url),
+    el('label', { class: 'links-field' }, el('span', { text: T('E-posta') }), email, el('small', { text: T('Şirket içi kurulumda (kişisel erişim belirteci) boş bırakın.') })),
+    el('label', { class: 'links-field' }, el('span', { text: T('API anahtarı') }), token),
+    el('div', { class: 'links-actions' }, saveBtn,
+      cur.connected ? el('button', { class: 'btn', type: 'button', text: T('Bağlantıyı sına'), onclick: runTest }) : null,
+      cur.hasToken || cur.url ? removeBtn : null,
+      helpButton(id)),
+    result,
+    el('p', { class: 'links-intro', text: def.examples() }),
+  ]);
+  show(links.result[id] || null);
+  const f = links.status?.files;
+  $('#linksNote').textContent = f
+    ? T('Bilgiler yalnızca bu bilgisayarda, Claude Code ve Copilot CLI ayar dosyalarında saklanır: {claude} ve {copilot}. API anahtarı bu dosyalarda düz metin olarak durur; anahtara gereğinden geniş izin vermeyin.', f)
+    : '';
+}
+
+$('#linksBtn').onclick = async () => {
+  await loadLinks();
+  repoUi.info = null; // Git ve Bitbucket durumu her açılışta yeniden okunur
+  renderLinks();
+  linksDlg.showModal();
+};
+$('#linksClose').onclick = () => linksDlg.close();
+linksDlg.addEventListener('click', (e) => { if (e.target === linksDlg) linksDlg.close(); });
+loadLinks();
+
+// ---------- Yapay zekâdan yardım ----------
+// Bağlantı kurarken ya da depo indirirken takılan kişi, hazır bir soruyla klasörsüz sohbete geçer.
+const HELP_PROMPTS = {
+  jira: () => T('Jira bağlantısını kurmak istiyorum ama teknik biri değilim. Jira adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  confluence: () => T('Confluence bağlantısını kurmak istiyorum ama teknik biri değilim. Confluence adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  repo: () => T('İlk kez bir depoyu (repository) bilgisayarıma indireceğim ve teknik biri değilim. Depo nedir, adresini nereden bulurum, indirdikten sonra dosyalara nasıl bakarım ve değişiklikleri nasıl güncel tutarım? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+};
+function askAi(prompt) {
+  linksDlg.close();
+  newSession(state.config.generalDir || state.cwd);
+  dom.input.value = prompt;
+  autoGrow();
+  updateSendBtn();
+  dom.input.focus();
+}
+const helpButton = (id) => el('button', { class: 'btn ghost links-help', type: 'button', text: T('Yapay zekâdan yardım al'), title: T('Hazır bir soruyla yeni bir sohbet açar; göndermeden önce düzenleyebilirsiniz'), onclick: () => askAi(HELP_PROMPTS[id]()) });
+const askErrorButton = (what, error) => el('button', { class: 'btn ghost', type: 'button', text: T('Bu hatayı yapay zekâya sor'),
+  onclick: () => askAi(T('{what} sırasında şu hatayı aldım, teknik biri değilim. Sebebi ne olabilir ve nasıl düzeltirim? Adım adım anlat.\n\nHata: {error}', { what, error })) });
+
+// ---------- İlk repom: depo indirme ----------
+const repoUi = { info: null, repos: null, result: null, busy: false };
+
+async function renderRepoTab() {
+  const body = $('#linksBody');
+  if (!repoUi.info) {
+    body.replaceChildren(el('div', { class: 'links-result', text: T('Yükleniyor…') }));
+    repoUi.info = await fetch('/api/repo/info').then((r) => r.json()).catch(() => ({}));
+    if (links.tab !== 'repo') return;
+  }
+  const info = repoUi.info;
+  const url = el('input', { type: 'text', placeholder: 'https://bitbucket.sirket.com/scm/abc/depo-adi.git', spellcheck: 'false', autocomplete: 'off', value: repoUi.url || '' });
+  url.oninput = () => { repoUi.url = url.value; };
+  const parent = el('input', { type: 'text', spellcheck: 'false', autocomplete: 'off', value: repoUi.parent || info.defaultParent || '' });
+  parent.oninput = () => { repoUi.parent = parent.value; };
+  const result = el('div', { class: 'links-result' });
+  result.hidden = true;
+
+  // Bitbucket bağlıysa depolar listeden seçilebilir
+  let picker = null;
+  if (info.bitbucket) {
+    const project = el('input', { type: 'text', placeholder: T('proje anahtarı (isteğe bağlı), ör. ABC'), spellcheck: 'false', value: repoUi.project || '' });
+    project.oninput = () => { repoUi.project = project.value; };
+    const select = el('select', { class: 'links-select' }, el('option', { value: '', text: repoUi.repos ? T('Depo seçin ({n} depo)', { n: repoUi.repos.length }) : T('Önce "Depoları listele" deyin') }),
+      ...(repoUi.repos || []).map((r) => el('option', { value: r.cloneUrl, text: r.name })));
+    select.onchange = () => { if (select.value) { url.value = select.value; repoUi.url = select.value; } };
+    const listBtn = el('button', { class: 'btn', type: 'button', text: T('Depoları listele'), onclick: async () => {
+      listBtn.disabled = true;
+      const r = await fetch(`/api/repo/list?project=${encodeURIComponent(project.value.trim())}`).then((x) => x.json()).catch((e) => ({ error: e.message }));
+      if (r.error) { repoUi.repos = null; repoUi.result = { ok: false, error: r.error, what: T('Depo listesini alma') }; } else { repoUi.repos = r.repos; repoUi.result = null; }
+      if (links.tab === 'repo') renderRepoTab();
+    } });
+    picker = el('div', { class: 'links-field' }, el('span', { text: T("Bağlı Bitbucket'tan seçin") }), el('div', { class: 'links-row' }, project, listBtn), select);
+  }
+
+  const cloneBtn = el('button', { class: 'btn primary', type: 'button', text: T('Depoyu indir'), disabled: !info.git || repoUi.busy, onclick: async () => {
+    repoUi.busy = true;
+    cloneBtn.disabled = true;
+    result.hidden = false;
+    result.className = 'links-result';
+    result.textContent = T('Depo indiriliyor… Büyük depolarda birkaç dakika sürebilir.');
+    const r = await fetch(`/api/repo/clone?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: url.value, parent: parent.value }) })
+      .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    repoUi.busy = false;
+    if (r.ok) {
+      repoUi.result = null;
+      repoUi.url = '';
+      linksDlg.close();
+      setCollapsed(pathKey(r.dir), false);
+      addProject(r.dir);
+      newSession(r.dir);
+      dom.input.value = T('Bu depoyu yeni indirdim ve teknik biri değilim. Ne işe yaradığını, klasör yapısını ve nereden başlamam gerektiğini sade bir dille özetle.');
+      autoGrow();
+      updateSendBtn();
+      return;
+    }
+    repoUi.result = { ok: false, error: r.error, what: T('Depo indirme') };
+    if (links.tab === 'repo') renderRepoTab();
+  } });
+
+  const steps = el('ol', { class: 'links-steps' },
+    el('li', { text: T('Depo (repository), bir projenin dosyalarının ve değişiklik geçmişinin tutulduğu yerdir. "İndirmek" (clone), onun bir kopyasını bilgisayarınıza alır; asıl depoya dokunmaz.') }),
+    el('li', { text: info.bitbucket
+      ? T('Aşağıdan depoyu seçin ya da depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp yapıştırın.')
+      : T('Depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp aşağıya yapıştırın. Bitbucket sekmesinden bağlantı kurarsanız depolar burada listelenir ve giriş otomatik yapılır.') }),
+    el('li', { text: T('"Depoyu indir" deyin: depo aşağıdaki klasöre iner, solda proje olarak eklenir ve o klasörde yeni bir oturum açılır.') }));
+
+  body.replaceChildren(...[
+    steps,
+    info.git ? null : el('div', { class: 'links-result err' },
+      el('span', { text: `${T('Git kurulu değil. Depo indirmek için gerekir; şu adresten kurup Atölye\'yi yeniden başlatın:')} ` }),
+      el('a', { href: 'https://git-scm.com/download/win', target: '_blank', rel: 'noopener noreferrer', text: 'https://git-scm.com/download/win' })),
+    picker,
+    el('label', { class: 'links-field' }, el('span', { text: T('Depo adresi') }), url),
+    el('label', { class: 'links-field' }, el('span', { text: T('İndirileceği klasör') }), parent, el('small', { text: T('Depo bu klasörün içinde kendi adıyla bir alt klasöre iner.') })),
+    el('div', { class: 'links-actions' }, cloneBtn, helpButton('repo')),
+    result,
+  ].filter(Boolean));
+  if (repoUi.result) {
+    result.hidden = false;
+    result.className = 'links-result err';
+    result.replaceChildren(el('div', { text: T('Olmadı: {error}', { error: repoUi.result.error }) }), askErrorButton(repoUi.result.what, repoUi.result.error));
+  }
+  $('#linksNote').textContent = T('İndirme, bilgisayarınızdaki Git ile yapılır. Bitbucket bağlıysa kayıtlı API anahtarı yalnızca bu indirme için kullanılır; sonraki çekme/gönderme işlemlerinde Git kendi giriş penceresini açabilir.');
+}
+
+// ---------- Güncelleme bildirimi ----------
+// Depoda daha yeni bir Atölye sürümü varsa sağ üstte "Güncelleme var" görünür (bkz. src/update.js).
+async function checkUpdate() {
+  const u = await fetch('/api/update').then((r) => r.json()).catch(() => null);
+  $('#updateWrap').hidden = !u?.available;
+  if (!u?.available) return;
+  $('#updatePop').replaceChildren(...[
+    el('strong', { text: T('Atölye {latest} yayımlandı (kurulu sürüm: {current}).', u) }),
+    ...(u.how === 'git'
+      ? [el('div', { text: T('Güncellemek için kurulum klasöründe PowerShell ile şunu çalıştırın:') }), el('code', { text: '.\\atolye.ps1 guncelle' })]
+      : [el('div', { text: T("Güncellemek için yeni paketi indirip içindeki Kur.bat'ı çalıştırın. Ayarlarınız ve oturumlarınız korunur.") })]),
+    u.canApply ? null : el('div', { text: T('Güncellemeden sonra bu sayfayı yenileyin.') }),
+    u.canApply ? el('button', { class: 'btn primary', type: 'button', text: T('Şimdi güncelle'), onclick: () => applyUpdate(u) }) : null,
+    u.canApply ? el('div', { class: 'update-status', id: 'updateStatus' }) : null,
+  ].filter(Boolean));
+}
+
+// Güncellemeyi sunucuda başlatır; Atölye yeni sürümle yeniden başlayınca sayfa kendiliğinden yenilenir.
+// Çalışan oturumlar yeniden başlatmada kapanır (konuşmalar kaybolmaz, listeden yeniden açılır).
+async function applyUpdate(u) {
+  if (state.running?.some((r) => r.busy) && !confirm(T('Çalışan oturumlar var; güncelleme Atölye\'yi yeniden başlatır ve bu işleri yarıda keser. Devam edilsin mi?'))) return;
+  const status = $('#updateStatus');
+  const btn = $('#updatePop .btn');
+  btn.disabled = true;
+  status.textContent = T('Güncelleniyor… Atölye birazdan yeniden başlayacak.');
+  const r = await fetch('/api/update/apply', { method: 'POST' }).then((x) => x.json()).catch(() => ({ started: false }));
+  const end = Date.now() + 5 * 60_000;
+  while (r.started && Date.now() < end) {
+    await new Promise((res) => setTimeout(res, 4000));
+    const now = await fetch('/api/update').then((x) => x.json()).catch(() => null); // yeniden başlarken kısa süre cevap gelmez
+    if (now && now.current !== u.current) return location.reload();
+  }
+  btn.disabled = false;
+  status.textContent = T('Güncelleme tamamlanamadı. Kurulum klasöründe PowerShell ile ".\\atolye.ps1 guncelle" komutunu çalıştırıp çıktıya bakın.');
+}
+$('#updateBtn').onclick = (e) => { e.stopPropagation(); $('#updatePop').hidden = !$('#updatePop').hidden; };
+document.addEventListener('click', (e) => { if (!$('#updateWrap').contains(e.target)) $('#updatePop').hidden = true; });
+checkUpdate();
+setInterval(checkUpdate, 60 * 60 * 1000); // sunucu depoya günde bir kez bakar; bu yalnızca sonucu okur
+
 // Geliştirme için: ?debug ile açıldığında olaylar konsoldan elle verilebilir
 if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { handleEvent, state };
 
 // ---------- Başlangıç ----------
 (async function init() {
   state.config = await fetch('/api/config').then((r) => r.json());
-  state.model = store.get('atolye:model', '');
+  // Eski sürümler Copilot etiketini Claude model seçimi olarak kaydedebiliyordu
+  if (store.get('atolye:model', '') === 'GitHub Copilot') store.del('atolye:model');
   // Kalıcı durum sunucudan gelir. Eski sürümler listeyi tarayıcıda tutuyordu: bulunursa
   // bir kez sunucuya aktarılır ve tarayıcıdaki kopyası silinir.
   let saved = await fetch('/api/state').then((r) => r.json()).catch(() => null);
@@ -1604,10 +1908,13 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   // Aktarım yapılan açılışta eski kayıttaki son klasör/oturum önceliklidir
   setCwdLabel((migrating && legacyCwd) || saved?.cwd || legacyCwd || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse ya da tarayıcı yeniden açıldıysa en son bakılan oturuma dön
-  const last = (migrating && legacyOpen) || saved?.open || legacyOpen;
   if (saved?.engine) state.engine = saved.engine;
+  let last = (migrating && legacyOpen) || saved?.open || legacyOpen;
+  // Motor hiç seçilmediyse varsayılan (Copilot) geçerlidir: eski bir Claude oturumuna değil, yeni oturuma açılır
+  await loadEngines(); // Copilot kurulu değilse seçim Claude'a düşer
+  if (last && !saved?.engineChosen && (last.engine || 'claude') !== state.engine) last = null;
   if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; state.sessionEngine = last.engine || 'claude'; }
-  await loadEngines();
+  applyEngineUi();
   // Son oturum Copilot'tu ama Copilot artık yoksa: hata göstermek yerine Claude ile temiz başla
   if (state.sessionEngine === 'copilot' && !state.engines.copilot?.available) {
     state.liveId = null;

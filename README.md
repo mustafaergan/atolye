@@ -122,6 +122,43 @@ node src/cli.js --port 3211 --cwd C:\projeler\uygulamam --no-open
 | `ATOLYE_SPEND=0` | Harcama göstergesini kapat |
 | `ATOLYE_SPEND_PATH` | Harcama özeti yolu (varsayılan `/spend-summary`) |
 
+### Kurulumda yapılan denetimler
+
+`atolye.ps1` (ve paketteki `Kur.bat`) kurulum sırasında şunlara bakar; eksik olanı Türkçe adımlarla anlatır, istenirse
+kurar ve kurulumu her durumda tamamlar:
+
+- **Kullanım koşulları**: Atölye yalnızca bir arayüzdür ve lisans içermez. Kurulum başında, şirketinizin Claude Code,
+  GitHub Copilot ve (bağlanacaksa) Atlassian ürünleri için lisansa sahip olduğunu `evet` yazarak kabul etmeniz istenir;
+  kabul edilmezse kurulum yapılmaz. Kabul `~/.atolye/kullanim-kosullari-kabul.txt` dosyasına kaydedilir ve yeniden
+  sorulmaz. Etkileşimsiz kurulumda `-Kabul` parametresi ya da `ATOLYE_KABUL=1` kullanılır.
+- **Claude Code**: Atölye'nin kendi motoru yerinde mi, `claude` komutu kurulu mu (değilse `npm install -g @anthropic-ai/claude-code`
+  önerilir), bağlantı ayarı (gateway adresi ve token ya da claude.ai girişi) var mı.
+- **GitHub Copilot CLI** (isteğe bağlı): kurulu mu (değilse `npm install -g @github/copilot` ile kurmayı önerir), giriş
+  yapılmış mı (değilse `copilot login` adımlarını anlatır ve istenirse o pencerede başlatır).
+
+`atolye.ps1 durum` aynı bilgileri sonradan gösterir. Arayüzde yeni oturumlar varsayılan olarak **GitHub Copilot** ile açılır
+(kurulu değilse Claude Code ile); sağ üstten yaptığınız seçim saklanır. Model listesi ve oturum listesi seçili motora göre gelir.
+Atölye günde bir kez depoya bakar; daha yeni bir sürüm varsa sağ üstte **Güncelleme var** düğmesi belirir (güncelleme yoksa düğme hiç görünmez). Git ile indirilmiş kurulumlarda düğmedeki **Şimdi güncelle**, son sürümü çekip paketleri kurar ve Atölye'yi yeniden başlatır; paketten kurulumda yeni paketin nasıl kurulacağını söyler. Güncelleme kendiliğinden yapılmaz, siz başlatırsınız (`ATOLYE_UPDATE_CHECK=0` denetimi kapatır).
+
+### Jira, Confluence ve Bitbucket bağlantıları
+
+Üst çubuktaki **Bağlantılar** düğmesi, her servis için adım adım tarifli bir pencere açar: adresi ve API anahtarını
+(şirket içi kurulumda kişisel erişim belirteci; Cloud'da e-posta + API belirteci) girip **Kaydet ve sına** demeniz yeterli.
+Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanmış açık kayıtları listele", "ABC-123'ü oku",
+"Confluence'ta kurulum dokümanını bul", "şu deponun açık çekme isteklerini incele".
+
+- **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adresini yapıştırıp (Bitbucket bağlıysa listeden seçip)
+  **Depoyu indir** demek yeterli; depo `~/repos` altına iner, proje olarak eklenir ve o klasörde oturum açılır.
+- Her sekmede **Yapay zekâdan yardım al** düğmesi, hazır bir soruyla klasörsüz sohbet açar; bir hata çıktığında
+  **Bu hatayı yapay zekâya sor** düğmesi hatayı soruya ekler.
+- Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
+  `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`.
+  Yazan tek araç `jira_add_comment`'tir ve diğer araçlar gibi önce izin sorar.
+- Bilgiler Atölye'de ayrıca saklanmaz; Claude Code ve Copilot CLI'ın MCP sunucularını tuttuğu kendi dosyalarına
+  `atolye` adıyla yazılır (`~/.claude.json` ve `~/.copilot/mcp-config.json`). Böylece aynı araçlar terminaldeki
+  `claude` ve `copilot` komutlarında da çalışır. API anahtarı bu dosyalarda düz metin olarak durur ve tarayıcıya
+  geri gönderilmez; anahtara gereğinden geniş izin vermeyin.
+
 ### GitHub Copilot CLI (isteğe bağlı)
 
 Sağ üstteki seçiciyle oturumlar **Claude Code** yerine **GitHub Copilot CLI** ile de çalıştırılabilir. Atölye,
@@ -131,7 +168,7 @@ Agent Client Protocol; GitHub'da önizleme aşamasında) kullanır; cevap akış
 
 ```bash
 npm install -g @github/copilot   # Copilot CLI'ı kur
-copilot                          # bir kez çalıştırıp /login ile GitHub hesabıyla giriş yap
+copilot login                    # tarayıcıdan GitHub hesabıyla giriş yap (bir kez)
 ```
 
 Kurulu değilse seçicide "kurulu değil" yazar. Seçiciyi değiştirmek o klasörde seçilen motorla yeni bir oturum
@@ -185,6 +222,8 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 - `src/manager.js`: tarayıcıdan bağımsız çalışan oturumlar, olay tamponu ve boşta kalanları kapatma
 - `src/store.js`: kalıcı arayüz durumu (`~/.atolye/durum.json`: projeler, açık/kapalı klasörler, son seçimler)
 - `src/copilot.js`: GitHub Copilot CLI motoru (ACP istemcisi; Copilot mesajlarını arayüzün kart yapısına çevirir)
+- `src/integrations.js`, `src/atlassian.js`, `src/mcp-server.js`: Jira / Confluence / Bitbucket bağlantıları (ayarları CLI'ların
+  kendi dosyalarına yazar; araçları küçük bir MCP sunucusuyla sunar)
 - `src/spend.js`: gateway harcama özetini çekme (sistem sertifikaları / PowerShell yedeği) ve özetleme
 - `public/i18n.js`, `src/messages.js`: Türkçe/İngilizce metinler (Türkçe metin anahtardır; `npm test` eksik çeviriyi yakalar)
 - `src/session.js`: Agent SDK `query()` akışını açık tutan oturum sınıfı (izinler, durdurma, mod/model değişimi)
@@ -193,3 +232,7 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 ## Lisans
 
 MIT
+
+---
+
+[optona.tr](https://optona.tr) tarafından yazılmıştır.

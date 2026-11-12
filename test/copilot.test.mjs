@@ -135,3 +135,27 @@ test('araç eşleme: yeni dosya yazma ve bilinmeyen araç türü', () => {
     { name: 'Write', input: { file_path: '/a.txt', content: 'merhaba' } });
   assert.deepEqual(toolForUi({ kind: 'other', title: 'MCP aracı', rawInput: { a: 1 } }), { name: 'MCP aracı', input: { a: 1 } });
 });
+
+test("model listesi Copilot'un kendisinden gelir; seçilen model oturuma uygulanır", async () => {
+  const { s, events } = run(() => ({ behavior: 'allow' }));
+  await until(() => events.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  const caps = events.filter((e) => e.type === 'capabilities').at(-1);
+  assert.deepEqual(caps.models.map((m) => m.value), ['sahte-hizli', 'sahte-guclu']);
+  assert.equal(s.model, 'sahte-hizli');
+  await s.setModel('sahte-guclu');
+  assert.equal(s.model, 'sahte-guclu');
+  assert.ok(events.some((e) => e.type === 'model' && e.model === 'sahte-guclu'));
+  // Claude modeli gibi listede olmayan bir değer Copilot'a gönderilmez
+  await s.setModel('claude-opus');
+  assert.equal(s.model, 'sahte-guclu');
+  s.close();
+
+  // Daha önce seçilen model yeni oturumda da kullanılır
+  const events2 = [];
+  const s2 = new CopilotSession({ cwd, model: 'sahte-guclu', emit: (e) => events2.push(e) });
+  s2.start();
+  await until(() => events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.equal(s2.model, 'sahte-guclu');
+  assert.equal(sdk(events2, 'system').find((m) => m.subtype === 'init').model, 'Sahte Güçlü');
+  s2.close();
+});

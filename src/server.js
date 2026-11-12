@@ -18,6 +18,9 @@ import { SessionManager } from './manager.js';
 import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
 import { detectCopilot } from './copilot.js';
+import * as integrations from './integrations.js';
+import { applyUpdate, checkUpdate } from './update.js';
+import * as repo from './repo.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -91,6 +94,54 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   app.get('/api/spend', wrap(async (req, res) => {
     res.json(await getSpend({ force: req.query.refresh === '1', lang: normalizeLang(req.query.lang) }));
+  }));
+
+  // "İlk repom": depo indirme yardımcısı (bkz. repo.js)
+  app.get('/api/repo/info', wrap(async (_req, res) => {
+    res.json({ git: await repo.gitVersion(), defaultParent: repo.defaultParent(), bitbucket: Boolean(integrations.config('bitbucket')) });
+  }));
+  app.get('/api/repo/list', wrap(async (req, res) => {
+    const cfg = integrations.config('bitbucket');
+    if (!cfg) return res.json({ error: msg(req.query.lang, 'Bağlantı bilgileri eksik') });
+    try {
+      res.json({ repos: await repo.listRepos(cfg, String(req.query.project || '').trim() || undefined) });
+    } catch (err) {
+      res.json({ error: err.message });
+    }
+  }));
+  app.post('/api/repo/clone', wrap(async (req, res) => {
+    const lang = req.query.lang;
+    const r = await repo.cloneRepo({ url: req.body?.url, parent: req.body?.parent, bitbucketCfg: integrations.config('bitbucket') });
+    if (r.ok) store.addProject(r.dir);
+    else if (r.code === 'bad-url') r.error = msg(lang, 'Geçerli bir depo adresi girin (ör. https://…/depo-adi.git)');
+    else if (r.code === 'no-git') r.error = msg(lang, 'Git kurulu değil. https://git-scm.com adresinden kurup Atölye\'yi yeniden başlatın.');
+    else if (r.code === 'exists') r.error = msg(lang, 'Bu klasör zaten var: {dir}. Depo daha önce indirilmiş olabilir; soldan "Klasör ekle" ile açabilirsiniz.', { dir: r.dir });
+    res.json(r);
+  }));
+
+  // Yeni Atölye sürümü var mı? (sağ üstteki "Güncelleme var" bildirimi)
+  app.get('/api/update', wrap(async (req, res) => res.json(await checkUpdate({ force: req.query.refresh === '1' }))));
+  app.post('/api/update/apply', wrap(async (_req, res) => res.json(applyUpdate())));
+
+  // Jira / Confluence / Bitbucket bağlantıları (bkz. integrations.js). API anahtarı arayüze geri gönderilmez.
+  const integrationError = (lang, err) => {
+    if (err.code === 'bad-url') return msg(lang, 'Geçerli bir adres girin (https://… ile başlamalı)');
+    if (err.code === 'no-token') return msg(lang, 'API anahtarı gerekli');
+    return err.message;
+  };
+  app.get('/api/integrations', wrap(async (_req, res) => res.json(integrations.status())));
+  app.post('/api/integrations/:service', wrap(async (req, res) => {
+    try {
+      res.json(integrations.save(req.params.service, req.body || {}));
+    } catch (err) {
+      res.status(400).json({ error: integrationError(req.query.lang, err) });
+    }
+  }));
+  app.delete('/api/integrations/:service', wrap(async (req, res) => res.json(integrations.remove(req.params.service))));
+  app.post('/api/integrations/:service/test', wrap(async (req, res) => {
+    const r = await integrations.test(req.params.service);
+    if (r.error === 'not-configured') r.error = msg(req.query.lang, 'Bağlantı bilgileri eksik');
+    res.json(r);
   }));
 
   // Hangi yapay zekâ motorları kullanılabilir? (Claude Code her zaman; GitHub Copilot CLI kuruluysa)

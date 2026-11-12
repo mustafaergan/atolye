@@ -27,8 +27,10 @@ function normalize(d = {}) {
   const copilotSessions = (Array.isArray(d.copilotSessions) ? d.copilotSessions : [])
     .filter((s) => s && str(s.id) && str(s.cwd))
     .map((s) => ({ id: s.id, cwd: s.cwd, title: str(s.title), lastModified: Number(s.lastModified) || 0, renamed: Boolean(s.renamed) }));
-  const engine = d.engine === 'copilot' ? 'copilot' : 'claude';
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, copilotSessions };
+  // Varsayılan motor GitHub Copilot'tur; kullanıcı sağ üstten değiştirdiyse (engineChosen) onun seçimi geçerlidir
+  const engineChosen = Boolean(d.engineChosen);
+  const engine = engineChosen && d.engine !== 'copilot' ? 'claude' : 'copilot';
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, copilotSessions };
 }
 
 export class StateStore {
@@ -83,7 +85,7 @@ export class StateStore {
     if (cwd !== undefined) this.data.cwd = str(cwd);
     if (selected !== undefined) this.data.selected = str(selected);
     if (open !== undefined) this.data.open = normalize({ open }).open;
-    if (engine !== undefined) this.data.engine = engine === 'copilot' ? 'copilot' : 'claude';
+    if (engine !== undefined) { this.data.engine = engine === 'copilot' ? 'copilot' : 'claude'; this.data.engineChosen = true; }
     this.#save(false);
     return this.data;
   }

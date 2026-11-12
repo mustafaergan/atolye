@@ -38,6 +38,9 @@ param(
   # kaldir: onay sormadan kaldır
   [switch]$Evet,
 
+  # kur: kullanım koşullarını sormadan kabul et (otomatik/toplu kurulum; ATOLYE_KABUL=1 ile aynı)
+  [switch]$Kabul,
+
   # Bitince "kapatmak için Enter" bekle (.bat dosyalarından çift tıklanarak çalıştırıldığında)
   [switch]$Bekle
 )
@@ -253,6 +256,45 @@ function Stop-NodeMissing([string]$reason) {
   exit 1
 }
 
+# Kullanım koşulları: Atölye yalnızca bir arayüzdür; Claude Code, GitHub Copilot ve Atlassian ürünlerinin
+# lisansı kullanıcının şirketinden gelir. Kurulum, kullanıcı bunu açıkça kabul etmeden devam etmez.
+function Confirm-Terms {
+  $marker = Join-Path (Join-Path $HOME '.atolye') 'kullanim-kosullari-kabul.txt'
+  if (Test-Path $marker) { Write-Ok "Kullanım koşulları daha önce kabul edilmiş ($((Get-Item $marker).LastWriteTime.ToString('yyyy-MM-dd')))"; return }
+  Write-Box Yellow @(
+    'KULLANIM KOŞULLARI',
+    '',
+    "Atölye yalnızca bir arayüzdür; kendi başına hiçbir yapay zekâ ya da servis",
+    'lisansı içermez. Kuruluma devam ederek şunları kabul etmiş olursunuz:',
+    '',
+    '1) Şirketiniz, bu bilgisayarda kullanacağınız ürünler için gerekli lisans ve',
+    '   sözleşmelere sahiptir: Claude Code (Anthropic), GitHub Copilot ve',
+    '   bağlayacaksanız Jira / Confluence / Bitbucket (Atlassian).',
+    '2) Bu ürünleri, şirketinizin o sağlayıcılarla yaptığı sözleşmelere ve',
+    '   şirketinizin bilgi güvenliği kurallarına uygun kullanacaksınız.',
+    '3) Size verilen token ve API anahtarları kişiseldir; başkasıyla paylaşılmaz.',
+    '4) Atölye MIT lisansıyla, hiçbir garanti verilmeden sunulur.'
+  )
+  $accepted = ($Kabul -or $env:ATOLYE_KABUL -eq '1')
+  if (-not $accepted) {
+    if (-not (Test-Interactive)) { Stop-WithError "Kullanım koşulları kabul edilmeden kurulum yapılamaz. Etkileşimsiz kurulumda -Kabul parametresini (ya da ATOLYE_KABUL=1) kullanın." }
+    $a = ''
+    try { $a = Read-Host '  Bu koşulları kabul ediyor musunuz? Devam etmek için "evet" yazın' } catch { }
+    $accepted = ($a.Trim() -match '^(evet|e|yes|y)$')
+  }
+  if (-not $accepted) {
+    Write-Host ''
+    Write-Host '  Koşullar kabul edilmedi; kurulum yapılmadı.' -ForegroundColor Red
+    Write-Host ''
+    exit 1
+  }
+  try {
+    New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
+    Set-Content -Path $marker -Encoding utf8 -Value "Kullanım koşulları $((Get-Date).ToString('yyyy-MM-dd HH:mm')) tarihinde $env:USERNAME tarafından kabul edildi."
+  } catch { }
+  Write-Ok 'Kullanım koşulları kabul edildi'
+}
+
 function Test-Requirements {
   $node = Get-NodePath
   if (-not $node) { Stop-NodeMissing 'Node.js bulunamadı.' }
@@ -459,6 +501,160 @@ function Test-ClaudeConnection([switch]$Quiet) {
   return $false
 }
 
+# ---------- Claude Code ve GitHub Copilot CLI: kurulu mu, giriş yapılmış mı? ----------
+# Kurulum bu kontrollerde hiçbir zaman durmaz: eksik olan anlatılır, istenirse kurulur, kurulum devam eder.
+function Test-Interactive { return ([Environment]::UserInteractive -and -not $TarayiciAcma -and $env:ATOLYE_SORMA -ne '1') }
+
+# Bir komut satırı aracını bulur. VS Code'un "copilot" yönlendiricisi (copilot-shim) gerçek CLI sayılmaz.
+function Find-Cli($name) {
+  $npmCmd = Join-Path $env:APPDATA "npm\$name.cmd" # az önce npm ile kurulduysa PATH henüz güncel olmayabilir
+  if (Test-Path $npmCmd) { return $npmCmd }
+  foreach ($c in @(Get-Command $name -All -ErrorAction SilentlyContinue)) {
+    if ($c.Source -and $c.Source -notmatch 'copilot-shim') { return $c.Source }
+  }
+  if ($name -eq 'claude') {
+    $native = Join-Path $HOME '.local\bin\claude.exe' # Claude Code'un kendi kurulum betiği buraya kurar
+    if (Test-Path $native) { return $native }
+  }
+  return $null
+}
+
+function Get-CliVersion($exe) {
+  try {
+    $out = (cmd /d /c "`"$exe`" --version 2>&1") | Out-String
+    if ($out -notmatch 'not found|bulunamad' -and $out -match '\d+\.\d+\.\d+') { return $Matches[0] }
+  } catch { }
+  return $null
+}
+
+function Install-NpmGlobal($pkg, $label) {
+  Write-Step "$label kuruluyor (npm install -g $pkg)…"
+  try { npm install -g $pkg --no-audit --no-fund --loglevel=error } catch { }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warn "$label kurulamadı. Şirket ağı npm erişimini engelliyor olabilir; daha sonra bir terminalde 'npm install -g $pkg' komutunu deneyin."
+    return $false
+  }
+  return $true
+}
+
+function Test-ClaudeCli {
+  # Atölye, Claude Code'un motorunu kendi paketiyle getirir; bu yoksa Claude oturumları açılamaz
+  $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+  $engine = Join-Path $InstallDir "node_modules\@anthropic-ai\claude-agent-sdk-win32-$arch"
+  if (Test-Path $engine) { Write-Ok 'Claude Code motoru (Atölye ile birlikte geldi)' }
+  else {
+    Write-Box Red @(
+      'Atölye''nin Claude Code motoru eksik:',
+      "  node_modules\@anthropic-ai\claude-agent-sdk-win32-$arch",
+      '',
+      'Paket kurulumu yarım kalmış olabilir. Kurulum klasöründe şunu çalıştırın:',
+      '  npm install',
+      'ya da tam paketi (node_modules dahil) indirip Kur.bat ile yeniden kurun.'
+    )
+  }
+
+  $exe = Find-Cli 'claude'
+  $ver = if ($exe) { Get-CliVersion $exe } else { $null }
+  if ($ver) { Write-Ok "Claude Code CLI $ver"; return }
+  Write-Box Yellow @(
+    'Claude Code CLI (claude) bu bilgisayarda kurulu değil.',
+    '',
+    'Atölye kendi Claude Code motoruyla gelir; CLI olmadan da çalışır.',
+    'Yine de kurmanız önerilir: bağlantı ayarlarını kontrol etme (/status),',
+    'claude.ai hesabıyla giriş (/login) ve terminalden kullanım için gerekir.',
+    '',
+    'Kurmak için bir terminalde:',
+    '  npm install -g @anthropic-ai/claude-code'
+  )
+  if ((Test-Interactive) -and (Confirm-Yes 'Claude Code CLI şimdi kurulsun mu?')) {
+    if (Install-NpmGlobal '@anthropic-ai/claude-code' 'Claude Code CLI') {
+      $exe = Find-Cli 'claude'
+      $ver = if ($exe) { Get-CliVersion $exe } else { $null }
+      if ($ver) { Write-Ok "Claude Code CLI $ver kuruldu" }
+      else { Write-Ok 'Claude Code CLI kuruldu (yeni açılan terminallerde "claude" komutu çalışır)' }
+    }
+  }
+}
+
+# Copilot girişi: ortam değişkenindeki token, 'copilot login' kaydı ya da GitHub CLI (gh) girişi
+function Get-CopilotLogin {
+  foreach ($k in @('COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN')) {
+    if ([Environment]::GetEnvironmentVariable($k)) { return "ortam değişkeni $k" }
+  }
+  $dirs = @()
+  if ($env:COPILOT_HOME) { $dirs += $env:COPILOT_HOME }
+  $dirs += (Join-Path $HOME '.copilot')
+  foreach ($d in $dirs) {
+    $cfg = Join-Path $d 'config.json'
+    if (Test-Path $cfg) {
+      $raw = Get-Content $cfg -Raw -Encoding UTF8
+      if ($raw -match '"(logged_in_users|loggedInUsers)"\s*:\s*\[\s*\{') {
+        $user = if ($raw -match '"(?:last_logged_in_user|lastLoggedInUser)"\s*:\s*\{[^}]*"login"\s*:\s*"([^"]+)"') { " ($($Matches[1]))" } else { '' }
+        return "copilot login$user"
+      }
+    }
+  }
+  if (Get-Command gh -ErrorAction SilentlyContinue) {
+    cmd /d /c 'gh auth status >nul 2>&1'
+    if ($LASTEXITCODE -eq 0) { return "GitHub CLI (gh) girişi; bu hesapta Copilot lisansı yoksa 'copilot login' ile lisanslı hesapla girin" }
+  }
+  return $null
+}
+
+function Show-CopilotLoginHelp {
+  Write-Box Yellow @(
+    'GitHub Copilot''a giriş yapılmamış görünüyor.',
+    '',
+    'Copilot motorunu kullanmak için bir kez giriş yapmanız gerekir:',
+    '1) Bir terminal (PowerShell) açıp şunu yazın:  copilot login',
+    '2) Ekranda 8 haneli bir kod ve https://github.com/login/device adresi çıkar.',
+    '   Bu adresi tarayıcıda açın, kodu girin ve şirket GitHub hesabınızla onaylayın.',
+    '3) Terminalde giriş başarılı yazınca pencereyi kapatabilirsiniz.',
+    '   Giriş bilgisi Windows Kimlik Bilgisi Yöneticisi''nde saklanır; bir kez yeterli.',
+    '',
+    'Notlar:',
+    '- Hesabınızda GitHub Copilot lisansı olmalıdır; yoksa Atölye "Copilot kullanma',
+    '  yetkisi yok" der. Lisansı şirketinizin GitHub yöneticisi tanımlar.',
+    '- Şirket kendi GitHub adresini (ör. ...ghe.com) kullanıyorsa, giriş adresini',
+    '  BT ekibinize sorun.',
+    '- Giriş yaptıktan sonra Atölye''de yeni bir Copilot oturumu açın.'
+  )
+}
+
+function Test-CopilotCli {
+  $exe = Find-Cli 'copilot'
+  $ver = if ($exe) { Get-CliVersion $exe } else { $null }
+  if (-not $ver) {
+    Write-Box Yellow @(
+      'GitHub Copilot CLI kurulu değil (isteğe bağlı).',
+      '',
+      'Atölye''de sağ üstten "GitHub Copilot" motorunu seçmek için gereklidir.',
+      'Sadece Claude Code kullanacaksanız kurmanıza gerek yok.',
+      '',
+      'Kurmak için bir terminalde:',
+      '  npm install -g @github/copilot',
+      'Ardından giriş yapmak için:  copilot login'
+    )
+    if (-not ((Test-Interactive) -and (Confirm-Yes 'GitHub Copilot CLI şimdi kurulsun mu?' $false))) { return $false }
+    if (-not (Install-NpmGlobal '@github/copilot' 'GitHub Copilot CLI')) { return $false }
+    $exe = Find-Cli 'copilot'
+    $ver = if ($exe) { Get-CliVersion $exe } else { $null }
+    if (-not $ver) { Write-Warn 'GitHub Copilot CLI kuruldu ama bu pencerede bulunamadı; yeni bir terminalde "copilot login" çalıştırın.'; return $false }
+  }
+  Write-Ok "GitHub Copilot CLI $ver"
+
+  $login = Get-CopilotLogin
+  if ($login) { Write-Ok "Copilot girişi: $login"; return $true }
+  Show-CopilotLoginHelp
+  if ((Test-Interactive) -and (Confirm-Yes 'Copilot girişi şimdi bu pencerede yapılsın mı?')) {
+    Write-Step 'copilot login başlatılıyor; ekrandaki kodu tarayıcıda girin…'
+    try { cmd /d /c "`"$exe`" login" } catch { }
+    if (Get-CopilotLogin) { Write-Ok 'Copilot girişi tamam'; return $true }
+    Write-Warn 'Copilot girişi doğrulanamadı. Daha sonra bir terminalde "copilot login" çalıştırabilirsiniz; Claude Code oturumları bundan etkilenmez.'
+  }
+  return $false
+}
+
 function Start-Atolye {
   if (Test-Running) {
     Write-Ok "Zaten çalışıyor: $(Get-Url)"
@@ -553,11 +749,19 @@ function Install-Atolye {
   Write-Host ''
   Write-Host "  $AppName kurulumu" -ForegroundColor White
   Write-Host ''
+  Confirm-Terms
   Test-Requirements
   Install-Files
   Install-Packages
   Install-EnvFile
+  Write-Host ''
+  Write-Host '  Claude Code' -ForegroundColor White
+  Test-ClaudeCli
   $connected = Test-ClaudeConnection
+  Write-Host ''
+  Write-Host '  GitHub Copilot (isteğe bağlı)' -ForegroundColor White
+  $copilotReady = Test-CopilotCli
+  Write-Host ''
   Resolve-PortConflict
   $hasDesktop = Install-DesktopShortcut
   Enable-Autostart
@@ -569,6 +773,9 @@ function Install-Atolye {
     Write-Host "  Kurulum tamam. Atölye'yi masaüstündeki '$AppName' kısayoluyla açabilirsiniz." -ForegroundColor Green
   } else {
     Write-Host "  Kurulum tamam. Atölye'yi tarayıcıda $(Get-Url) adresinden ya da '$ScriptPath baslat' ile açabilirsiniz." -ForegroundColor Green
+  }
+  if (-not $copilotReady) {
+    Write-Host "  Copilot motoru hazır değil (isteğe bağlı): kurmak için 'npm install -g @github/copilot', giriş için 'copilot login'." -ForegroundColor Gray
   }
   if ($FromPackage) {
     Write-Host "  Güncellemek için yeni paketi indirip Kur.bat'ı çalıştırın. Bu çıkarılan klasörü artık silebilirsiniz." -ForegroundColor Gray
@@ -640,6 +847,17 @@ function Show-Status {
     "$yes ($gw; token: $($c.tokenSource))"
   } elseif ($c.login -and -not $c.baseUrl) { "$yes (claude.ai girişi)" } else { "$no — .env ya da ~/.claude/settings.json içinde gateway/token yok" }
   Write-Host "  Claude bağlantısı: $conn"
+  $claudeExe = Find-Cli 'claude'
+  $claudeVer = if ($claudeExe) { Get-CliVersion $claudeExe } else { $null }
+  Write-Host "  Claude Code CLI : $(if ($claudeVer) { $claudeVer } else { "$no (isteğe bağlı: npm install -g @anthropic-ai/claude-code)" })"
+  $copilotExe = Find-Cli 'copilot'
+  $copilotVer = if ($copilotExe) { Get-CliVersion $copilotExe } else { $null }
+  if ($copilotVer) {
+    $cl = Get-CopilotLogin
+    Write-Host "  Copilot CLI     : $copilotVer, giriş: $(if ($cl) { $cl } else { "$no — bir terminalde 'copilot login' çalıştırın" })"
+  } else {
+    Write-Host "  Copilot CLI     : $no (isteğe bağlı: npm install -g @github/copilot)"
+  }
   Write-Host "  Kayıt dosyası   : $LogFile"
   Write-Host ''
 }
