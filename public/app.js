@@ -2317,6 +2317,7 @@ async function renderBrowserTab() {
     el('div', { class: `links-result ${installed ? 'ok' : ''}`, text: installed ? T('Playwright MCP kurulu (sürüm {version}); yeniden kurulum gerekmez.', { version: installed }) : T('Playwright MCP henüz kurulu değil; etkinleştirirken kurulum için onayınız istenir.') }),
     el('label', { class: 'links-field' }, el('span', { text: T('Tarayıcı') }), pick),
     el('label', { class: 'links-check' }, headless, el('span', { text: T('Pencere açmadan (arka planda) çalıştır') })),
+    el('small', { class: 'links-where', text: T('İşaretli değilse tarayıcı her zaman görünür bir pencerede açılır ve yapay zekânın ne yaptığını izleyebilirsiniz.') }),
     el('div', { class: 'links-actions' }, saveBtn, st.connected ? removeBtn : null, helpButton('tarayici')),
     result,
     el('p', { class: 'links-intro', text: T('Örnek: "localhost:8080 adresini aç, giriş formunu doldur ve çıkan hatanın ekran görüntüsünü al".') }),

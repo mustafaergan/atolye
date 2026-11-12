@@ -254,6 +254,7 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'İşaretli değilse tarayıcı her zaman görünür bir pencerede açılır ve yapay zekânın ne yaptığını izleyebilirsiniz.': 'If unticked, the browser always opens in a visible window and you can watch what the AI does.',
   'Google Chrome (bilgisayarda kurulu olan)': 'Google Chrome (the one installed on this computer)',
   'Microsoft Edge (bilgisayarda kurulu olan)': 'Microsoft Edge (the one installed on this computer)',
   "Chromium (Playwright'ın kendi tarayıcısı; ilk kullanımda indirilir)": "Chromium (Playwright's own browser; downloaded on first use)",

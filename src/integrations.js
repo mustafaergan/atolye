@@ -76,7 +76,10 @@ function writeEnv(env) {
 export const BROWSER_SERVER = 'tarayici';
 export const BROWSERS = ['chrome', 'msedge', 'chromium', 'firefox', 'webkit'];
 
-/** MCP sunucusunu başlatan komut: kurulu paketin kendi dosyası Node ile çalıştırılır (PATH'e ve npx'e bağlı değildir) */
+/**
+ * MCP sunucusunu başlatan komut: kurulu paketin kendi dosyası Node ile çalıştırılır (PATH'e ve npx'e bağlı değildir).
+ * Playwright MCP varsayılan olarak görünür pencere açar; --headless yalnızca kullanıcı "arka planda" seçtiyse eklenir.
+ */
 export function browserCommand({ browser, headless, cli }) {
   return { command: process.execPath, args: [cli, '--browser', browser, ...(headless ? ['--headless'] : [])] };
 }
