@@ -17,6 +17,10 @@ export const EN = {
   "Gateway'e bağlanılamadı. ANTHROPIC_BASE_URL, HTTPS_PROXY ve NODE_EXTRA_CA_CERTS ayarlarını kontrol edin. ({error})":
     'Could not reach the gateway. Check ANTHROPIC_BASE_URL, HTTPS_PROXY and NODE_EXTRA_CA_CERTS. ({error})',
   'İstek başarısız': 'Request failed',
+  "Model değiştirilemedi: Claude Code '{model}' modelini doğrulamak için gateway'e ulaşamadı. Bağlantı anlık kesilmiş ya da bu model gateway'de tanımlı olmayabilir. Önceki modelle devam ediliyor. ({error})":
+    "Could not change the model: Claude Code could not reach the gateway to validate '{model}'. The connection may have dropped for a moment, or this model may not be available on the gateway. Continuing with the previous model. ({error})",
+  "Model değiştirilemedi: '{model}' bu bağlantıda kullanılamıyor. Önceki modelle devam ediliyor. ({error})":
+    "Could not change the model: '{model}' cannot be used on this connection. Continuing with the previous model. ({error})",
   'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})':
     'GitHub Copilot CLI was not found. To install: npm install -g @github/copilot ({error})',
   "Copilot'a giriş yapılmamış. Bir terminalde 'copilot login' çalıştırıp tarayıcıdan giriş yapın, sonra yeni bir Copilot oturumu açın. ({error})":
