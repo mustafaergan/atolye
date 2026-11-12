@@ -19,6 +19,11 @@ const sleep = (ms, signal) => new Promise((r, j) => {
   signal?.addEventListener('abort', () => { clearTimeout(t); j(new Error('aborted')); });
 });
 
+const MODELS = [
+  { modelId: 'sahte-hizli', name: 'Sahte Hızlı', description: 'Hızlı model' },
+  { modelId: 'sahte-guclu', name: 'Sahte Güçlü', description: 'Güçlü model' },
+];
+
 acp.agent({ name: 'sahte-copilot' })
   .onRequest('initialize', () => ({
     protocolVersion: acp.PROTOCOL_VERSION,
@@ -32,7 +37,12 @@ acp.agent({ name: 'sahte-copilot' })
       sessionId,
       update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'compact', description: 'Konuşmayı özetle' }, { name: 'review', description: 'Kod incelemesi' }] },
     });
-    return { sessionId };
+    return { sessionId, models: { availableModels: MODELS, currentModelId: 'sahte-hizli' } };
+  })
+  .onRequest('session/set_model', (params) => params, (ctx) => {
+    if (!MODELS.some((m) => m.modelId === ctx.params.modelId)) throw new Error('bilinmeyen model');
+    sessions.get(ctx.params.sessionId).model = ctx.params.modelId;
+    return {};
   })
   .onRequest('session/load', async (ctx) => {
     const { sessionId, cwd } = ctx.params;

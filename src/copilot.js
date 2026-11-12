@@ -166,14 +166,18 @@ function resultText(tc) {
 
 // ---------- Oturum ----------
 export class CopilotSession {
-  constructor({ cwd, resume, permissionMode, emit, lang = 'tr' }) {
+  constructor({ cwd, resume, permissionMode, model, emit, lang = 'tr' }) {
     this.engine = 'copilot';
     this.cwd = cwd;
     this.resume = resume;
     this.lang = lang;
     this.emit = emit;
     this.permissionMode = permissionMode === 'plan' ? 'default' : permissionMode || 'default';
-    this.model = COPILOT_MODEL_LABEL;
+    this.model = ''; // Copilot'un kendi model kimliği (Claude modelleriyle karışmaz)
+    this.wantModel = model || null; // arayüzde Copilot için son seçilen model
+    this.models = []; // Copilot'un sunduğu modeller
+    this.modelConfigId = null; // model, yapılandırma seçeneği olarak sunuluyorsa kimliği
+    this.commands = [];
     this.sessionId = resume || null;
     this.pending = new Map(); // izin id -> { resolve, toolCall, options }
     this.allowed = new Set();
@@ -225,7 +229,8 @@ export class CopilotSession {
     if (this.resume && init?.agentCapabilities?.loadSession) {
       // Copilot eski konuşmayı session/update mesajlarıyla yeniden gönderir
       this.loading = true;
-      await this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] });
+      const res = await this.conn.request('session/load', { sessionId: this.resume, cwd: this.cwd, mcpServers: [] });
+      this.#readModels(res);
       this.#flushUser();
       this.#closeBlock();
       this.loading = false;
@@ -233,8 +238,13 @@ export class CopilotSession {
       if (this.resume) this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: msg(this.lang, 'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.') } });
       const res = await this.conn.request('session/new', { cwd: this.cwd, mcpServers: [] });
       this.sessionId = res.sessionId;
+      this.#readModels(res);
     }
-    this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: COPILOT_MODEL_LABEL } });
+    // Arayüzde Copilot için daha önce seçilen model bu oturuma da uygulanır
+    if (this.wantModel && this.wantModel !== this.model && this.models.some((m) => m.value === this.wantModel)) {
+      await this.setModel(this.wantModel).catch(() => {});
+    }
+    this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.#modelName() } });
     this.#drain();
   }
 
@@ -267,11 +277,11 @@ export class CopilotSession {
         this.#emitPlan(u.entries || []);
         break;
       case 'available_commands_update':
-        this.emit({
-          type: 'capabilities',
-          models: [],
-          commands: (u.availableCommands || []).map((c) => ({ name: c.name, description: c.description, hint: c.input?.hint })),
-        });
+        this.commands = (u.availableCommands || []).map((c) => ({ name: c.name, description: c.description, hint: c.input?.hint }));
+        this.#sendCapabilities();
+        break;
+      case 'config_option_update':
+        this.#readModels({ configOptions: u.configOptions });
         break;
       case 'usage_update':
         this.usage = { used: u.used, size: u.size };
@@ -286,6 +296,32 @@ export class CopilotSession {
       default:
         break; // mod, yapılandırma, özetleme bildirimleri: arayüzde karşılığı yok
     }
+  }
+
+  // Copilot modellerini iki biçimde bildirebilir: "models" (availableModels/currentModelId) ya da
+  // "configOptions" içinde model kategorisindeki seçenek. İkisi de okunur.
+  #readModels(res) {
+    const opt = (res?.configOptions || []).find((o) => o.category === 'model' && Array.isArray(o.options));
+    if (opt) {
+      const flat = opt.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o]));
+      this.modelConfigId = opt.id;
+      this.models = flat.filter((o) => o.value).map((o) => ({ value: o.value, name: o.name || o.value, description: o.description || '' }));
+      this.model = opt.currentValue || this.model;
+    } else if (Array.isArray(res?.models?.availableModels)) {
+      this.modelConfigId = null;
+      this.models = res.models.availableModels.filter((m) => m.modelId).map((m) => ({ value: m.modelId, name: m.name || m.modelId, description: m.description || '' }));
+      this.model = res.models.currentModelId || this.model;
+    } else return;
+    this.#sendCapabilities();
+    this.emit({ type: 'model', model: this.model });
+  }
+
+  #modelName() {
+    return this.models.find((m) => m.value === this.model)?.name || this.model || COPILOT_MODEL_LABEL;
+  }
+
+  #sendCapabilities() {
+    this.emit({ type: 'capabilities', models: this.models, commands: this.commands });
   }
 
   #appendText(type, text) {
@@ -451,15 +487,25 @@ export class CopilotSession {
     this.emit({ type: 'mode', mode: this.permissionMode });
   }
 
-  async setModel() {
-    /* Model Copilot'ta /model komutuyla seçilir */
+  async setModel(model) {
+    // Boş seçim "Copilot'un varsayılanı" demektir: oturumun modeline dokunulmaz
+    if (!model || !this.sessionId || model === this.model || !this.models.some((m) => m.value === model)) return;
+    if (this.modelConfigId) {
+      const res = await this.conn.request('session/set_config_option', { sessionId: this.sessionId, configId: this.modelConfigId, value: model });
+      this.model = model;
+      if (res?.configOptions) return this.#readModels(res);
+    } else {
+      await this.conn.request('session/set_model', { sessionId: this.sessionId, modelId: model });
+      this.model = model;
+    }
+    this.emit({ type: 'model', model });
   }
 
   async contextUsage() {
     if (!this.usage?.size) throw new Error('Bağlam bilgisi henüz yok');
     const { used, size } = this.usage;
     return {
-      model: COPILOT_MODEL_LABEL,
+      model: this.#modelName(),
       totalTokens: used,
       maxTokens: size,
       percentage: (used / size) * 100,
@@ -493,7 +539,9 @@ function friendlyError(err, lang) {
   const text = String(err?.message || err);
   if (/ENOENT|not recognized|tanınmıyor|bulunamad|not found/i.test(text))
     return msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: text });
-  if (/auth|login|401|403/i.test(text))
+  if (/not authorized to use this Copilot|\b403\b|permission_denied/i.test(text))
+    return msg(lang, "GitHub hesabınızın Copilot kullanma yetkisi yok (lisans tanımlı değil ya da yanlış hesapla giriş yapılmış). Bir terminalde 'copilot login' ile Copilot lisansı olan hesabınızla giriş yapın. ({error})", { error: text.slice(0, 200) });
+  if (/auth|login|401/i.test(text))
     return msg(lang, "Copilot'a giriş yapılmamış. Bir terminalde 'copilot login' çalıştırıp tarayıcıdan giriş yapın, sonra yeni bir Copilot oturumu açın. ({error})", { error: text });
   return text;
 }

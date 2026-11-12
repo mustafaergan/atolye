@@ -49,3 +49,16 @@ test('proje değişiklikleri dinleyicilere duyurulur, hatırlananlar duyurulmaz'
   s.setCollapsed('/x', true);
   assert.deepEqual(seen, [1, 1]);
 });
+
+test('varsayılan motor Copilot; kullanıcının seçimi saklanır', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-eng-')), 'durum.json');
+  // Eski sürümün kaydı: motor hiç seçilmemişken "claude" yazılmıştı
+  fs.writeFileSync(file, JSON.stringify({ projects: [], engine: 'claude' }));
+  const a = new StateStore(file);
+  assert.equal(a.get().engine, 'copilot');
+  assert.equal(a.get().engineChosen, false);
+  a.remember({ engine: 'claude' });
+  const b = new StateStore(file);
+  assert.equal(b.get().engine, 'claude');
+  assert.equal(b.get().engineChosen, true);
+});
