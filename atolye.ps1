@@ -260,8 +260,13 @@ function Stop-NodeMissing([string]$reason) {
 # Kullanım koşulları: Atölye yalnızca bir arayüzdür; Claude Code, GitHub Copilot ve Atlassian ürünlerinin
 # lisansı kullanıcının şirketinden gelir. Kurulum, kullanıcı bunu açıkça kabul etmeden devam etmez.
 function Confirm-Terms {
+  # Koşullar değiştiğinde sürüm artırılır; eski sürümü kabul etmiş olanlara yeniden sorulur
+  $termsVersion = '2'
   $marker = Join-Path (Join-Path $HOME '.atolye') 'kullanim-kosullari-kabul.txt'
-  if (Test-Path $marker) { Write-Ok "Kullanım koşulları daha önce kabul edilmiş ($((Get-Item $marker).LastWriteTime.ToString('yyyy-MM-dd')))"; return }
+  if ((Test-Path $marker) -and ((Get-Content $marker -Raw -Encoding UTF8) -match "Koşul sürümü: $termsVersion\b")) {
+    Write-Ok "Kullanım koşulları daha önce kabul edilmiş ($((Get-Item $marker).LastWriteTime.ToString('yyyy-MM-dd')))"
+    return
+  }
   Write-Box Yellow @(
     'KULLANIM KOŞULLARI',
     '',
@@ -274,7 +279,15 @@ function Confirm-Terms {
     '2) Bu ürünleri, şirketinizin o sağlayıcılarla yaptığı sözleşmelere ve',
     '   şirketinizin bilgi güvenliği kurallarına uygun kullanacaksınız.',
     '3) Size verilen token ve API anahtarları kişiseldir; başkasıyla paylaşılmaz.',
-    '4) Atölye MIT lisansıyla, hiçbir garanti verilmeden sunulur.'
+    '4) Bağlantılar (Jira, Confluence, Bitbucket, Graylog, Jenkins, Fortify, WebLogic)',
+    '   üzerinden getirilen veriler, sorduğunuz sorularla birlikte seçtiğiniz yapay',
+    '   zekâ hizmetine gönderilir. Hangi verinin gönderilebileceğine şirketinizin',
+    '   kuralları çerçevesinde siz karar verirsiniz.',
+    '5) Atölye MIT lisansıyla, olduğu gibi ve hiçbir garanti verilmeden sunulur.',
+    '   Kurulumdan ve kullanımdan doğacak tüm sorumluluk (veri paylaşımı, lisans',
+    '   ve şirket kurallarına uygunluk, yapılan işlemler ve sonuçları dahil)',
+    '   kurulumu yapan ve kullanan kişiye aittir; yazılımı geliştirenler sorumlu',
+    '   tutulamaz.'
   )
   $accepted = ($Kabul -or $env:ATOLYE_KABUL -eq '1')
   if (-not $accepted) {
@@ -291,7 +304,7 @@ function Confirm-Terms {
   }
   try {
     New-Item -ItemType Directory -Force -Path (Split-Path $marker) | Out-Null
-    Set-Content -Path $marker -Encoding utf8 -Value "Kullanım koşulları $((Get-Date).ToString('yyyy-MM-dd HH:mm')) tarihinde $env:USERNAME tarafından kabul edildi."
+    Set-Content -Path $marker -Encoding utf8 -Value "Kullanım koşulları $((Get-Date).ToString('yyyy-MM-dd HH:mm')) tarihinde $env:USERNAME tarafından kabul edildi. Koşul sürümü: $termsVersion"
   } catch { }
   Write-Ok 'Kullanım koşulları kabul edildi'
 }

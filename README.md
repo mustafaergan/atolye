@@ -129,8 +129,9 @@ kurar ve kurulumu her durumda tamamlar:
 
 - **Kullanım koşulları**: Atölye yalnızca bir arayüzdür ve lisans içermez. Kurulum başında, şirketinizin Claude Code,
   GitHub Copilot ve (bağlanacaksa) Atlassian ürünleri için lisansa sahip olduğunu `evet` yazarak kabul etmeniz istenir;
-  kabul edilmezse kurulum yapılmaz. Kabul `~/.atolye/kullanim-kosullari-kabul.txt` dosyasına kaydedilir ve yeniden
-  sorulmaz. Etkileşimsiz kurulumda `-Kabul` parametresi ya da `ATOLYE_KABUL=1` kullanılır.
+  kabul edilmezse kurulum yapılmaz. Koşullar ayrıca getirilen verilerin yapay zekâ hizmetine gönderildiğini ve tüm
+  sorumluluğun kurulumu yapana ait olduğunu belirtir. Kabul `~/.atolye/kullanim-kosullari-kabul.txt` dosyasına kaydedilir;
+  koşullar değişmedikçe yeniden sorulmaz. Etkileşimsiz kurulumda `-Kabul` parametresi ya da `ATOLYE_KABUL=1` kullanılır.
 - **Claude Code**: Atölye'nin kendi motoru yerinde mi, `claude` komutu kurulu mu (değilse `npm install -g @anthropic-ai/claude-code`
   önerilir), bağlantı ayarı (gateway adresi ve token ya da claude.ai girişi) var mı.
 - **GitHub Copilot CLI** (isteğe bağlı): kurulu mu (değilse `npm install -g @github/copilot` ile kurmayı önerir), giriş
@@ -268,9 +269,16 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 - `src/session.js`: Agent SDK `query()` akışını açık tutan oturum sınıfı (izinler, durdurma, mod/model değişimi)
 - `public/`: derleme gerektirmeyen arayüz (HTML, CSS, JS)
 
-## Lisans
+## Lisans ve sorumluluk
 
-MIT
+MIT lisansı (bkz. `LICENSE`): yazılım olduğu gibi, hiçbir garanti verilmeden sunulur.
+
+Atölye yalnızca bir arayüzdür; Claude Code, GitHub Copilot ve bağlanan servislerin (Jira, Confluence, Bitbucket, Graylog,
+Jenkins, Fortify, WebLogic) lisansını içermez. Bağlantılar üzerinden getirilen veriler, sorularla birlikte seçilen yapay
+zekâ hizmetine gönderilir. **Kurulumdan ve kullanımdan doğacak tüm sorumluluk — veri paylaşımı, lisans ve kuruluş
+kurallarına uygunluk, yapılan işlemler ve sonuçları dahil — kurulumu yapan ve kullanan kişiye aittir; yazılımı
+geliştirenler sorumlu tutulamaz.** Bu koşullar kurulum sırasında gösterilir ve `evet` yazılarak kabul edilmeden kurulum
+yapılmaz.
 
 ---
 
