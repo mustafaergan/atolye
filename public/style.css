@@ -606,3 +606,6 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
   border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 5px; line-height: 16px;
 }
 @media (max-width: 820px) { .engine-wrap select { max-width: 120px; } }
+
+/* Oturum açılamadı uyarısı */
+.notice.open-retry { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

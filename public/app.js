@@ -213,7 +213,23 @@ function wsSend(obj) {
   else notice(T('Sunucuya bağlı değil. Yeniden bağlanılıyor…'));
 }
 
+// Bekçi: oturum belirli sürede açılmazsa sonsuz "açılıyor…" yerine uyarı ve "Tekrar dene"
+let openWatch = null;
+const OPEN_WATCH_MS = 30_000;
 function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd, engine = state.engine }) {
+  const args = { liveId, sessionId, isNew, cwd, engine };
+  clearTimeout(openWatch);
+  openWatch = setTimeout(() => {
+    $('.working', dom.messages)?.remove();
+    const box = el('div', { class: 'notice info open-retry' },
+      el('span', { text: T('Oturum açılamadı: sunucudan cevap gelmedi.') }),
+      el('button', { class: 'btn', type: 'button', text: T('Tekrar dene'), onclick: () => {
+        box.remove();
+        setWorking(T('Oturum açılıyor…'));
+        openLive(args);
+      } }));
+    append(box);
+  }, OPEN_WATCH_MS);
   wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: state.model || null, lang: getLang(), engine });
 }
 
@@ -261,6 +277,7 @@ function rememberOpen() {
 // Sunucu oturumu açtığında ekranı baştan kurar: önce diskteki eski geçmiş,
 // sonra bu çalışmada oluşan olaylar (akış, araçlar, bekleyen izinler).
 function applyOpened(ev) {
+  clearTimeout(openWatch);
   state.liveId = ev.liveId;
   state.sessionEngine = ev.engine || 'claude';
   applyEngineUi();
@@ -297,7 +314,7 @@ function handleEvent(ev) {
     case 'mode': return setMode(ev.mode, false);
     case 'model': return;
     case 'capabilities': return setCapabilities(ev);
-    case 'error': setBusy(false); return notice(ev.message);
+    case 'error': clearTimeout(openWatch); setBusy(false); return notice(ev.message);
     case 'opened': return applyOpened(ev);
     case 'context': return onContext(ev);
     case 'live': return onLiveList(ev.sessions || []);
