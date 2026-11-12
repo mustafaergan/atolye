@@ -657,6 +657,7 @@ function Test-CopilotCli {
 }
 
 function Start-Atolye {
+  Repair-Install
   if (Test-Running) {
     Write-Ok "Zaten çalışıyor: $(Get-Url)"
   } else {
@@ -797,6 +798,29 @@ function Copy-Mirror($from, $to) {
   if ($LASTEXITCODE -ge 8) { throw "Dosyalar kopyalanamadı: $to (robocopy kodu $LASTEXITCODE)" }
 }
 
+# Kilitli dosya/klasörlerde (az önce kapanan süreç tutamağı bırakana kadar) birkaç kez yeniden dener
+function Rename-WithRetry($path, $newName) {
+  for ($i = 1; ; $i++) {
+    try { Rename-Item -LiteralPath $path -NewName $newName -ErrorAction Stop; return } catch { if ($i -ge 6) { throw }; Start-Sleep -Seconds 1 }
+  }
+}
+function Move-WithRetry($from, $to) {
+  for ($i = 1; ; $i++) {
+    try { Move-Item -LiteralPath $from -Destination $to -ErrorAction Stop; return } catch { if ($i -ge 6) { throw }; Start-Sleep -Seconds 1 }
+  }
+}
+
+# Güncelleme tam değişim anında kesildiyse (elektrik, zorla kapatma) bir klasör "<ad>.eski" olarak kalmış olabilir.
+# Asıl klasör yoksa eskisi geri adlandırılır; böylece Atölye her durumda açılır.
+function Repair-Install {
+  foreach ($d in @('src', 'public', 'scripts', 'node_modules')) {
+    $cur = Join-Path $InstallDir $d
+    if (-not (Test-Path $cur) -and (Test-Path "$cur.eski")) {
+      try { Rename-Item -LiteralPath "$cur.eski" -NewName $d -ErrorAction Stop; Write-Warn "Yarım kalmış bir güncelleme onarıldı: $d geri yüklendi." } catch { }
+    }
+  }
+}
+
 function Update-PackageInstall {
   $info = Read-PaketInfo $InstallDir
   $current = (Get-Content (Join-Path $InstallDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
@@ -835,23 +859,39 @@ function Update-PackageInstall {
       } finally { Pop-Location }
     }
 
-    # Dosya değişimi: önce yedek alınır; yeni dosyalar yazılmadan eskiler silinmez (robocopy /MIR önce kopyalar,
-    # fazlalıkları sonra temizler). Herhangi bir adım başarısız olursa eski sürüm geri konur ve Atölye yeniden başlatılır.
-    $wasRunning = Test-Running
-    $backup = Join-Path $tmp 'yedek'
+    # 1) Hazırlık — Atölye çalışmaya devam ederken: yeni sürüm kurulum klasöründeki ".guncelleme" altına kopyalanır.
+    #    Bu adımda bir şey ters giderse çalışan sürüme hiç dokunulmamış olur.
+    $stage = Join-Path $InstallDir '.guncelleme'
     $rootFiles = @('package.json', 'package-lock.json', 'atolye.ps1', 'README.md', 'LICENSE', '.env.example')
+    $dirs = @(@('src', 'public', 'scripts') | Where-Object { Test-Path (Join-Path $src $_) })
+    if ($depsChanged) { $dirs += 'node_modules' }
+    Write-Step 'Yeni sürüm hazırlanıyor (Atölye çalışmaya devam ediyor)…'
+    try {
+      if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+      New-Item -ItemType Directory -Force $stage | Out-Null
+      foreach ($d in $dirs) { Copy-Mirror (Join-Path $src $d) (Join-Path $stage $d) }
+    } catch {
+      Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+      Stop-WithError "Yeni sürüm hazırlanamadı: $($_.Exception.Message). Çalışan sürüme dokunulmadı."
+    }
+
+    # 2) Değişim — Atölye yalnızca bu kısa adımda durur. Klasörler kopyalanmaz, yeniden adlandırılır:
+    #    eskisi "<ad>.eski" olur, yenisi yerine geçer. Herhangi bir adım başarısız olursa adlar geri alınır.
+    $wasRunning = Test-Running
+    $swapped = @()
+    $rootBackup = Join-Path $stage 'eski-dosyalar'
     try {
       if ($wasRunning) { Stop-Atolye; Start-Sleep -Seconds 1 }
-      New-Item -ItemType Directory -Force $backup | Out-Null
-      foreach ($d in @('src', 'public')) {
-        if (Test-Path (Join-Path $InstallDir $d)) { Copy-Mirror (Join-Path $InstallDir $d) (Join-Path $backup $d) }
-      }
+      New-Item -ItemType Directory -Force $rootBackup | Out-Null
       foreach ($f in $rootFiles) {
-        if (Test-Path (Join-Path $InstallDir $f)) { Copy-Item (Join-Path $InstallDir $f) -Destination $backup -Force }
+        if (Test-Path (Join-Path $InstallDir $f)) { Copy-Item (Join-Path $InstallDir $f) -Destination $rootBackup -Force }
       }
-      if ($depsChanged) { Copy-Mirror (Join-Path $src 'node_modules') $modules }
-      foreach ($d in @('src', 'public', 'scripts')) {
-        if (Test-Path (Join-Path $src $d)) { Copy-Mirror (Join-Path $src $d) (Join-Path $InstallDir $d) }
+      foreach ($d in $dirs) {
+        $cur = Join-Path $InstallDir $d
+        if (Test-Path "$cur.eski") { Remove-Item "$cur.eski" -Recurse -Force }
+        if (Test-Path $cur) { Rename-WithRetry $cur "$d.eski" }
+        $swapped += $d
+        Move-WithRetry (Join-Path $stage $d) $cur
       }
       foreach ($f in $rootFiles) {
         if (Test-Path (Join-Path $src $f)) { Copy-Item (Join-Path $src $f) -Destination $InstallDir -Force }
@@ -864,17 +904,25 @@ function Update-PackageInstall {
       Write-Warn "Güncelleme sırasında hata oluştu: $problem"
       Write-Step 'Eski sürüm geri yükleniyor…'
       try {
-        foreach ($d in @('src', 'public')) {
-          if (Test-Path (Join-Path $backup $d)) { Copy-Mirror (Join-Path $backup $d) (Join-Path $InstallDir $d) }
+        foreach ($d in $swapped) {
+          $cur = Join-Path $InstallDir $d
+          if (Test-Path "$cur.eski") {
+            if (Test-Path $cur) { Remove-Item $cur -Recurse -Force }
+            Rename-WithRetry "$cur.eski" $d
+          }
         }
         foreach ($f in $rootFiles) {
-          if (Test-Path (Join-Path $backup $f)) { Copy-Item (Join-Path $backup $f) -Destination $InstallDir -Force }
+          if (Test-Path (Join-Path $rootBackup $f)) { Copy-Item (Join-Path $rootBackup $f) -Destination $InstallDir -Force }
         }
         Write-Ok 'Eski sürüm geri yüklendi'
-      } catch { Write-Warn "Eski sürüm geri yüklenemedi: $($_.Exception.Message). Paketi Kur.bat ile yeniden kurun." }
+      } catch { Write-Warn "Eski sürüm geri yüklenemedi: $($_.Exception.Message). Atölye bir sonraki başlatılışta kendini onarmayı deneyecek." }
+      Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
       if ($wasRunning) { try { $script:TarayiciAcma = $true; Start-Atolye } catch { } }
       Stop-WithError "Güncelleme tamamlanamadı; önceki sürüm ($($current.version)) kullanılmaya devam ediyor. Sebep: $problem"
     }
+    # 3) Temizlik: eski klasörler ancak yenisi yerine geçtikten sonra silinir (silinemezse zararsızdır)
+    foreach ($d in $dirs) { Remove-Item (Join-Path $InstallDir "$d.eski") -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike '*\node_modules\*' } | Unblock-File -ErrorAction SilentlyContinue
     Write-Ok "Güncellendi: $($current.version) → $($new.version)"
     Install-EnvFile
@@ -894,26 +942,40 @@ function Update-Atolye {
     try { Start-Transcript -Path (Join-Path $InstallDir 'atolye-guncelle.log') -Force | Out-Null } catch { }
   }
   if (-not (Test-AtolyeDir $InstallDir)) { Stop-WithError "Kurulum bulunamadı: $InstallDir. Önce 'kur' komutunu çalıştırın." }
+  Repair-Install
   if (-not (Test-Path (Join-Path $InstallDir '.git'))) {
     Update-PackageInstall
     return
   }
+  # Önce yalnızca indirilir (git fetch): bu adım başarısız olursa çalışan sürüme hiç dokunulmamış olur.
   Push-Location $InstallDir
   try {
-    $before = (git rev-parse --short HEAD)
+    $before = (git rev-parse HEAD)
     Write-Step 'Son sürüm indiriliyor…'
-    git pull --ff-only --quiet
-    if ($LASTEXITCODE -ne 0) { Stop-WithError 'git pull başarısız oldu. Klasörde elle yapılmış değişiklikler olabilir (git status ile bakın).' }
-    $after = (git rev-parse --short HEAD)
+    git fetch --quiet
+    if ($LASTEXITCODE -ne 0) { Stop-WithError 'Son sürüm indirilemedi (git fetch). Çalışan sürüme dokunulmadı.' }
+    $target = (git rev-parse '@{u}')
+    if ($LASTEXITCODE -ne 0 -or -not $target) { Stop-WithError 'Bu klasör bir uzak dalı izlemiyor; güncelleme yapılamadı.' }
+    if ($before -eq $target) {
+      Write-Ok "Zaten güncel ($($before.Substring(0, 7)))"
+      return
+    }
+    # İndirilen sürüm yerine konur (yerel, hızlı bir işlem). Atölye bu sırada eski sürümle çalışmaya devam eder.
+    git merge --ff-only --quiet '@{u}'
+    if ($LASTEXITCODE -ne 0) { Stop-WithError 'Yeni sürüm uygulanamadı. Klasörde elle yapılmış değişiklikler olabilir (git status ile bakın). Çalışan sürüme dokunulmadı.' }
+    Write-Step "Güncelleniyor: $($before.Substring(0, 7)) → $($target.Substring(0, 7))"
+    # Kütüphaneler kurulamazsa dosyalar önceki sürüme geri alınır; yarım bir sürüm bırakılmaz
+    cmd /d /c 'npm install --no-audit --no-fund --loglevel=error'
+    if ($LASTEXITCODE -ne 0) {
+      git reset --keep --quiet $before
+      cmd /d /c 'npm install --no-audit --no-fund --loglevel=error >nul 2>&1'
+      Stop-WithError "Kütüphaneler kurulamadı (şirket ağı npm erişimini engelliyor olabilir). Önceki sürüme ($($before.Substring(0, 7))) geri dönüldü; Atölye çalışmaya devam ediyor."
+    }
   } finally { Pop-Location }
-  if ($before -eq $after) {
-    Write-Ok "Zaten güncel ($after)"
-    return
-  }
-  Write-Ok "Güncellendi: $before → $after"
-  Install-Packages
+  Write-Ok "Güncellendi: $($before.Substring(0, 7)) → $($target.Substring(0, 7))"
   Install-EnvFile
   if (-not (Test-ClaudeConnection -Quiet)) { Write-Warn "Claude bağlantı ayarı bulunamadı; '$ScriptPath durum' ile kontrol edin." }
+  # Atölye yalnızca en sonda, her şey hazır olduktan sonra yeniden başlatılır
   $wasRunning = Test-Running
   if ($wasRunning) {
     Stop-Atolye
