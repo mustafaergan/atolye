@@ -25,6 +25,7 @@ export const EN = {
   'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.':
     'This Copilot version cannot load the previous session; a new session was started.',
   'Copilot durdu: {reason}': 'Copilot stopped: {reason}',
+  'Oturum yanıt vermiyordu ve kapatıldı. Listeden yeniden açabilirsiniz.': 'The session was not responding and was closed. You can reopen it from the list.',
   'Cevap JSON olarak okunamadı': 'The response could not be parsed as JSON',
   'Beklenmeyen cevap biçimi ({ items: [...] } bekleniyordu)': 'Unexpected response format (expected { items: [...] })',
 };

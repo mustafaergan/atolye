@@ -22,6 +22,8 @@ import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions']);
+// Claude Code / Copilot sürecine giden bir isteğin en fazla bekleneceği süre
+const CONTROL_TIMEOUT_MS = Number(process.env.ATOLYE_CONTROL_TIMEOUT_MS) || 10_000;
 // Klasörsüz sohbet oturumlarının çalıştığı boş klasör (hiçbir projeye bağlı değil)
 const GENERAL_DIR = path.join(os.homedir(), '.atolye', 'genel');
 const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
@@ -190,65 +192,108 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       entry = null;
     };
 
+    // Claude Code / Copilot sürecine giden istekler takılabilir (süreç cevap vermiyorsa).
+    // Hiçbiri sonsuza kadar beklenmez ve hiçbiri başka bir isteği kilitlemez.
+    const timed = (promise, label) => {
+      let timer;
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error(`${label}: zaman aşımı`), { timeout: true })), CONTROL_TIMEOUT_MS); }),
+      ]).finally(() => clearTimeout(timer));
+    };
+
+    // "Oturum aç": son tıklanan kazanır. Yavaş bir açılış, sonradan istenen oturumu bekletmez;
+    // geride kalan açılışın oluşturduğu boş oturum hemen kapatılır.
+    let openSeq = 0;
+    let opening = Promise.resolve();
+    const open = async (m) => {
+      const seq = ++openSeq;
+      try {
+        await openSession(m, seq);
+      } catch (err) {
+        if (seq === openSeq) throw err; // geride kalmış bir açılışın hatası yeni ekranı ilgilendirmez
+      }
+    };
+    const openSession = async (m, seq) => {
+      lang = normalizeLang(m.lang);
+      detach(); // eski oturumun olayları yeni ekrana karışmasın
+      const cwd = path.resolve(String(m.cwd || defaultCwd));
+      const stat = await fs.stat(cwd).catch(() => null);
+      if (!stat?.isDirectory()) throw new Error(msg(lang, 'Klasör bulunamadı: {dir}', { dir: cwd }));
+      const engine = m.engine === 'copilot' ? 'copilot' : 'claude';
+      if (engine === 'copilot') {
+        const cp = await detectCopilot();
+        if (!cp.available) throw new Error(msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: cp.error }));
+      }
+      const next = await manager.open({
+        engine,
+        liveId: m.new ? null : m.liveId,
+        sessionId: m.new ? null : m.sessionId,
+        cwd,
+        mode: MODES.has(m.mode) ? m.mode : 'default',
+        model: m.model || undefined,
+        general: samePath(cwd, GENERAL_DIR),
+        lang,
+      });
+      const history = next.historyCount
+        ? await timed(getSessionMessages(next.agent.sessionId, { dir: next.cwd, limit: next.historyCount }), 'geçmiş').catch(() => [])
+        : [];
+      if (seq !== openSeq) {
+        // Bu arada başka bir oturum istendi: bunu ekrana bağlama
+        if (!next.sent && !next.subs.size) manager.close(next);
+        return;
+      }
+      if (!manager.entries.has(next.liveId)) throw new Error(msg(lang, 'Oturum kapandı, yeniden açın'));
+      entry = next;
+      unsubscribe = manager.subscribe(entry, emit, history);
+    };
+
     const handle = async (m) => {
+      const current = entry;
       switch (m.type) {
         case 'open': {
-          lang = normalizeLang(m.lang);
-          const cwd = path.resolve(String(m.cwd || defaultCwd));
-          const stat = await fs.stat(cwd).catch(() => null);
-          if (!stat?.isDirectory()) throw new Error(msg(lang, 'Klasör bulunamadı: {dir}', { dir: cwd }));
-          detach();
-          const engine = m.engine === 'copilot' ? 'copilot' : 'claude';
-          if (engine === 'copilot') {
-            const cp = await detectCopilot();
-            if (!cp.available) throw new Error(msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: cp.error }));
-          }
-          const next = await manager.open({
-            engine,
-            liveId: m.new ? null : m.liveId,
-            sessionId: m.new ? null : m.sessionId,
-            cwd,
-            mode: MODES.has(m.mode) ? m.mode : 'default',
-            model: m.model || undefined,
-            general: samePath(cwd, GENERAL_DIR),
-            lang,
-          });
-          const history = next.historyCount
-            ? await getSessionMessages(next.agent.sessionId, { dir: next.cwd, limit: next.historyCount }).catch(() => [])
-            : [];
-          if (!manager.entries.has(next.liveId)) throw new Error(msg(lang, 'Oturum kapandı, yeniden açın'));
-          entry = next;
-          unsubscribe = manager.subscribe(entry, emit, history);
-          break;
+          const p = open(m);
+          opening = p.catch(() => {});
+          return p;
         }
         case 'send':
+          await opening; // oturum açılırken yazılan mesaj, açılan oturuma gitsin
           if (!entry || entry.agent.closed) throw new Error(msg(lang, 'Aktif oturum yok'));
           manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang);
-          break;
+          return;
         case 'interrupt':
-          await entry?.agent.interrupt();
-          break;
+          if (!current) return;
+          try {
+            await timed(current.agent.interrupt(), 'durdurma');
+          } catch (err) {
+            if (!err.timeout) throw err;
+            // Süreç durdurma isteğine bile cevap vermiyor: zorla kapat; oturum listeden yeniden açılabilir
+            manager.close(current);
+            emit({ type: 'error', message: msg(lang, 'Oturum yanıt vermiyordu ve kapatıldı. Listeden yeniden açabilirsiniz.') });
+            emit({ type: 'busy', busy: false });
+          }
+          return;
         case 'answer':
-          entry?.agent.answer(m.id, m.decision || { behavior: 'deny' });
-          break;
+          current?.agent.answer(m.id, m.decision || { behavior: 'deny' });
+          return;
         case 'set_mode':
-          if (MODES.has(m.mode)) await entry?.agent.setPermissionMode(m.mode);
-          break;
+          if (current && MODES.has(m.mode)) await timed(current.agent.setPermissionMode(m.mode), 'mod');
+          return;
         case 'set_model':
-          await entry?.agent.setModel(m.model);
-          break;
+          if (current) await timed(current.agent.setModel(m.model), 'model');
+          return;
         case 'get_context': {
           // Sadece isteyen bağlantıya gider; olay tamponuna yazılmaz
-          if (!entry) break;
-          const liveId = entry.liveId;
-          const data = await entry.agent.contextUsage().catch((err) => ({ error: String(err?.message || err) }));
-          emit({ type: 'context', liveId, data });
-          break;
+          if (!current) return;
+          const data = await timed(current.agent.contextUsage(), 'bağlam').catch((err) => ({ error: String(err?.message || err) }));
+          emit({ type: 'context', liveId: current.liveId, data });
+          return;
         }
       }
     };
 
-    // Mesajları sırayla işle: hızlı oturum değişimlerinde "open" istekleri karışmasın
+    // "Oturum aç" ve "gönder" sırayla işlenir (gönder, açılmakta olan oturumu bekler); diğer istekler
+    // beklemeden ayrı çalışır ki takılan bir oturum yeni oturum açmayı kilitlemesin.
     let chain = Promise.resolve();
     ws.on('message', (raw) => {
       let m;
@@ -257,7 +302,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       } catch {
         return;
       }
-      chain = chain.then(() => handle(m)).catch((err) => emit({ type: 'error', message: String(err?.message || err) }));
+      const onError = (err) => emit({ type: 'error', message: String(err?.message || err) });
+      if (m.type === 'send') chain = chain.then(() => handle(m)).catch(onError);
+      else handle(m).catch(onError);
     });
 
     ws.on('close', () => {

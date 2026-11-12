@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const DIR = path.join(os.homedir(), '.atolye');
-const FILE = path.join(DIR, 'durum.json');
+// ATOLYE_STATE_FILE: testlerde gerçek proje listesine dokunmamak için
+const FILE = process.env.ATOLYE_STATE_FILE || path.join(DIR, 'durum.json');
 
 const key = (p) => {
   const r = path.resolve(p).replace(/[\\/]+$/, '');

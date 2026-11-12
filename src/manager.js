@@ -37,7 +37,10 @@ export class SessionManager {
     // eklenenler tampondan gönderileceği için geçmiş bu sayıyla sınırlanır.
     // (Copilot eski konuşmayı oturum yüklenirken kendisi yeniden gönderir; disk geçmişi yok)
     const historyCount = sessionId && engine !== 'copilot'
-      ? (await getSessionMessages(sessionId, { dir: cwd }).catch(() => [])).length
+      ? (await Promise.race([
+          getSessionMessages(sessionId, { dir: cwd }).catch(() => []),
+          new Promise((r) => setTimeout(() => r([]), 15_000)), // çok büyük ya da kilitli geçmiş açılışı bekletmesin
+        ])).length
       : 0;
 
     const raced = this.find({ sessionId });
