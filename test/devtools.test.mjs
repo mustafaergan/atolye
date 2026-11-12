@@ -133,3 +133,17 @@ test('Fortify: yalnızca kullanıcı adı ve parolayla da çalışır; geçici b
   assert.equal(bad.isError, true);
   assert.match(bad.content[0].text, /401/);
 });
+
+test('Fortify: adres /ssc olmadan ya da tarayıcıdaki uzun sayfa adresiyle girilse de doğru kök bulunur', async () => {
+  const { fortifyBases } = await import('../src/atlassian.js');
+  assert.deepEqual(fortifyBases('https://fortify.ornek.com'), ['https://fortify.ornek.com/ssc', 'https://fortify.ornek.com']);
+  assert.deepEqual(fortifyBases('https://fortify.ornek.com/ssc/html/ssc/dashboard/issue-stats'), ['https://fortify.ornek.com/ssc']);
+  assert.deepEqual(fortifyBases('https://fortify.ornek.com/ssc/'), ['https://fortify.ornek.com/ssc']);
+  assert.deepEqual(fortifyBases('https://ornek.com/guvenlik'), ['https://ornek.com/guvenlik', 'https://ornek.com/guvenlik/ssc']);
+  // Sunucu adresi /ssc olmadan girildi: araç yine çalışır
+  assert.equal(await text('fortify_list_versions', { query: 'bilet' }, { FORTIFY_URL: base, FORTIFY_TOKEN: 'fy-belirtec' }), '8 | Bilet / main');
+  assert.equal(await text('fortify_list_versions', { query: 'bilet' }, { FORTIFY_URL: `${base}/ssc/html/ssc/dashboard/issue-stats`, FORTIFY_TOKEN: 'fy-belirtec' }), '8 | Bilet / main');
+  // Yanlış belirteç yine 401 olarak görünür (adres denemeleri bunu gizlemez)
+  const bad = await callTool('fortify_list_versions', {}, { FORTIFY_URL: base, FORTIFY_TOKEN: 'yanlis' });
+  assert.match(bad.content[0].text, /401/);
+});

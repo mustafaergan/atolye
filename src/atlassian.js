@@ -363,6 +363,34 @@ export const jenkins = {
 //   - Kullanıcı adı + parola: SSC'den kullanıcı adına geçici bir belirteç (UnifiedLoginToken) alınır ve bellekte
 //     tutulur; süresi dolunca (401) yenisi alınır. Parola yalnızca bu belirteci almak için gönderilir.
 const fyTokens = new Map(); // "adres|kullanıcı" -> belirteç
+
+// SSC genelde /ssc yolunun altında çalışır. Kullanıcı yalnızca sunucu adresini ya da tarayıcıdaki uzun sayfa
+// adresini (…/ssc/html/ssc/dashboard/…) yapıştırmış olabilir: denenecek kök adresler buna göre çıkarılır.
+export function fortifyBases(url) {
+  const u = new URL(url);
+  const m = u.pathname.match(/^(.*?\/ssc)(?:\/|$)/i);
+  if (m) return [`${u.origin}${m[1]}`];
+  const path = u.pathname.replace(/\/+$/, '');
+  return path ? [`${u.origin}${path}`, `${u.origin}${path}/ssc`] : [`${u.origin}/ssc`, u.origin];
+}
+const fyWorking = new Map(); // girilen adres -> çalıştığı görülen kök adres
+/** Girilen adresi çalışan kök adrese çevirerek isteği yapar (yanlış kökte sayfa/404 dönerse sıradakini dener) */
+async function fyRequest(cfg, path, opts) {
+  const known = fyWorking.get(cfg.url);
+  const bases = known ? [known] : fortifyBases(cfg.url);
+  let last;
+  for (const base of bases) {
+    try {
+      const res = await fyCall({ ...cfg, url: base }, `${base}${path}`, opts);
+      fyWorking.set(cfg.url, base);
+      return res;
+    } catch (err) {
+      last = err;
+      if (!/JSON yerine bir sayfa|HTTP 404/.test(err.message)) throw err;
+    }
+  }
+  throw new Error(`${last.message}. Fortify adresinin /ssc ile biten kök adres olduğundan emin olun (ör. https://sunucu/ssc)`);
+}
 async function fyLogin(cfg) {
   const key = `${cfg.url}|${cfg.email}`;
   if (fyTokens.has(key)) return fyTokens.get(key);
@@ -387,25 +415,25 @@ async function fyCall(cfg, url, opts) {
 }
 export const fortify = {
   async whoami(cfg) {
-    const data = await fyCall(cfg, `${cfg.url}/api/v1/projectVersions?limit=1&fields=id`);
+    const data = await fyRequest(cfg, `/api/v1/projectVersions?limit=1&fields=id`);
     return `Fortify SSC (${data.count ?? (data.data || []).length} uygulama sürümü görünüyor)`;
   },
   async listVersions(cfg, { query, limit } = {}) {
-    const data = await fyCall(cfg, `${cfg.url}/api/v1/projectVersions?limit=200&fields=${enc('id,name,project,currentState')}`);
+    const data = await fyRequest(cfg, `/api/v1/projectVersions?limit=200&fields=${enc('id,name,project,currentState')}`);
     const q = String(query || '').toLowerCase();
     const rows = (data.data || []).filter((v) => !q || `${v.project?.name} ${v.name}`.toLowerCase().includes(q)).slice(0, clamp(limit, 50, 200));
     return rows.map((v) => `${v.id} | ${v.project?.name || '?'} / ${v.name}`).join('\n') || 'Eşleşen uygulama sürümü yok.';
   },
   async listIssues(cfg, { versionId, severity, limit }) {
     const fields = 'id,issueName,friority,primaryLocation,lineNumber,kingdom,audited,issueStatus';
-    const data = await fyCall(cfg, `${cfg.url}/api/v1/projectVersions/${enc(versionId)}/issues?limit=${clamp(limit, 50, 200)}&orderby=friority&fields=${enc(fields)}`);
+    const data = await fyRequest(cfg, `/api/v1/projectVersions/${enc(versionId)}/issues?limit=${clamp(limit, 50, 200)}&orderby=friority&fields=${enc(fields)}`);
     const sev = String(severity || '').toLowerCase();
     const rows = (data.data || []).filter((i) => !sev || String(i.friority || '').toLowerCase() === sev);
     if (!rows.length) return 'Bulgu yok.';
     return `Toplam ${data.count ?? rows.length} bulgu (gösterilen ${rows.length}):\n${rows.map((i) => `${i.id} | ${i.friority || '?'} | ${i.issueName} | ${i.primaryLocation || ''}${i.lineNumber ? `:${i.lineNumber}` : ''}${i.audited ? ' | incelendi' : ''}`).join('\n')}`;
   },
   async getIssue(cfg, { id }) {
-    const d = (await fyCall(cfg, `${cfg.url}/api/v1/issueDetails/${enc(id)}`)).data || {};
+    const d = (await fyRequest(cfg, `/api/v1/issueDetails/${enc(id)}`)).data || {};
     return cut([
       `${d.issueName || id} [${d.friority || '?'}]`,
       `Dosya: ${d.fullFileName || d.primaryLocation || '?'}${d.lineNumber ? `:${d.lineNumber}` : ''}`,

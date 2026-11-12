@@ -1772,9 +1772,9 @@ LINKS.fortify = {
   userHint: () => T('Parolayla giriş yapacaksanız doldurun; erişim belirteci kullanacaksanız boş bırakın.'),
   tokenLabel: () => T('Parola ya da erişim belirteci'),
   steps: () => [
-    T("Fortify Software Security Center'ı (SSC) tarayıcıda açın ve adresi /ssc ile biten kısma kadar kopyalayın (ör. https://fortify.sirket.com/ssc)."),
+    T("Fortify Software Security Center'ı (SSC) tarayıcıda açın ve adres çubuğundaki adresi kopyalayın; Atölye /ssc ile biten kök adresi kendisi bulur (ör. https://fortify.sirket.com/ssc)."),
     T('Elinizde yalnızca kullanıcı adı ve parola varsa: ikisini de aşağıya yazın. Atölye her oturumda sizin adınıza geçici bir erişim belirteci alır; parola bilgisayarınızda düz metin olarak saklanır.'),
-    T('Erişim belirteciniz varsa (ya da oluşturabiliyorsanız: kullanıcı simgesi → "Administration" → "Users" → "Token Management" → "New", tür "UnifiedLoginToken" ya da "CIToken"): kullanıcı adını boş bırakıp belirteci yapıştırın. Parola saklamadığı için bu yol daha güvenlidir.'),
+    T('Erişim belirteci oluşturabiliyorsanız ("Administration" → "Users" → "Token Management" → "New"): tür olarak listede varsa "UnifiedLoginToken" (kısa süreli), yoksa "AutomationToken" ya da "CIToken" seçin; oluşan "encoded token" değerini kopyalayın, kullanıcı adını boş bırakıp belirteci yapıştırın ve "Kaydet ve sına" ile deneyin. Parola saklamadığı için bu yol daha güvenlidir.'),
     T('"Kaydet ve sına" deyin.'),
   ],
   examples: () => T('Örnek: "Fortify\'da proje-adi sürümündeki kritik bulguları listele ve ilkinin nasıl düzeltileceğini anlat".'),
