@@ -1,20 +1,17 @@
-// Kurumsal proxy ayarı. Şirket ağı internete proxy üzerinden çıkıyorsa Copilot CLI (ve Claude Code)
-// HTTPS_PROXY / HTTP_PROXY / NO_PROXY ortam değişkenlerine bakar. Bu modül o değişkenleri
-//   - Windows'ta kullanıcı ortam değişkeni olarak (terminaller de görsün diye; komut satırı araçlarının
-//     kendi baktığı yer burasıdır),
-//   - diğer sistemlerde Atölye'nin .env dosyasına
-// yazar ve çalışan Atölye'ye hemen uygular. Parola arayüze geri gönderilmez, kayıtlara yazılmaz.
+// GitHub Copilot için kurumsal proxy ayarı. Şirket ağı internete proxy üzerinden çıkıyorsa Copilot CLI
+// HTTPS_PROXY / HTTP_PROXY / NO_PROXY ortam değişkenlerine bakar. Bu ayar YALNIZCA Atölye'nin başlattığı
+// Copilot süreçlerine verilir: Claude Code, Atölye'nin kendisi ve bilgisayardaki diğer programlar etkilenmez.
+// Atölye'nin .env dosyasında COPILOT_PROXY ve COPILOT_NO_PROXY olarak saklanır. Parola arayüze geri
+// gönderilmez, kayıtlara yazılmaz.
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY'];
+const KEYS = ['COPILOT_PROXY', 'COPILOT_NO_PROXY'];
 const ALWAYS_DIRECT = ['localhost', '127.0.0.1']; // Atölye'nin kendisi asla proxy'den geçmemeli
 
-const envGet = (env, k) => env[k] || env[k.toLowerCase()] || '';
 
 /** "kullanıcı:parola@sunucu:port" adresini parçalar (kullanıcı adındaki @ gibi karakterler %40 biçimindedir) */
 export function parseProxy(value) {
@@ -47,29 +44,28 @@ export function normalizeNoProxy(value) {
 
 /** Arayüze giden durum: parola asla geri gönderilmez */
 export function status(env = process.env) {
-  const p = parseProxy(envGet(env, 'HTTPS_PROXY') || envGet(env, 'HTTP_PROXY'));
+  const p = parseProxy(env.COPILOT_PROXY);
   return {
     configured: Boolean(p),
     address: p ? `${p.host}:${p.port}` : '',
     username: p?.username || '',
     hasPassword: Boolean(p?.password),
-    noProxy: envGet(env, 'NO_PROXY'),
-    store: process.platform === 'win32' ? 'windows-user-env' : 'env-file',
+    noProxy: env.COPILOT_NO_PROXY || '',
   };
 }
 
-// Değerler alt sürece ortam değişkeniyle verilir (komut satırında parola görünmesin)
-export function persistWindows(values, keys = KEYS) {
-  const script = keys.map((k) => `[Environment]::SetEnvironmentVariable('${k}', $(if ($env:ATOLYE_SET_${k}) { $env:ATOLYE_SET_${k} } else { $null }), 'User')`).join('; ');
-  const env = { ...process.env };
-  for (const k of keys) { if (values[k]) env[`ATOLYE_SET_${k}`] = values[k]; else delete env[`ATOLYE_SET_${k}`]; }
-  return new Promise((resolve, reject) => {
-    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { env, windowsHide: true, timeout: 30_000 },
-      (err) => (err ? reject(new Error('Windows ortam değişkenleri yazılamadı')) : resolve()));
-  });
+/** Copilot sürecine verilecek ortam: proxy ayarlıysa standart değişkenler eklenir (yalnızca o süreç için) */
+export function copilotEnv(env = process.env) {
+  if (!parseProxy(env.COPILOT_PROXY)) return env;
+  const out = { ...env };
+  for (const k of ['https_proxy', 'http_proxy', 'no_proxy']) delete out[k];
+  out.HTTPS_PROXY = env.COPILOT_PROXY;
+  out.HTTP_PROXY = env.COPILOT_PROXY;
+  out.NO_PROXY = normalizeNoProxy(env.COPILOT_NO_PROXY);
+  return out;
 }
 
-function persistEnvFile(values, file = path.join(ROOT, '.env')) {
+export function persistEnvFile(values, file = path.join(ROOT, '.env')) {
   let lines = [];
   try { lines = fs.readFileSync(file, 'utf8').split(/\r?\n/); } catch { /* dosya yok */ }
   lines = lines.filter((l) => !KEYS.some((k) => new RegExp(`^\\s*#?\\s*${k}\\s*=`).test(l)));
@@ -79,24 +75,19 @@ function persistEnvFile(values, file = path.join(ROOT, '.env')) {
 }
 
 async function apply(values) {
-  if (process.env.ATOLYE_PROXY_STORE === 'none') { /* testlerde kalıcı yazma yapılmaz */ }
-  else if (process.platform === 'win32') await persistWindows(values);
-  else persistEnvFile(values);
-  for (const k of KEYS) {
-    delete process.env[k.toLowerCase()];
-    if (values[k]) process.env[k] = values[k]; else delete process.env[k];
-  }
+  if (process.env.ATOLYE_PROXY_STORE !== 'none') persistEnvFile(values); // testlerde dosyaya yazılmaz
+  for (const k of KEYS) { if (values[k]) process.env[k] = values[k]; else delete process.env[k]; }
 }
 
 export async function save({ address, username, password, noProxy }) {
   const p = parseProxy(String(address || '').trim());
   if (!p || !/^[\w.-]+$/.test(p.host) || !(p.port > 0 && p.port < 65536)) throw Object.assign(new Error('bad-address'), { code: 'bad-address' });
-  const old = parseProxy(envGet(process.env, 'HTTPS_PROXY') || envGet(process.env, 'HTTP_PROXY'));
+  const old = parseProxy(process.env.COPILOT_PROXY);
   const user = String(username ?? '').trim();
   // Parola boş bırakılırsa (ve kullanıcı adı aynıysa) kayıtlı parola korunur
   const pass = String(password || '') || (old && old.username === user ? old.password : '');
   const url = buildProxyUrl({ protocol: p.protocol, host: p.host, port: p.port, username: user, password: pass });
-  await apply({ HTTPS_PROXY: url, HTTP_PROXY: url, NO_PROXY: normalizeNoProxy(noProxy) });
+  await apply({ COPILOT_PROXY: url, COPILOT_NO_PROXY: normalizeNoProxy(noProxy) });
   return status();
 }
 
@@ -110,7 +101,7 @@ export async function remove() {
  * { ok: true } ya da { ok: false, code, status }
  */
 export function test({ target = 'api.github.com:443', timeoutMs = 15_000, env = process.env } = {}) {
-  const p = parseProxy(envGet(env, 'HTTPS_PROXY') || envGet(env, 'HTTP_PROXY'));
+  const p = parseProxy(env.COPILOT_PROXY);
   if (!p) return Promise.resolve({ ok: false, code: 'not-configured' });
   return new Promise((resolve) => {
     let done = false;

@@ -254,20 +254,22 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir. Bu ayar yalnızca Copilot içindir; Claude Code etkilenmez.':
+    'If your company network reaches the internet through a proxy, GitHub Copilot cannot reach its servers without these details; sessions open slowly or fail with a "timed out" error. This setting is for Copilot only; Claude Code is not affected.',
+  '"Kaydet ve sına" deyin, sonra yeni bir Copilot oturumu açın.': 'Click "Save and test", then open a new Copilot session.',
+  "Proxy çalışıyor: GitHub'a ulaşılabiliyor. Yeni açtığınız Copilot oturumları bu ayarı kullanır.": 'The proxy works: GitHub is reachable. Copilot sessions you open from now on use this setting.',
+  "Bu ayar yalnızca Atölye'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve bilgisayardaki diğer programlar etkilenmez. Atölye'nin .env dosyasında saklanır; parola orada düz metin olarak durur ve Atölye'nin kayıtlarına yazılmaz.":
+    'This setting applies only to the GitHub Copilot sessions started by Atölye; Claude Code and other programs on the computer are not affected. It is stored in Atölye\'s .env file; the password is kept there as plain text and is never written to Atölye logs.',
   'gerekmiyorsa boş bırakın': 'leave empty if not required',
   'kayıtlı (değiştirmek için yenisini yazın)': 'saved (type a new one to replace it)',
   'Proxy sınanıyor…': 'Testing the proxy…',
-  "Proxy çalışıyor: GitHub'a ulaşılabiliyor. Yeni açtığınız oturumlar bu ayarı kullanır.": 'The proxy works: GitHub is reachable. Sessions you open from now on use this setting.',
   'Proxy ayarını yapma': 'setting up the proxy',
   'Proxy ayarını kaldır': 'Remove proxy setting',
   'Proxy ayarı ve kayıtlı parola silinsin mi?': 'Delete the proxy setting and the saved password?',
-  'Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot (ve gerekirse Claude Code) bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir.':
-    'If your company network reaches the internet through a proxy, GitHub Copilot (and Claude Code, if needed) cannot reach its servers without these details; sessions open slowly or fail with a "timed out" error.',
   'Proxy adresini, kullanıcı adını ve parolayı BT ekibinizden ya da şirket içi kurulum dokümanınızdan alın. Kullanıcı adındaki @ gibi özel karakterleri olduğu gibi yazın; Atölye gerekli dönüşümü kendisi yapar.':
     'Get the proxy address, username and password from your IT team or your internal setup guide. Type special characters such as @ in the username as they are; Atölye encodes them for you.',
   '"Proxy kullanılmayacak adresler" alanına şirket içi adresleri yazın (ör. .sirket.com); bunlara proxy olmadan gidilir.':
     'In "Addresses that bypass the proxy", enter internal addresses (e.g. .company.com); they are reached without the proxy.',
-  '"Kaydet ve sına" deyin, sonra yeni bir oturum açın. Açık terminalleri de kapatıp yeniden açın.': 'Click "Save and test", then open a new session. Close and reopen any open terminals too.',
   'Proxy adresi': 'Proxy address',
   'Kullanıcı adı': 'Username',
   'Parola': 'Password',
@@ -276,10 +278,6 @@ export const EN = {
   "Proxy'yi sına": 'Test proxy',
   'Şirket ağında proxy ayarı yapmam gerekiyor ve teknik biri değilim. Proxy nedir, adresini ve kullanıcı bilgilerini kimden öğrenirim, HTTPS_PROXY ve NO_PROXY ne işe yarar? Adım adım, sade bir dille anlat.':
     'I need to set up a proxy on a company network and I am not a technical person. What is a proxy, who can tell me its address and credentials, and what do HTTPS_PROXY and NO_PROXY do? Explain step by step in plain language.',
-  "Ayar, Windows kullanıcı ortam değişkenlerine (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) yazılır; komut satırı araçlarının baktığı yer burasıdır, bu yüzden terminaldeki copilot ve claude da aynı ayarı kullanır. Parola orada düz metin olarak durur ve Atölye'nin kayıtlarına yazılmaz.":
-    'The setting is written to the Windows user environment variables (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); that is where command-line tools look, so copilot and claude in a terminal use the same setting. The password is kept there as plain text and is never written to Atölye logs.',
-  "Ayar, Atölye'nin .env dosyasına (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) yazılır. Parola orada düz metin olarak durur ve Atölye'nin kayıtlarına yazılmaz.":
-    'The setting is written to Atölye\'s .env file (HTTPS_PROXY, HTTP_PROXY, NO_PROXY). The password is kept there as plain text and is never written to Atölye logs.',
   'Not: şirketinizin Copilot politikası üçüncü taraf MCP sunucularını kapatmışsa bu araçlar yalnızca Claude Code oturumlarında kullanılabilir.': 'Note: if your organization\'s Copilot policy disables third-party MCP servers, these tools are only available in Claude Code sessions.',
   "Copilot'a bağlanılıyor… Hazır olunca mesajınız gönderilir; bu, şirket ağında bir dakikaya kadar sürebilir.": 'Connecting to Copilot… Your message is sent once it is ready; on a company network this can take up to a minute.',
   '"Şimdi güncelle" son sürümü indirir, kurar ve Atölye\'yi yeniden başlatır. Ayarlarınız ve oturumlarınız korunur.': '"Update now" downloads and installs the latest version and restarts Atölye. Your settings and sessions are kept.',
