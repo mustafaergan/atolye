@@ -721,3 +721,11 @@ a.check-update { color: var(--text-2); }
 .role-wrap select { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; padding: 4px 2px; cursor: pointer; }
 .role-wrap select:focus { outline: none; }
 .role-wrap select option { background: var(--surface); color: var(--text); }
+.link-fetch { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.link-fetch:hover { background: var(--accent); color: #fff; }
+.link-fetch[hidden] { display: none; }
+.fetch-preview { margin: 0; max-height: 240px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fetch-preview[hidden] { display: none; }
+.fetch-request { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.fetch-request code { display: block; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.resolved-note { font-size: 12.5px; color: var(--text-2); }

@@ -362,9 +362,16 @@ function handleSdk(msg) {
     return;
   }
   if (msg.type === 'stream_event') return msg.parent_tool_use_id ? null : handleStream(msg.event);
-  if (msg.type === 'assistant') return renderAssistant(msg, false);
+  if (msg.type === 'assistant') {
+    if (autoFetch.active && !msg.parent_tool_use_id) autoFetch.text += (msg.message?.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+    return renderAssistant(msg, false);
+  }
   if (msg.type === 'user') return renderUserFromSdk(msg, false);
-  if (msg.type === 'result') return renderResult(msg);
+  if (msg.type === 'result') {
+    renderResult(msg);
+    if (autoFetch.active) checkFetchRequest();
+    return;
+  }
 }
 
 // Akış halinde gelen metin ve düşünce blokları
@@ -1089,7 +1096,8 @@ function send() {
   const images = state.attachments.map(({ mediaType, data }) => ({ mediaType, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
-  wsSend({ type: 'send', text: withLinkHint(text || T('Bu görsele bak.')), images });
+  const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? withFetchProtocol(text) : withLinkHint(text || T('Bu görsele bak.'));
+  wsSend({ type: 'send', text: outgoing, images });
   dom.input.value = '';
   state.attachments = [];
   renderAttachments();
@@ -1477,6 +1485,8 @@ function resetTranscript() {
   state.prompts.clear();
   state.cost = 0;
   state.credits = null;
+  autoFetch.active = false;
+  autoFetch.allowed = false;
   state.metrics = newMetrics();
   state.context = null;
   state.ctxRetries = 0;
@@ -1819,6 +1829,7 @@ const ROLES = {
     tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
+    fetch: true, // "Veri getir": veriyi Atölye REST ile çeker (yalnızca bu modda; geliştirici modu MCP araçlarını kullanır)
   },
   gelistirici: {
     name: () => T('Geliştirici'),
@@ -1869,8 +1880,11 @@ function renderLinkSelect() {
   $('#linkWrap').hidden = !connected.length;
   sel.replaceChildren(el('option', { value: '', text: T('Bağlantı: yok') }), ...connected.map((id) => el('option', { value: id, text: LINKS[id].name })));
   sel.value = activeLink;
+  $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch;
   sel.onchange = () => {
     activeLink = sel.value;
+    loadFetchTools(activeLink);
+    $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch;
     $('#linkWrap').classList.toggle('active', Boolean(activeLink));
     dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
     dom.input.focus();
@@ -1879,6 +1893,8 @@ function renderLinkSelect() {
 const linkPlaceholder = dom.input.placeholder;
 function withLinkHint(text) {
   if (!activeLink || text.startsWith('/')) return text; // komutlara not eklenmez
+  // Veri mesaja zaten eklendiyse yapay zekânın araç aramasına gerek yok
+  if (text.includes(T('[veri sonu]'))) return text;
   return `${text}\n\n${T('({name} bağlantısını kullan; araçlar: {tools})', { name: LINKS[activeLink].name, tools: LINK_TOOLS[activeLink] })}`;
 }
 const linksDlg = $('#linksDialog');
@@ -2211,6 +2227,180 @@ async function renderProxyTab() {
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
 }
 
+// ---------- Yapay zekâ ister, Atölye getirir (analist modu) ----------
+// Akış: (1) kullanıcı bir bağlantı seçip sorusunu yazar, (2) yapay zekâ soruyu yorumlar ve hangi veriye ihtiyacı
+// olduğunu belirli bir biçimde yazar, (3) Atölye bunu kullanıcıya gösterir ve onayla kayıtlı bağlantı üzerinden
+// REST ile getirir, (4) veri yapay zekâya geri gönderilir ve soru yanıtlanır. Yalnızca okuma yapan işlemler vardır.
+// MCP araçlarının kullanılamadığı oturumlarda (ör. Copilot) kullanılır; Claude Code'da araçlar zaten doğrudan çalışır.
+const REQUEST_FENCE = 'atolye-istek';
+const MAX_AUTO_FETCH = 5; // tek soruda art arda en fazla kaç veri isteği
+const fetchTools = {}; // servis -> okuma işlemleri (yapay zekâya tarif etmek ve gelen isteği doğrulamak için)
+const autoFetch = { active: false, service: null, text: '', count: 0, allowed: false };
+
+async function loadFetchTools(service) {
+  if (!service || fetchTools[service]) return;
+  fetchTools[service] = await fetch(`/api/link-data/tools?service=${service}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
+}
+const usesFetchProtocol = () => Boolean(activeLink) && currentRole().fetch && currentEngine() === 'copilot' && (fetchTools[activeLink] || []).length > 0;
+
+/** Soruya, yapay zekânın veriyi nasıl isteyeceğini anlatan yönerge eklenir */
+function withFetchProtocol(text) {
+  const tools = fetchTools[activeLink].map((t) => `- ${t.name}(${Object.keys(t.properties || {}).map((k) => `${k}${t.required.includes(k) ? '' : '?'}`).join(', ')}): ${t.description}`).join('\n');
+  autoFetch.active = true;
+  autoFetch.service = activeLink;
+  autoFetch.text = '';
+  autoFetch.count = 0;
+  return `${text}\n\n${T('({name} verisi gerekiyorsa kendin erişmeye çalışma ve tahmin yürütme. Önce soruyu yorumla, sonra hangi veriye ihtiyacın olduğunu aşağıdaki biçimde TEK bir istek olarak yaz ve dur; veriyi Atölye getirip sana gönderecek.)', { name: LINKS[activeLink].name })}\n\`\`\`${REQUEST_FENCE}\n{"islem": "<işlem adı>", "args": { ... }}\n\`\`\`\n${T('Kullanılabilir işlemler:')}\n${tools}`;
+}
+
+/** Yapay zekânın cevabındaki veri isteğini ayıklar: { name, args } ya da null */
+function parseFetchRequest(text) {
+  const m = String(text).match(new RegExp('```' + REQUEST_FENCE + '\\s*([\\s\\S]*?)```'));
+  if (!m) return null;
+  try {
+    const j = JSON.parse(m[1]);
+    const name = j.islem || j.tool || j.name;
+    return typeof name === 'string' ? { name, args: j.args && typeof j.args === 'object' ? j.args : {} } : null;
+  } catch {
+    return null;
+  }
+}
+
+function sendToAi(text) {
+  wsSend({ type: 'send', text, images: [] });
+  setBusy(true);
+  scrollDown(true);
+}
+
+async function runAutoFetch(req, card) {
+  const name = LINKS[autoFetch.service]?.name || autoFetch.service;
+  const what = Object.entries(req.args).map(([k, v]) => `${k}=${v}`).join(', ') || req.name;
+  if (card) { card.classList.add('resolved'); $('.actions', card)?.remove(); card.append(el('div', { class: 'resolved-note', text: T('Veri getiriliyor…') })); }
+  const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: req.name, args: req.args }) })
+    .then((x) => x.json()).catch((e) => ({ ok: false, text: e.message }));
+  if (card) $('.resolved-note', card).textContent = r.ok ? T('Getirildi ({n} karakter) ve yapay zekâya gönderildi.', { n: r.text.length }) : T('Getirilemedi: {error}', { error: r.text });
+  sendToAi(r.ok
+    ? `${T('[{name} bağlantısından getirildi: {what}]', { name, what })}\n${r.text}\n${T('[veri sonu]')}\n\n${T('(İstediğin veri yukarıda. Başka veri gerekiyorsa aynı biçimde yeni bir istek yaz; gerekmiyorsa sorumu yanıtla.)')}`
+    : `${T('[{name} bağlantısından veri getirilemedi: {what}]', { name, what })}\n${r.text}\n\n${T('(Bu veri alınamadı. İsteği düzelterek yeniden dene ya da neyin eksik olduğunu bana söyle.)')}`);
+}
+
+/** Tur bittiğinde çağrılır: cevapta veri isteği varsa kullanıcıya sorulur (ya da izin verilmişse doğrudan getirilir) */
+function checkFetchRequest() {
+  if (!autoFetch.active) return;
+  const req = parseFetchRequest(autoFetch.text);
+  autoFetch.text = '';
+  if (!req) { autoFetch.active = false; return; } // yapay zekâ yanıt verdi: akış bitti
+  const tool = (fetchTools[autoFetch.service] || []).find((t) => t.name === req.name);
+  const name = LINKS[autoFetch.service]?.name || autoFetch.service;
+  if (!tool) {
+    return sendToAi(T('("{op}" diye bir işlem yok. Yalnızca listedeki işlemleri kullan.)', { op: req.name }));
+  }
+  if (++autoFetch.count > MAX_AUTO_FETCH) {
+    autoFetch.active = false;
+    return notice(T('Yapay zekâ art arda çok fazla veri istedi; durduruldu. Sorunuzu daraltıp yeniden deneyin.'), 'info');
+  }
+  if (autoFetch.allowed) return runAutoFetch(req, null);
+  const card = el('div', { class: 'prompt-card' });
+  put(card,
+    el('h3', { text: T('Atölye, {name} bağlantısından şu veriyi getirsin mi?', { name }) }),
+    el('div', { class: 'fetch-request' }, el('strong', { text: tool.description }), el('code', { text: Object.entries(req.args).map(([k, v]) => `${k}: ${v}`).join('\n') || '—' })),
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn primary', type: 'button', text: T('Getir'), onclick: () => runAutoFetch(req, card) }),
+      el('button', { class: 'btn', type: 'button', text: T('Bu oturumda sormadan getir'), onclick: () => { autoFetch.allowed = true; runAutoFetch(req, card); } }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => { autoFetch.active = false; card.classList.add('resolved'); $('.actions', card).remove(); card.append(el('div', { class: 'resolved-note', text: T('Vazgeçildi.') })); } })));
+  append(card);
+  scrollDown(true);
+}
+
+// ---------- Bağlantıdan veri getirme (REST) ----------
+// Veriyi yapay zekâ değil Atölye çeker: kayıtlı bağlantıyla doğrudan servisin REST arayüzüne gidilir ve sonuç
+// mesaja eklenir. Bu yüzden MCP araçlarının kapalı olduğu oturumlarda (ör. kuruluş politikasıyla kısıtlı Copilot)
+// da çalışır. Yalnızca okuma yapan işlemler sunulur.
+const fetchDlg = $('#fetchDialog');
+const fetchUi = { tools: null, tool: null, result: null };
+
+async function openFetchDialog() {
+  if (!activeLink) return;
+  fetchUi.tools = await fetch(`/api/link-data/tools?service=${activeLink}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
+  fetchUi.tool = fetchUi.tools[0]?.name || null;
+  fetchUi.result = null;
+  renderFetchDialog();
+  fetchDlg.showModal();
+}
+
+function renderFetchDialog() {
+  const name = LINKS[activeLink]?.name || '';
+  $('#fetchTitle').textContent = T('{name}: veri getir', { name });
+  const body = $('#fetchBody');
+  const tool = fetchUi.tools.find((t) => t.name === fetchUi.tool);
+  if (!tool) {
+    body.replaceChildren(el('div', { class: 'links-result err', text: T('Bu bağlantı için getirilebilecek veri yok ya da bağlantı kurulmamış.') }));
+    return;
+  }
+  const pick = el('select', { class: 'links-select' }, ...fetchUi.tools.map((t) => el('option', { value: t.name, text: t.description })));
+  pick.value = tool.name;
+  pick.onchange = () => { fetchUi.tool = pick.value; fetchUi.result = null; renderFetchDialog(); };
+  const inputs = {};
+  const fields = Object.entries(tool.properties || {}).map(([key, p]) => {
+    const input = el('input', { type: p.type === 'number' ? 'number' : 'text', spellcheck: 'false', autocomplete: 'off' });
+    inputs[key] = input;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    return el('label', { class: 'links-field' }, el('span', { text: `${p.description || key}${tool.required.includes(key) ? ' *' : ''}` }), input);
+  });
+  const result = el('div', { class: 'links-result' });
+  result.hidden = true;
+  const preview = el('pre', { class: 'fetch-preview' });
+  preview.hidden = true;
+  const addBtn = el('button', { class: 'btn primary', type: 'button', text: T('Mesaja ekle'), disabled: true });
+  const runBtn = el('button', { class: 'btn', type: 'button', text: T('Getir') });
+  async function run() {
+    const args = {};
+    for (const [k, input] of Object.entries(inputs)) {
+      const v = input.value.trim();
+      if (v) args[k] = input.type === 'number' ? Number(v) : v;
+    }
+    runBtn.disabled = true;
+    runBtn.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: T('Getiriliyor…') }));
+    const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: tool.name, args }) })
+      .then((x) => x.json()).catch((e) => ({ ok: false, text: e.message }));
+    runBtn.disabled = false;
+    runBtn.textContent = T('Getir');
+    fetchUi.result = r.ok ? { tool: tool.name, args, text: r.text } : null;
+    result.hidden = r.ok;
+    preview.hidden = !r.ok;
+    addBtn.disabled = !r.ok;
+    if (r.ok) preview.textContent = r.text;
+    else { result.className = 'links-result err'; result.textContent = T('Olmadı: {error}', { error: r.text }); }
+  }
+  runBtn.onclick = run;
+  addBtn.onclick = () => {
+    const r = fetchUi.result;
+    if (!r) return;
+    const what = Object.entries(r.args).map(([k, v]) => `${k}=${v}`).join(', ');
+    const block = `${T('[{name} bağlantısından getirildi: {what}]', { name, what: what || r.tool })}\n${r.text}\n${T('[veri sonu]')}`;
+    const cur = dom.input.value.trim();
+    dom.input.value = cur ? `${cur}\n\n${block}\n\n` : `${block}\n\n`;
+    fetchDlg.close();
+    autoGrow();
+    updateSendBtn();
+    dom.input.focus();
+    dom.input.setSelectionRange(dom.input.value.length, dom.input.value.length);
+  };
+  body.replaceChildren(
+    el('p', { class: 'links-intro', text: T('Veriyi Atölye kayıtlı bağlantınızla doğrudan servisten çeker ve mesajınıza ekler; ardından sorunuzu yazıp gönderirsiniz. Getirilen metin, seçili yapay zekâya mesajın parçası olarak gider.') }),
+    el('label', { class: 'links-field' }, el('span', { text: T('Ne getirilsin?') }), pick),
+    ...fields,
+    el('div', { class: 'links-actions' }, runBtn, addBtn),
+    result,
+    preview,
+  );
+  (Object.values(inputs)[0] || pick).focus();
+}
+
+$('#linkFetchBtn').onclick = openFetchDialog;
+$('#fetchClose').onclick = () => fetchDlg.close();
+fetchDlg.addEventListener('click', (e) => { if (e.target === fetchDlg) fetchDlg.close(); });
+
 // ---------- Güncelleme bildirimi ----------
 // Depoda daha yeni bir Atölye sürümü varsa sağ üstte "Güncelleme var" görünür (bkz. src/update.js).
 async function checkUpdate(manual = false) {
@@ -2273,7 +2463,7 @@ checkUpdate();
 setInterval(checkUpdate, 60 * 60 * 1000); // sunucu depoya günde bir kez bakar; bu yalnızca sonucu okur
 
 // Geliştirme için: ?debug ile açıldığında olaylar konsoldan elle verilebilir
-if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { handleEvent, state };
+if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { handleEvent, state, autoFetch, fetchTools, withFetchProtocol, usesFetchProtocol };
 
 // ---------- Başlangıç ----------
 (async function init() {

@@ -189,6 +189,15 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     }
   }));
   app.delete('/api/integrations/:service', wrap(async (req, res) => res.json(integrations.remove(req.params.service))));
+  // Bağlantıdan veri getirme: Atölye kayıtlı bağlantıyla doğrudan REST çağrısı yapar (yalnızca okuma)
+  app.get('/api/link-data/tools', wrap(async (req, res) => {
+    try { res.json({ tools: integrations.readTools(String(req.query.service || '')) }); } catch { res.json({ tools: [] }); }
+  }));
+  app.post('/api/link-data/call', wrap(async (req, res) => {
+    const r = await integrations.runReadTool(String(req.body?.name || ''), req.body?.args);
+    console.log(`[bağlantı] veri getirme ${req.body?.name}: ${r.ok ? `tamam (${r.text.length} karakter)` : r.text.slice(0, 160)}`);
+    res.json(r);
+  }));
   app.post('/api/integrations/:service/test', wrap(async (req, res) => {
     const r = await integrations.test(req.params.service);
     console.log(`[bağlantı] ${req.params.service} sınaması: ${r.ok ? `başarılı (${r.user})` : r.error}`);

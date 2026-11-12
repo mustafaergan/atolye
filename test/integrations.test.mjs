@@ -190,3 +190,19 @@ test('Graylog: belirteçle giriş, log arama ve akış listesi', async () => {
   assert.match((await integrations.test('graylog')).error, /401/);
   integrations.remove('graylog');
 });
+
+test('veri getirme (REST): yalnızca okuma işlemleri sunulur ve Atölye tarafından çalıştırılır', async () => {
+  integrations.save('jira', { url: base, token: 'gizli-anahtar' });
+  const tools = integrations.readTools('jira');
+  assert.deepEqual(tools.map((t) => t.name), ['jira_search', 'jira_get_issue'], 'yorum ekleme (yazma) sunulmaz');
+  assert.deepEqual(tools[1].required, ['key']);
+  assert.ok(tools[1].properties.key.description);
+  const ok = await integrations.runReadTool('jira_get_issue', { key: 'ABC-1' });
+  assert.equal(ok.ok, true);
+  assert.match(ok.text, /ABC-1: Port hatası/);
+  assert.deepEqual(await integrations.runReadTool('jira_add_comment', { key: 'ABC-1', body: 'x' }), { ok: false, text: 'Bu işlem değişiklik yapar; buradan çalıştırılamaz' });
+  assert.equal((await integrations.runReadTool('jira_get_issue', {})).ok, false);
+  assert.equal((await integrations.runReadTool('uydurma', {})).ok, false);
+  assert.deepEqual(integrations.readTools('confluence'), [], 'kurulmamış bağlantıda işlem yok');
+  integrations.remove('jira');
+});
