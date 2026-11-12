@@ -153,8 +153,9 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   parola ve proxy kullanılmayacak adresler girilir; **Kaydet ve sına** proxy üzerinden GitHub'a ulaşılabildiğini denetler.
   Ayar yalnızca Atölye'nin başlattığı Copilot süreçlerine verilir (Claude Code ve diğer programlar etkilenmez) ve `.env`
   dosyasında `COPILOT_PROXY` / `COPILOT_NO_PROXY` olarak saklanır.
-- **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adresini yapıştırıp (Bitbucket bağlıysa listeden seçip)
-  **Depoyu indir** demek yeterli; depo `~/repos` altına iner, proje olarak eklenir ve o klasörde oturum açılır.
+- **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
+  işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner, proje
+  olarak eklenir ve ilkinde oturum açılır.
 - Her sekmede **Yapay zekâdan yardım al** düğmesi, hazır bir soruyla klasörsüz sohbet açar; bir hata çıktığında
   **Bu hatayı yapay zekâya sor** düğmesi hatayı soruya ekler.
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
@@ -241,4 +242,4 @@ MIT
 
 ---
 
-[optona.tr](https://optona.tr) tarafından yazılmıştır.
+optona.tr tarafından yazılmıştır.

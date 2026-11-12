@@ -1785,61 +1785,92 @@ async function renderRepoTab() {
     if (links.tab !== 'repo') return;
   }
   const info = repoUi.info;
-  const url = el('input', { type: 'text', placeholder: 'https://bitbucket.sirket.com/scm/abc/depo-adi.git', spellcheck: 'false', autocomplete: 'off', value: repoUi.url || '' });
-  url.oninput = () => { repoUi.url = url.value; };
+  // Birden fazla depo: her satıra bir adres. Listeden işaretlenenler de buraya eklenir.
+  const urls = el('textarea', { rows: '3', placeholder: 'https://bitbucket.sirket.com/scm/abc/depo-adi.git', spellcheck: 'false', autocomplete: 'off' });
+  urls.value = repoUi.url || '';
+  const lines = () => [...new Set(urls.value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))];
+  urls.oninput = () => { repoUi.url = urls.value; syncChecks(); };
   const parent = el('input', { type: 'text', spellcheck: 'false', autocomplete: 'off', value: repoUi.parent || info.defaultParent || '' });
   parent.oninput = () => { repoUi.parent = parent.value; };
   const result = el('div', { class: 'links-result' });
   result.hidden = true;
+  let syncChecks = () => {};
 
-  // Bitbucket bağlıysa depolar listeden seçilebilir
+  // Bitbucket bağlıysa depolar listeden işaretlenir (birden fazla seçilebilir)
   let picker = null;
   if (info.bitbucket) {
     const project = el('input', { type: 'text', placeholder: T('proje anahtarı (isteğe bağlı), ör. ABC'), spellcheck: 'false', value: repoUi.project || '' });
     project.oninput = () => { repoUi.project = project.value; };
-    const select = el('select', { class: 'links-select' }, el('option', { value: '', text: repoUi.repos ? T('Depo seçin ({n} depo)', { n: repoUi.repos.length }) : T('Önce "Depoları listele" deyin') }),
-      ...(repoUi.repos || []).map((r) => el('option', { value: r.cloneUrl, text: r.name })));
-    select.onchange = () => { if (select.value) { url.value = select.value; repoUi.url = select.value; } };
+    const filter = el('input', { type: 'text', placeholder: T('listede ara…'), spellcheck: 'false', value: repoUi.filter || '' });
+    const list = el('div', { class: 'repo-list' });
+    const drawList = () => {
+      const q = (repoUi.filter || '').toLowerCase();
+      const chosen = new Set(lines());
+      list.replaceChildren(...(repoUi.repos || []).filter((r) => !q || r.name.toLowerCase().includes(q)).map((r) => {
+        const box = el('input', { type: 'checkbox', checked: chosen.has(r.cloneUrl) });
+        box.onchange = () => {
+          const cur = lines().filter((u) => u !== r.cloneUrl);
+          if (box.checked) cur.push(r.cloneUrl);
+          urls.value = cur.join('\n');
+          repoUi.url = urls.value;
+        };
+        return el('label', { class: 'repo-item' }, box, el('span', { text: r.name }));
+      }));
+      if (!list.children.length) list.append(el('div', { class: 'repo-empty', text: repoUi.repos ? T('Eşleşen depo yok.') : T('Önce "Depoları listele" deyin') }));
+    };
+    syncChecks = drawList;
+    filter.oninput = () => { repoUi.filter = filter.value; drawList(); };
     const listBtn = el('button', { class: 'btn', type: 'button', text: T('Depoları listele'), onclick: async () => {
       listBtn.disabled = true;
       const r = await fetch(`/api/repo/list?project=${encodeURIComponent(project.value.trim())}`).then((x) => x.json()).catch((e) => ({ error: e.message }));
-      if (r.error) { repoUi.repos = null; repoUi.result = { ok: false, error: r.error, what: T('Depo listesini alma') }; } else { repoUi.repos = r.repos; repoUi.result = null; }
+      if (r.error) { repoUi.repos = null; repoUi.result = { failed: [{ name: T('Depo listesini alma'), error: r.error }] }; } else { repoUi.repos = r.repos; repoUi.result = null; }
       if (links.tab === 'repo') renderRepoTab();
     } });
-    picker = el('div', { class: 'links-field' }, el('span', { text: T("Bağlı Bitbucket'tan seçin") }), el('div', { class: 'links-row' }, project, listBtn), select);
+    drawList();
+    picker = el('div', { class: 'links-field' }, el('span', { text: T("Bağlı Bitbucket'tan seçin (birden fazla işaretleyebilirsiniz)") }),
+      el('div', { class: 'links-row' }, project, listBtn), repoUi.repos ? filter : null, list);
   }
 
-  const cloneBtn = el('button', { class: 'btn primary', type: 'button', text: T('Depoyu indir'), disabled: !info.git || repoUi.busy, onclick: async () => {
+  const cloneBtn = el('button', { class: 'btn primary', type: 'button', text: T('Depoları indir'), disabled: !info.git || repoUi.busy, onclick: async () => {
+    const todo = lines();
+    if (!todo.length) { repoUi.result = { failed: [{ name: T('Depo indirme'), error: T('Önce en az bir depo adresi girin ya da listeden seçin.') }] }; return renderRepoTab(); }
     repoUi.busy = true;
     cloneBtn.disabled = true;
     result.hidden = false;
     result.className = 'links-result';
-    result.textContent = T('Depo indiriliyor… Büyük depolarda birkaç dakika sürebilir.');
-    const r = await fetch(`/api/repo/clone?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: url.value, parent: parent.value }) })
-      .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    const done = [];
+    const failed = [];
+    for (const [i, url] of todo.entries()) {
+      const name = url.replace(/[\\/]+$/, '').split(/[\\/:]/).pop().replace(/\.git$/i, '');
+      result.textContent = T('İndiriliyor ({i}/{n}): {name}… Büyük depolarda birkaç dakika sürebilir.', { i: i + 1, n: todo.length, name });
+      const r = await fetch(`/api/repo/clone?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, parent: parent.value }) })
+        .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+      if (r.ok) done.push({ name, dir: r.dir, url }); else failed.push({ name, error: r.error, url });
+    }
     repoUi.busy = false;
-    if (r.ok) {
+    for (const d of done) { setCollapsed(pathKey(d.dir), false); addProject(d.dir); }
+    // İndirilenler listeden düşer; olmayanlar yeniden denenebilsin diye kalır
+    urls.value = failed.map((f) => f.url).join('\n');
+    repoUi.url = urls.value;
+    if (done.length && !failed.length) {
       repoUi.result = null;
-      repoUi.url = '';
       linksDlg.close();
-      setCollapsed(pathKey(r.dir), false);
-      addProject(r.dir);
-      newSession(r.dir);
+      newSession(done[0].dir);
       dom.input.value = T('Bu depoyu yeni indirdim ve teknik biri değilim. Ne işe yaradığını, klasör yapısını ve nereden başlamam gerektiğini sade bir dille özetle.');
       autoGrow();
       updateSendBtn();
       return;
     }
-    repoUi.result = { ok: false, error: r.error, what: T('Depo indirme') };
+    repoUi.result = { done, failed };
     if (links.tab === 'repo') renderRepoTab();
   } });
 
   const steps = el('ol', { class: 'links-steps' },
     el('li', { text: T('Depo (repository), bir projenin dosyalarının ve değişiklik geçmişinin tutulduğu yerdir. "İndirmek" (clone), onun bir kopyasını bilgisayarınıza alır; asıl depoya dokunmaz.') }),
     el('li', { text: info.bitbucket
-      ? T('Aşağıdan depoyu seçin ya da depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp yapıştırın.')
-      : T('Depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp aşağıya yapıştırın. Bitbucket sekmesinden bağlantı kurarsanız depolar burada listelenir ve giriş otomatik yapılır.') }),
-    el('li', { text: T('"Depoyu indir" deyin: depo aşağıdaki klasöre iner, solda proje olarak eklenir ve o klasörde yeni bir oturum açılır.') }));
+      ? T('Aşağıdaki listeden depoları işaretleyin ya da depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp yapıştırın. Birden fazla depo için her satıra bir adres yazın.')
+      : T('Depo sayfasındaki "Clone" (Kopyala) düğmesinden HTTPS adresini kopyalayıp aşağıya yapıştırın; birden fazla depo için her satıra bir adres yazın. Bitbucket sekmesinden bağlantı kurarsanız depolar burada listelenir ve giriş otomatik yapılır.') }),
+    el('li', { text: T('"Depoları indir" deyin: depolar aşağıdaki klasöre iner, solda proje olarak eklenir ve ilkinde yeni bir oturum açılır.') }));
 
   body.replaceChildren(...[
     steps,
@@ -1847,15 +1878,20 @@ async function renderRepoTab() {
       el('span', { text: `${T('Git kurulu değil. Depo indirmek için gerekir; şu adresten kurup Atölye\'yi yeniden başlatın:')} ` }),
       el('a', { href: 'https://git-scm.com/download/win', target: '_blank', rel: 'noopener noreferrer', text: 'https://git-scm.com/download/win' })),
     picker,
-    el('label', { class: 'links-field' }, el('span', { text: T('Depo adresi') }), url),
-    el('label', { class: 'links-field' }, el('span', { text: T('İndirileceği klasör') }), parent, el('small', { text: T('Depo bu klasörün içinde kendi adıyla bir alt klasöre iner.') })),
+    el('label', { class: 'links-field' }, el('span', { text: T('Depo adresleri (her satıra bir tane)') }), urls),
+    el('label', { class: 'links-field' }, el('span', { text: T('İndirileceği klasör') }), parent, el('small', { text: T('Her depo bu klasörün içinde kendi adıyla bir alt klasöre iner.') })),
     el('div', { class: 'links-actions' }, cloneBtn, helpButton('repo')),
     result,
   ].filter(Boolean));
-  if (repoUi.result) {
+  const res = repoUi.result;
+  if (res) {
     result.hidden = false;
-    result.className = 'links-result err';
-    result.replaceChildren(el('div', { text: T('Olmadı: {error}', { error: repoUi.result.error }) }), askErrorButton(repoUi.result.what, repoUi.result.error));
+    result.className = `links-result ${res.failed?.length ? 'err' : 'ok'}`;
+    result.replaceChildren(...[
+      ...(res.done || []).map((d) => el('div', { class: 'repo-ok', text: T('İndirildi: {name} → {dir}', d) })),
+      ...(res.failed || []).map((f) => el('div', { text: T('Olmadı ({name}): {error}', f) })),
+      res.failed?.length ? askErrorButton(T('Depo indirme'), res.failed[0].error) : null,
+    ].filter(Boolean));
   }
   $('#linksNote').textContent = T('İndirme, bilgisayarınızdaki Git ile yapılır. Bitbucket bağlıysa kayıtlı API anahtarı yalnızca bu indirme için kullanılır; sonraki çekme/gönderme işlemlerinde Git kendi giriş penceresini açabilir.');
 }
