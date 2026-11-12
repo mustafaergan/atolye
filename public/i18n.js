@@ -254,6 +254,8 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'oturum: {n} {unit}': 'session: {n} {unit}',
+  'kredi': 'credits',
   'Şirket ağınız internete bir proxy üzerinden çıkıyorsa GitHub Copilot bu bilgiler olmadan sunucularına ulaşamaz; oturumlar yavaş açılır ya da "zaman aşımı" hatası verir. Bu ayar yalnızca Copilot içindir; Claude Code etkilenmez.':
     'If your company network reaches the internet through a proxy, GitHub Copilot cannot reach its servers without these details; sessions open slowly or fail with a "timed out" error. This setting is for Copilot only; Claude Code is not affected.',
   '"Kaydet ve sına" deyin, sonra yeni bir Copilot oturumu açın.': 'Click "Save and test", then open a new Copilot session.',

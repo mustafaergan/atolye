@@ -509,6 +509,7 @@ function renderResult(msg) {
   state.live.clear();
   state.liveByIndex.clear();
   if (typeof msg.total_cost_usd === 'number') state.cost = msg.total_cost_usd;
+  if (msg.copilot_credits) state.credits = msg.copilot_credits;
   trackResult(msg);
   const secs = (msg.duration_ms / 1000).toFixed(1);
   const parts = [T('{n} sn', { n: secs })];
@@ -533,10 +534,14 @@ function renderResult(msg) {
   loadSpend(); // sunucu 1 dk önbelleklediği için her turda script çalışmaz
 }
 
+const creditUnit = (u) => (!u || /^(aic|credits?)$/i.test(u) ? T('kredi') : u);
+
 function updateStatus() {
   const bits = [];
   if (dom.statusline.dataset.model) bits.push(dom.statusline.dataset.model);
   if (state.cost) bits.push(T('oturum ≈ ${n}', { n: state.cost.toFixed(3) }));
+  // Copilot: bu oturumda harcanan kredi (Copilot bildiriyorsa). Kalan kota Copilot tarafından bildirilmez.
+  if (state.credits && currentEngine() === 'copilot') bits.push(T('oturum: {n} {unit}', { n: Number(state.credits.amount.toFixed(2)), unit: creditUnit(state.credits.unit) }));
   dom.statusline.replaceChildren(...bits.map((b) => el('span', { text: b })));
 }
 
@@ -1408,6 +1413,7 @@ function resetTranscript() {
   state.liveByIndex.clear();
   state.prompts.clear();
   state.cost = 0;
+  state.credits = null;
   state.metrics = newMetrics();
   state.context = null;
   state.ctxRetries = 0;

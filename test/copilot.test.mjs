@@ -65,6 +65,8 @@ test("Copilot'un akışı arayüzün tanıdığı mesajlara çevrilir", async ()
   // Bağlam kullanımı (usage_update)
   const ctx = await s.contextUsage();
   assert.equal(Math.round(ctx.percentage), 21);
+  // Copilot'un bildirdiği kredi harcaması tur sonucuna eklenir
+  assert.deepEqual(sdk(events, 'result')[0].copilot_credits, { amount: 1.5, unit: 'AIC' });
   s.close();
 });
 

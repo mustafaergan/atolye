@@ -329,6 +329,12 @@ export class CopilotSession {
         break;
       case 'usage_update':
         this.usage = { used: u.used, size: u.size };
+        // Copilot harcamayı (kredi) bildiriyorsa oturum toplamı olarak tutulur
+        if (u.cost && typeof u.cost.amount === 'number') this.credits = { amount: u.cost.amount, unit: String(u.cost.currency || '') };
+        if (!this.usageLogged) {
+          this.usageLogged = true; // teşhis: Copilot kullanım bilgisinde hangi alanları gönderiyor
+          console.log(`[copilot] kullanım alanları: ${Object.keys(u).filter((k) => k !== 'sessionUpdate').join(', ')}${u.cost ? ` (cost: ${Object.keys(u.cost).join(', ')})` : ''}`);
+        }
         break;
       case 'session_info_update':
         if (u.title) this.emit({ type: 'session_title', title: u.title });
@@ -514,6 +520,7 @@ export class CopilotSession {
           num_turns: 1,
           terminal_reason: stopReason === 'cancelled' ? 'interrupted' : undefined,
           result: error ? friendlyError(error, this.lang) : ok ? '' : msg(this.lang, 'Copilot durdu: {reason}', { reason: stopReason }),
+          copilot_credits: this.credits || undefined,
         } });
       }
     } finally {
