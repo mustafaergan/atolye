@@ -231,7 +231,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: modelFor(engine) || null, effort: store.get(effortKey(engine), '') || null, lang: getLang(), engine });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: modelFor(engine) || null, effort: store.get(effortKey(engine), '') || null, role: state.role, lang: getLang(), engine });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
@@ -1541,6 +1541,24 @@ const EMPTY = {
       ['Kodu incele', 'Son değişiklikleri incele ve olası hataları bul.'],
     ],
   },
+  analistProject: {
+    title: 'Neyi anlamak istersiniz?',
+    text: 'Bu projeyi sizin için okuyup sade bir dille anlatabilirim: ne işe yarar, hangi iş kuralları var, bir değişiklik nereleri etkiler. Siz istemedikçe hiçbir şeyi değiştirmem.',
+    tips: [
+      ['Projeyi sade dille anlat', 'Bu proje ne işe yarıyor? Teknik olmayan, sade bir dille anlat: ana işlevler, kullanıcılar ve dış sistemlerle bağlantıları.'],
+      ['İş kurallarını çıkar', 'Bu projedeki iş kurallarını ve doğrulamaları koddan çıkar; madde madde, sade bir dille yaz ve her birinin hangi dosyada olduğunu belirt.'],
+      ['Bir değişikliğin etkisi', 'Şu değişikliği yapmak istesek hangi ekranlar, servisler ve veriler etkilenir? Sade bir dille anlat: ', true],
+    ],
+  },
+  analistGeneral: {
+    title: 'Ne sormak istersiniz?',
+    text: 'Bu sohbet bir projeye bağlı değil. Jira kayıtları, Confluence sayfaları ve loglar hakkında soru sorabilir ya da genel bir konuda yardım isteyebilirsiniz.',
+    tips: [
+      ['Jira kayıtlarım', 'Bana atanmış açık Jira kayıtlarını listele ve her birini bir cümleyle özetle.'],
+      ['Doküman bul', "Confluence'ta şu konuyla ilgili sayfaları bul ve özetle: ", true],
+      ['Bir hatayı açıkla', 'Şu hata mesajını teknik olmayan bir dille açıklar mısın, olası sebepleri neler ve kime iletmeliyim?\n\n', true],
+    ],
+  },
   general: {
     title: 'Ne sormak istersiniz?',
     text: 'Bu sohbet bir projeye bağlı değil. Genel sorular sorabilir, ağ ya da sistem sorunlarını birlikte teşhis edebiliriz; gerekirse izninizle komut çalıştırırım.',
@@ -1552,7 +1570,8 @@ const EMPTY = {
   },
 };
 function updateEmptyState(cwd) {
-  const e = isGeneral(cwd) ? EMPTY.general : EMPTY.project;
+  const r = currentRole();
+  const e = isGeneral(cwd) ? (EMPTY[r.emptyGeneral] || EMPTY.general) : (EMPTY[r.emptyProject] || EMPTY.project);
   $('h1', dom.empty).textContent = T(e.title);
   $('p', dom.empty).textContent = T(e.text);
   $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly]) =>
@@ -1732,6 +1751,46 @@ LINKS.graylog = {
   ],
   examples: () => T('Örnek: "Graylog\'da son 30 dakikada uygulama-adi için hata kayıtlarını bul ve sebebini özetle".'),
 };
+LINKS.jenkins = {
+  name: 'Jenkins',
+  urlHint: 'https://jenkins.sirket.com',
+  userLabel: () => T('Kullanıcı adı'),
+  userHint: () => T('Jenkins kullanıcı adınız (sağ üstte görünen ad).'),
+  tokenLabel: () => T('API belirteci'),
+  steps: () => [
+    T("Jenkins'i tarayıcıda açın ve ana adresi kopyalayın (ör. https://jenkins.sirket.com)."),
+    T('Sağ üstteki adınıza tıklayın → "Configure" (Yapılandır) ya da "Security" → "API Token" bölümünde "Add new Token" deyip bir ad verin ve "Generate" ile oluşturun.'),
+    T('Kullanıcı adı alanına Jenkins kullanıcı adınızı yazın; belirteci kopyalayıp API belirteci alanına yapıştırın (yalnızca bir kez gösterilir).'),
+    T('"Kaydet ve sına" deyin.'),
+  ],
+  examples: () => T('Örnek: "takim/proje işinin son derlemesi neden kırıldı? Konsol çıktısına bakıp sebebini söyle".'),
+};
+LINKS.fortify = {
+  name: 'Fortify',
+  urlHint: 'https://fortify.sirket.com/ssc',
+  noEmail: true,
+  tokenLabel: () => T('Erişim belirteci'),
+  steps: () => [
+    T("Fortify Software Security Center'ı (SSC) tarayıcıda açın ve adresi /ssc ile biten kısma kadar kopyalayın (ör. https://fortify.sirket.com/ssc)."),
+    T('Sağ üstteki kullanıcı simgesi → "Administration" → "Users" → "Token Management" → "New". Tür olarak "UnifiedLoginToken" (ya da yalnızca okuma için "CIToken") seçip oluşturun.'),
+    T('Gösterilen "encoded token" değerini kopyalayıp aşağıya yapıştırın. Menüyü göremiyorsanız yetkiniz yoktur; Fortify yöneticinizden isteyin.'),
+    T('"Kaydet ve sına" deyin.'),
+  ],
+  examples: () => T('Örnek: "Fortify\'da proje-adi sürümündeki kritik bulguları listele ve ilkinin nasıl düzeltileceğini anlat".'),
+};
+LINKS.weblogic = {
+  name: 'WebLogic',
+  urlHint: 'http://weblogic.sirket.com:7001',
+  userLabel: () => T('Kullanıcı adı'),
+  userHint: () => T('Yalnızca izleme (Monitor) yetkisi olan bir kullanıcı yeterlidir; yönetici hesabı kullanmayın.'),
+  tokenLabel: () => T('Parola'),
+  steps: () => [
+    T('WebLogic yönetim sunucusunun (Admin Server) adresini yazın: konsol adresinin /console öncesindeki kısmı (ör. http://weblogic.sirket.com:7001).'),
+    T('Atölye yalnızca okuma yapar (sunucu, uygulama ve veri kaynağı durumları). Bunun için "Monitor" rolünde bir kullanıcı yeterlidir; böyle bir kullanıcıyı WebLogic yöneticinizden isteyin.'),
+    T('Kullanıcı adını ve parolayı girip "Kaydet ve sına" deyin. Parola bilgisayarınızda düz metin olarak saklanır; bu yüzden yönetici (admin) hesabını kullanmayın.'),
+  ],
+  examples: () => T('Örnek: "WebLogic sunucularının durumunu ve sağlıksız uygulama var mı kontrol et".'),
+};
 const links = { status: null, tab: 'jira', result: {} };
 // Kayıtlı parola/anahtar alanda nokta nokta görünür; gerçek değer tarayıcıya hiç gelmez. Alan değiştirilmeden
 // bırakılırsa sunucuya boş gönderilir ve kayıtlı değer korunur.
@@ -1749,6 +1808,46 @@ const secretValue = (input) => (input.value === SAVED_SECRET ? '' : input.value)
 // Alanın altındaki küçük bilgi: değerin bilgisayarda nereye yazıldığı
 const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { class: 'info-dot', text: 'i' }), el('span', { text }));
 
+// ---------- Kullanım modu (rol) ----------
+// Rol; görünen bağlantı sekmelerini, boş ekran önerilerini ve Claude'a verilen anlatım yönergesini belirler.
+// Yeni bir rol (ör. yönetici, testçi) eklemek için buraya bir kayıt ve src/session.js içindeki ROLE_PROMPTS'a
+// bir satır eklemek yeterlidir.
+const ROLES = {
+  analist: {
+    name: () => T('Analist'),
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'repo', 'proxy'],
+    emptyProject: 'analistProject',
+    emptyGeneral: 'analistGeneral',
+  },
+  gelistirici: {
+    name: () => T('Geliştirici'),
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'repo', 'proxy'],
+    emptyProject: 'project',
+    emptyGeneral: 'general',
+  },
+};
+state.role = 'analist';
+function currentRole() { return ROLES[state.role] || ROLES.analist; }
+const roleTabs = () => currentRole().tabs;
+function applyRole() {
+  const sel = $('#roleSelect');
+  sel.replaceChildren(...Object.entries(ROLES).map(([id, r]) => el('option', { value: id, text: r.name() })));
+  if (!ROLES[state.role]) state.role = 'analist';
+  sel.value = state.role;
+  document.body.dataset.role = state.role;
+  if (!roleTabs().includes(links.tab)) links.tab = roleTabs()[0];
+  updateEmptyState(state.cwd);
+  renderLinkSelect();
+  renderLinksBadge();
+}
+$('#roleSelect').addEventListener('change', () => {
+  state.role = $('#roleSelect').value;
+  remember({ role: state.role });
+  applyRole();
+  // Yapay zekânın anlatım biçimi oturum açılırken belirlenir: yeni mod için temiz bir oturum açılır
+  newSession(state.cwd);
+});
+
 // ---------- Soruyu bir bağlantıyla ilişkilendirme ----------
 // Mesaj kutusunun altındaki seçici yalnızca kurulmuş bağlantıları gösterir. Bir bağlantı seçiliyken gönderilen
 // soruya, yapay zekânın o bağlantının araçlarını kullanması için kısa bir not eklenir (mesajda görünür).
@@ -1757,11 +1856,14 @@ const LINK_TOOLS = {
   confluence: 'confluence_search, confluence_get_page',
   bitbucket: 'bitbucket_list_repos, bitbucket_list_pull_requests, bitbucket_get_pull_request, bitbucket_get_file',
   graylog: 'graylog_search, graylog_list_streams',
+  jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
+  fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
+  weblogic: 'weblogic_servers, weblogic_applications, weblogic_deployments, weblogic_datasources',
 };
 let activeLink = '';
 function renderLinkSelect() {
   const sel = $('#linkSelect');
-  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id]).map(([id]) => id);
+  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && roleTabs().includes(id)).map(([id]) => id);
   if (!connected.includes(activeLink)) activeLink = '';
   $('#linkWrap').hidden = !connected.length;
   sel.replaceChildren(el('option', { value: '', text: T('Bağlantı: yok') }), ...connected.map((id) => el('option', { value: id, text: LINKS[id].name })));
@@ -1782,16 +1884,20 @@ const linksDlg = $('#linksDialog');
 
 async function loadLinks() {
   links.status = await fetch('/api/integrations').then((r) => r.json()).catch(() => null);
-  const n = Object.values(links.status?.services || {}).filter((s) => s.connected).length;
+  renderLinksBadge();
+  renderLinkSelect();
+}
+// Üst çubuktaki sayı: bu modda görünen bağlantılardan kaçının kurulu olduğu
+function renderLinksBadge() {
+  const n = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && roleTabs().includes(id)).length;
   const badge = $('#linksCount');
   badge.hidden = !n;
   badge.textContent = String(n);
-  renderLinkSelect();
 }
 
 function renderLinks() {
   const services = links.status?.services || {};
-  $('#linksTabs').replaceChildren(...Object.entries(LINKS).map(([id, def]) =>
+  $('#linksTabs').replaceChildren(...Object.entries(LINKS).filter(([id]) => roleTabs().includes(id)).map(([id, def]) =>
     el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(id === links.tab), onclick: () => { links.tab = id; renderLinks(); } },
       el('span', { class: `links-dot${services[id]?.connected ? ' on' : ''}` }), el('span', { text: def.name }))),
     el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'repo'), onclick: () => { links.tab = 'repo'; renderLinks(); } },
@@ -1805,7 +1911,7 @@ function renderLinks() {
   const def = LINKS[id];
   const cur = services[id] || {};
   const url = el('input', { type: 'url', value: cur.url || '', placeholder: def.urlHint, spellcheck: 'false', autocomplete: 'off' });
-  const email = el('input', { type: 'email', value: cur.email || '', placeholder: T('yalnızca Cloud (atlassian.net / bitbucket.org) için'), autocomplete: 'off' });
+  const email = el('input', { type: def.userLabel ? 'text' : 'email', value: cur.email || '', placeholder: def.userLabel ? '' : T('yalnızca Cloud (atlassian.net / bitbucket.org) için'), autocomplete: 'off', spellcheck: 'false' });
   const token = secretInput(cur.hasToken, T('API anahtarını yapıştırın'));
   const result = el('div', { class: 'links-result' });
   const show = (r) => {
@@ -1848,8 +1954,8 @@ function renderLinks() {
   $('#linksBody').replaceChildren(...[
     steps,
     el('label', { class: 'links-field' }, el('span', { text: T('Adres') }), url),
-    def.noEmail ? null : el('label', { class: 'links-field' }, el('span', { text: T('E-posta') }), email, el('small', { text: T('Şirket içi kurulumda (kişisel erişim belirteci) boş bırakın.') })),
-    el('label', { class: 'links-field' }, el('span', { text: T('API anahtarı') }), token,
+    def.noEmail ? null : el('label', { class: 'links-field' }, el('span', { text: def.userLabel ? def.userLabel() : T('E-posta') }), email, el('small', { text: def.userHint ? def.userHint() : T('Şirket içi kurulumda (kişisel erişim belirteci) boş bırakın.') })),
+    el('label', { class: 'links-field' }, el('span', { text: def.tokenLabel ? def.tokenLabel() : T('API anahtarı') }), token,
       links.status?.files ? savedWhere(T('Kayıt yeri: {claude} ve {copilot}', links.status.files)) : null),
     el('div', { class: 'links-actions' }, saveBtn,
       cur.connected ? el('button', { class: 'btn', type: 'button', text: T('Bağlantıyı sına'), onclick: runTest }) : null,
@@ -2189,6 +2295,8 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   setCwdLabel((migrating && legacyCwd) || saved?.cwd || legacyCwd || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse ya da tarayıcı yeniden açıldıysa en son bakılan oturuma dön
   if (saved?.engine) state.engine = saved.engine;
+  if (saved?.role) state.role = saved.role;
+  applyRole();
   let last = (migrating && legacyOpen) || saved?.open || legacyOpen;
   // Motor hiç seçilmediyse varsayılan (Copilot) geçerlidir: eski bir Claude oturumuna değil, yeni oturuma açılır
   await loadEngines(); // Copilot kurulu değilse seçim Claude'a düşer

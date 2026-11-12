@@ -30,7 +30,9 @@ function normalize(d = {}) {
   // Varsayılan motor GitHub Copilot'tur; kullanıcı sağ üstten değiştirdiyse (engineChosen) onun seçimi geçerlidir
   const engineChosen = Boolean(d.engineChosen);
   const engine = engineChosen && d.engine !== 'copilot' ? 'claude' : 'copilot';
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, copilotSessions };
+  // Kullanım rolü (analist, gelistirici, …): arayüzün hangi bağlantı ve işlevleri göstereceğini belirler
+  const role = typeof d.role === 'string' && /^[a-z]{2,24}$/.test(d.role) ? d.role : 'analist';
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions };
 }
 
 export class StateStore {
@@ -81,11 +83,12 @@ export class StateStore {
   }
 
   /** Sadece bir sonraki açılış için hatırlananlar (diğer sekmelere yayınlanmaz) */
-  remember({ cwd, selected, open, engine }) {
+  remember({ cwd, selected, open, engine, role }) {
     if (cwd !== undefined) this.data.cwd = str(cwd);
     if (selected !== undefined) this.data.selected = str(selected);
     if (open !== undefined) this.data.open = normalize({ open }).open;
     if (engine !== undefined) { this.data.engine = engine === 'copilot' ? 'copilot' : 'claude'; this.data.engineChosen = true; }
+    if (role !== undefined) this.data.role = normalize({ role }).role;
     this.#save(false);
     return this.data;
   }

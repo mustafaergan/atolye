@@ -15,7 +15,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -62,20 +62,20 @@ export function errorSummary(raw = '') {
   return body.slice(0, 300);
 }
 
-async function call(cfg, url, { method = 'GET', body, text = false } = {}) {
+async function call(cfg, url, { method = 'GET', body, text = false, headers = {} } = {}) {
   trustSystemCertificates();
   const basic = `Basic ${Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64')}`;
   const bearer = `Bearer ${cfg.token}`;
   const cloud = isCloud(cfg.url);
   // Şirket içi kurulumda erişim belirteci Bearer ile gönderilir; e-posta doldurulmuşsa (kullanıcı adı + belirteç)
   // Basic de denenir. Cloud'da e-posta + API belirteci (Basic) kullanılır.
-  const schemes = cfg.basicOnly ? [basic] : cloud ? [cfg.email ? basic : bearer] : (cfg.email ? [bearer, basic] : [bearer]);
+  const schemes = cfg.authHeader ? [cfg.authHeader] : cfg.basicOnly ? [basic] : cloud ? [cfg.email ? basic : bearer] : (cfg.email ? [bearer, basic] : [bearer]);
   let res; let raw;
   for (const auth of schemes) {
     try {
       res = await fetch(url, {
         method,
-        headers: { authorization: auth, accept: text ? 'text/plain, */*' : 'application/json', 'x-requested-by': 'atolye', ...(body ? { 'content-type': 'application/json' } : {}) },
+        headers: { authorization: auth, accept: text ? 'text/plain, */*' : 'application/json', 'x-requested-by': 'atolye', ...(body ? { 'content-type': 'application/json' } : {}), ...headers },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(30_000),
         redirect: 'follow',
@@ -300,4 +300,126 @@ export const graylog = {
   },
 };
 
-export const clients = { jira, confluence, bitbucket, graylog };
+// ---------- Jenkins ----------
+// Kullanıcı adı + API belirteci (Basic). İş yolu "klasor/is-adi" biçiminde verilir.
+const jk = (cfg) => ({ ...cfg, basicOnly: true });
+const jobPath = (job) => String(job || '').split('/').map((s) => s.trim()).filter((s) => s && s !== 'job').map((s) => `/job/${enc(s)}`).join('');
+const buildRef = (b) => (b === undefined || b === null || b === '' ? 'lastBuild' : enc(String(b)));
+const when = (ms) => (ms ? new Date(ms).toISOString().replace('T', ' ').slice(0, 16) : '');
+export const jenkins = {
+  async whoami(cfg) {
+    const me = await call(jk(cfg), `${cfg.url}/whoAmI/api/json`);
+    if (me.anonymous || me.authenticated === false) throw new Error('Jenkins girişi kabul etmedi (anonim). Kullanıcı adını ve API belirtecini kontrol edin');
+    return me.name || 'bilinmiyor';
+  },
+  async listJobs(cfg, { folder } = {}) {
+    const data = await call(jk(cfg), `${cfg.url}${jobPath(folder)}/api/json?tree=${enc('jobs[name,color,lastBuild[number,result,timestamp]]')}`);
+    const rows = data.jobs || [];
+    if (!rows.length) return 'İş (job) yok.';
+    return rows.map((j) => {
+      const b = j.lastBuild;
+      const kind = j.color === undefined ? 'klasör' : (b ? `#${b.number} ${b.result || 'sürüyor'} ${when(b.timestamp)}` : 'hiç çalışmamış');
+      return `${folder ? `${folder}/` : ''}${j.name} — ${kind}`;
+    }).join('\n');
+  },
+  async getBuild(cfg, { job, build }) {
+    const tree = 'number,result,building,duration,timestamp,url,fullDisplayName,changeSets[items[msg,author[fullName]]],actions[causes[shortDescription]]';
+    const b = await call(jk(cfg), `${cfg.url}${jobPath(job)}/${buildRef(build)}/api/json?tree=${enc(tree)}`);
+    const causes = (b.actions || []).flatMap((a) => a.causes || []).map((c) => c.shortDescription).filter(Boolean);
+    const changes = (b.changeSets || []).flatMap((c) => c.items || []).slice(0, 20).map((i) => `- ${oneLine(i.msg).slice(0, 160)} (${i.author?.fullName || '?'})`);
+    return [
+      `${b.fullDisplayName || `${job} #${b.number}`}: ${b.building ? 'SÜRÜYOR' : b.result || '?'}`,
+      `Başlangıç: ${when(b.timestamp)} | Süre: ${Math.round((b.duration || 0) / 1000)} sn`,
+      `Adres: ${b.url || ''}`,
+      ...(causes.length ? [`Sebep: ${causes.join('; ')}`] : []),
+      ...(changes.length ? ['', 'Değişiklikler:', ...changes] : []),
+    ].join('\n');
+  },
+  async getConsole(cfg, { job, build, lines }) {
+    const text = await call(jk(cfg), `${cfg.url}${jobPath(job)}/${buildRef(build)}/consoleText`, { text: true });
+    const all = text.split(/\r?\n/);
+    const n = clamp(lines, 200, 2000);
+    return cut(`${all.length > n ? `… (${all.length - n} satır atlandı; son ${n} satır)\n` : ''}${all.slice(-n).join('\n')}`);
+  },
+  async triggerBuild(cfg, { job, parameters }) {
+    const c = jk(cfg);
+    // CSRF koruması açıksa "crumb" gerekir (API belirtecinde çoğu kurulumda gerekmez; yoksa yok sayılır)
+    let headers = {};
+    try {
+      const crumb = await call(c, `${cfg.url}/crumbIssuer/api/json`);
+      if (crumb.crumbRequestField && crumb.crumb) headers = { [crumb.crumbRequestField]: crumb.crumb };
+    } catch { /* crumb kapalı */ }
+    const params = parameters && typeof parameters === 'object' ? Object.entries(parameters) : [];
+    const qs = params.map(([k, v]) => `${enc(k)}=${enc(String(v))}`).join('&');
+    await call(c, `${cfg.url}${jobPath(job)}/${params.length ? `buildWithParameters?${qs}` : 'build'}`, { method: 'POST', text: true, headers });
+    return `Derleme sıraya alındı: ${job}${params.length ? ` (${params.map(([k, v]) => `${k}=${v}`).join(', ')})` : ''}`;
+  },
+};
+
+// ---------- OpenText Fortify (Software Security Center) ----------
+// SSC belirteci "FortifyToken" şemasıyla gönderilir. Adres genelde https://sunucu/ssc biçimindedir.
+const fy = (cfg) => ({ ...cfg, authHeader: `FortifyToken ${cfg.token}` });
+export const fortify = {
+  async whoami(cfg) {
+    const data = await call(fy(cfg), `${cfg.url}/api/v1/projectVersions?limit=1&fields=id`);
+    return `Fortify SSC (${data.count ?? (data.data || []).length} uygulama sürümü görünüyor)`;
+  },
+  async listVersions(cfg, { query, limit } = {}) {
+    const data = await call(fy(cfg), `${cfg.url}/api/v1/projectVersions?limit=200&fields=${enc('id,name,project,currentState')}`);
+    const q = String(query || '').toLowerCase();
+    const rows = (data.data || []).filter((v) => !q || `${v.project?.name} ${v.name}`.toLowerCase().includes(q)).slice(0, clamp(limit, 50, 200));
+    return rows.map((v) => `${v.id} | ${v.project?.name || '?'} / ${v.name}`).join('\n') || 'Eşleşen uygulama sürümü yok.';
+  },
+  async listIssues(cfg, { versionId, severity, limit }) {
+    const fields = 'id,issueName,friority,primaryLocation,lineNumber,kingdom,audited,issueStatus';
+    const data = await call(fy(cfg), `${cfg.url}/api/v1/projectVersions/${enc(versionId)}/issues?limit=${clamp(limit, 50, 200)}&orderby=friority&fields=${enc(fields)}`);
+    const sev = String(severity || '').toLowerCase();
+    const rows = (data.data || []).filter((i) => !sev || String(i.friority || '').toLowerCase() === sev);
+    if (!rows.length) return 'Bulgu yok.';
+    return `Toplam ${data.count ?? rows.length} bulgu (gösterilen ${rows.length}):\n${rows.map((i) => `${i.id} | ${i.friority || '?'} | ${i.issueName} | ${i.primaryLocation || ''}${i.lineNumber ? `:${i.lineNumber}` : ''}${i.audited ? ' | incelendi' : ''}`).join('\n')}`;
+  },
+  async getIssue(cfg, { id }) {
+    const d = (await call(fy(cfg), `${cfg.url}/api/v1/issueDetails/${enc(id)}`)).data || {};
+    return cut([
+      `${d.issueName || id} [${d.friority || '?'}]`,
+      `Dosya: ${d.fullFileName || d.primaryLocation || '?'}${d.lineNumber ? `:${d.lineNumber}` : ''}`,
+      `Kategori: ${d.kingdom || '?'} | Durum: ${d.issueStatus || d.primaryTag || '?'}`,
+      ...(d.brief ? ['', 'Özet:', htmlToText(d.brief)] : []),
+      ...(d.detail ? ['', 'Ayrıntı:', htmlToText(d.detail)] : []),
+      ...(d.recommendation ? ['', 'Öneri:', htmlToText(d.recommendation)] : []),
+    ].join('\n'));
+  },
+};
+
+// ---------- Oracle WebLogic Server (REST yönetim arayüzü) ----------
+// Kullanıcı adı + parola (Basic). Yalnızca okuma yapılır; "Monitor" rolündeki bir kullanıcı yeterlidir.
+const wl = (cfg) => ({ ...cfg, basicOnly: true });
+const wlBase = (cfg) => `${cfg.url.replace(/\/(console|management.*)$/i, '')}/management/weblogic/latest`;
+const health = (h) => (typeof h === 'string' ? h : h?.state || '?');
+export const weblogic = {
+  async whoami(cfg) {
+    const d = await call(wl(cfg), `${wlBase(cfg)}/domainRuntime?fields=name&links=none`);
+    return `WebLogic alanı: ${d.name || '?'}`;
+  },
+  async servers(cfg) {
+    const d = await call(wl(cfg), `${wlBase(cfg)}/domainRuntime/serverRuntimes?fields=${enc('name,state,healthState,weblogicVersion,openSocketsCurrentCount')}&links=none`);
+    const rows = d.items || [];
+    if (!rows.length) return 'Çalışan sunucu görünmüyor.';
+    return rows.map((s) => `${s.name} — ${s.state} | sağlık: ${health(s.healthState)}${s.weblogicVersion ? ` | ${oneLine(s.weblogicVersion).slice(0, 60)}` : ''}`).join('\n');
+  },
+  async applications(cfg, { server }) {
+    const d = await call(wl(cfg), `${wlBase(cfg)}/domainRuntime/serverRuntimes/${enc(server)}/applicationRuntimes?fields=${enc('name,healthState,overallHealthState,activeVersionState')}&links=none`);
+    return (d.items || []).map((a) => `${a.name} — sağlık: ${health(a.overallHealthState ?? a.healthState)}`).join('\n') || 'Uygulama yok.';
+  },
+  async deployments(cfg) {
+    const d = await call(wl(cfg), `${wlBase(cfg)}/domainConfig/appDeployments?fields=${enc('name,targets,sourcePath')}&links=none`);
+    return (d.items || []).map((a) => `${a.name} → ${(a.targets || []).map((t) => (t.identity || []).at(-1)).filter(Boolean).join(', ') || '?'}${a.sourcePath ? ` (${a.sourcePath})` : ''}`).join('\n') || 'Dağıtım yok.';
+  },
+  async datasources(cfg, { server }) {
+    const fields = 'name,state,activeConnectionsCurrentCount,waitingForConnectionCurrentCount,failuresToReconnectCount,connectionsTotalCount';
+    const d = await call(wl(cfg), `${wlBase(cfg)}/domainRuntime/serverRuntimes/${enc(server)}/JDBCServiceRuntime/JDBCDataSourceRuntimeMBeans?fields=${enc(fields)}&links=none`);
+    return (d.items || []).map((s) => `${s.name} — ${s.state} | etkin bağlantı: ${s.activeConnectionsCurrentCount ?? '?'} | bekleyen: ${s.waitingForConnectionCurrentCount ?? '?'} | yeniden bağlanma hatası: ${s.failuresToReconnectCount ?? '?'}`).join('\n') || 'Veri kaynağı yok.';
+  },
+};
+
+export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic };

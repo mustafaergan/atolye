@@ -142,6 +142,20 @@ Atölye günde bir kez depoya bakar; daha yeni bir sürüm varsa sağ üstte **G
 
 Günlük denetimi beklemeden bakmak için kenar çubuğunun altındaki **Güncellemeleri denetle** kullanılır. Güncelleme kendiliğinden yapılmaz, siz başlatırsınız (`ATOLYE_UPDATE_CHECK=0` denetimi kapatır).
 
+### Kullanım modu (rol)
+
+Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
+
+| Mod | Görünen bağlantılar | Öneriler ve anlatım |
+|---|---|---|
+| **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
+| **Geliştirici** | Yukarıdakiler + Jenkins, Fortify, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
+
+Seçim saklanır. Mod değişince yeni bir oturum açılır (anlatım biçimi oturum açılırken belirlenir; Copilot'ta sistem
+yönergesi değiştirilemediği için orada yalnızca görünen bağlantılar ve öneriler değişir). Yeni bir mod (ör. yönetici,
+testçi) eklemek için `public/app.js` içindeki `ROLES` tanımına bir kayıt, `src/session.js` içindeki `ROLE_PROMPTS`'a
+bir satır eklemek yeterlidir.
+
 ### Jira, Confluence ve Bitbucket bağlantıları
 
 Üst çubuktaki **Bağlantılar** düğmesi, her servis için adım adım tarifli bir pencere açar: adresi ve API anahtarını
@@ -163,6 +177,13 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
   `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`,
   `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
+- Geliştirici modundaki bağlantılar:
+  - **Jenkins** (kullanıcı adı + API belirteci): `jenkins_list_jobs`, `jenkins_get_build`, `jenkins_get_console`,
+    `jenkins_trigger_build` (derleme başlatır; diğer yazan araçlar gibi önce izin sorar).
+  - **OpenText Fortify SSC** (erişim belirteci): `fortify_list_versions`, `fortify_list_issues`, `fortify_get_issue`.
+  - **WebLogic** (REST yönetim arayüzü; kullanıcı adı + parola, yalnızca okuma): `weblogic_servers`,
+    `weblogic_applications`, `weblogic_deployments`, `weblogic_datasources`. Parola düz metin saklandığı için
+    yönetici hesabı yerine "Monitor" rolünde bir kullanıcı kullanın.
   Yazan tek araç `jira_add_comment`'tir ve diğer araçlar gibi önce izin sorar.
 - Bilgiler Atölye'de ayrıca saklanmaz; Claude Code ve Copilot CLI'ın MCP sunucularını tuttuğu kendi dosyalarına
   `atolye` adıyla yazılır (`~/.claude.json` ve `~/.copilot/mcp-config.json`). Böylece aynı araçlar terminaldeki

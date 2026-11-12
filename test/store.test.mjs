@@ -62,3 +62,15 @@ test('varsayılan motor Copilot; kullanıcının seçimi saklanır', () => {
   assert.equal(b.get().engine, 'claude');
   assert.equal(b.get().engineChosen, true);
 });
+
+test('kullanım rolü saklanır; geçersiz değer varsayılana (analist) döner', () => {
+  const file = tmpFile();
+  const a = new StateStore(file);
+  assert.equal(a.get().role, 'analist');
+  a.remember({ role: 'gelistirici' });
+  assert.equal(new StateStore(file).get().role, 'gelistirici');
+  a.remember({ role: 'testci' }); // ileride eklenecek roller de saklanabilir
+  assert.equal(new StateStore(file).get().role, 'testci');
+  a.remember({ role: '../x' });
+  assert.equal(a.get().role, 'analist');
+});
