@@ -712,3 +712,5 @@ a.check-update { color: var(--text-2); }
 .composer-bar .left:has(#effortWrap:not([hidden])):has(#linkWrap:not([hidden])) ~ .right .hint { display: none; }
 @container (max-width: 760px) { .composer-bar .left:has(#effortWrap:not([hidden])) ~ .right .hint, .composer-bar .left:has(#linkWrap:not([hidden])) ~ .right .hint { display: none; } }
 @container (max-width: 560px) { .composer-bar .select-wrap select { max-width: 120px; } }
+.copilot-credit.warn { border-color: #c98a1a; color: #c98a1a; }
+.copilot-credit.err { border-color: var(--err); color: var(--err); }

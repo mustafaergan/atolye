@@ -261,6 +261,7 @@ function applyEngineUi() {
   dom.modelSelect.parentElement.hidden = copilot && dom.modelSelect.options.length < 2;
   // Harcama göstergesi Claude gateway'inin bütçesidir; Copilot oturumunda gösterilmez (Copilot'un kotası değildir)
   $('#spendWrap').classList.toggle('other-engine', copilot);
+  if (copilot && !state.copilotQuota) loadCopilotQuota(); else renderCopilotCredit();
   // Copilot'ta plan modu /plan komutuyla kullanılır
   const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
   planOpt.hidden = copilot;
@@ -534,6 +535,37 @@ function renderResult(msg) {
   requestContext();
   loadSessions();
   loadSpend(); // sunucu 1 dk önbelleklediği için her turda script çalışmaz
+  if (currentEngine() === 'copilot') loadCopilotQuota();
+}
+
+// Sağ üstteki Copilot göstergesi: kalan kota (Copilot CLI'ın yerel önbelleğinden) ve bu oturumda harcanan kredi
+function renderCopilotCredit() {
+  const q = state.copilotQuota;
+  const parts = [];
+  const tips = [];
+  if (q?.available) {
+    if (q.unlimited) parts.push(T('Copilot: sınırsız'));
+    else if (q.remaining != null && q.total != null) parts.push(T('Copilot: {remaining} / {total} kaldı', { remaining: Number(q.remaining.toFixed(1)), total: q.total }) + (q.percentRemaining != null ? ` · %${Math.round(q.percentRemaining)}` : ''));
+    else if (q.percentRemaining != null) parts.push(T('Copilot: %{n} kaldı', { n: Math.round(q.percentRemaining) }));
+    if (q.plan) tips.push(T('Plan: {plan}', q));
+    if (q.overage) tips.push(T('Aşım: {n}', { n: q.overage }));
+    if (q.resetDate) tips.push(T('Sıfırlanma: {date}', { date: String(q.resetDate).slice(0, 10) }));
+    if (q.retrievedAt) tips.push(T('Copilot bu bilgiyi en son {time} tarihinde yeniledi', { time: new Date(q.retrievedAt).toLocaleString(locale()) }));
+  }
+  if (state.credits) parts.push(T('oturum: {n} {unit}', { n: Number(state.credits.amount.toFixed(2)), unit: creditUnit(state.credits.unit) }));
+  const show = parts.length > 0 && currentEngine() === 'copilot';
+  const box = $('#copilotCredit');
+  box.hidden = !show;
+  if (!show) return;
+  $('#copilotCreditText').textContent = parts.join(' · ');
+  const level = q?.available && !q.unlimited && q.percentRemaining != null ? (q.percentRemaining <= 10 ? 'err' : q.percentRemaining <= 30 ? 'warn' : '') : '';
+  box.classList.toggle('err', level === 'err');
+  box.classList.toggle('warn', level === 'warn');
+  box.title = [...tips, T('Kalan kota Copilot CLI\'ın bu bilgisayardaki önbelleğinden okunur; Copilot yeniledikçe güncellenir.')].join('\n');
+}
+async function loadCopilotQuota() {
+  state.copilotQuota = await fetch('/api/copilot/quota').then((r) => r.json()).catch(() => null);
+  renderCopilotCredit();
 }
 
 const creditUnit = (u) => (!u || /^(aic|credits?)$/i.test(u) ? T('kredi') : u);
@@ -544,9 +576,7 @@ function updateStatus() {
   if (state.cost) bits.push(T('oturum ≈ ${n}', { n: state.cost.toFixed(3) }));
   // Copilot: bu oturumda harcanan kredi (Copilot bildiriyorsa). Kalan kota Copilot tarafından bildirilmez.
   // Sağ üstteki gösterge: bu oturumda harcanan kredi (yalnızca Copilot oturumunda ve harcama bildirildiyse)
-  const showCredit = Boolean(state.credits) && currentEngine() === 'copilot';
-  $('#copilotCredit').hidden = !showCredit;
-  if (showCredit) $('#copilotCreditText').textContent = T('Bu oturum: {n} {unit}', { n: Number(state.credits.amount.toFixed(2)), unit: creditUnit(state.credits.unit) });
+  renderCopilotCredit();
   dom.statusline.replaceChildren(...bits.map((b) => el('span', { text: b })));
 }
 

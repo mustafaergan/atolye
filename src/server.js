@@ -24,6 +24,7 @@ import * as repo from './repo.js';
 import { recentLog } from './log.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
+import { copilotQuota } from './copilot-quota.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -125,6 +126,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     else if (r.code === 'exists') r.error = msg(lang, 'Bu klasör zaten var: {dir}. Depo daha önce indirilmiş olabilir; soldan "Klasör ekle" ile açabilirsiniz.', { dir: r.dir });
     res.json(r);
   }));
+
+  // Copilot kalan kotası: Copilot CLI'ın yerel önbelleğinden okunur (bkz. copilot-quota.js)
+  app.get('/api/copilot/quota', wrap(async (_req, res) => res.json(copilotQuota())));
 
   // Kurumsal proxy ayarı (bkz. proxy.js). Parola arayüze geri gönderilmez.
   app.get('/api/proxy', wrap(async (_req, res) => res.json(proxy.status())));

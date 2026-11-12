@@ -183,7 +183,7 @@ copilot login                    # tarayıcıdan GitHub hesabıyla giriş yap (b
 
 Kurulu değilse seçicide "kurulu değil" yazar. Seçiciyi değiştirmek o klasörde seçilen motorla yeni bir oturum
 açar; açık oturum kendi motoruyla çalışmaya devam eder ve kenar çubuğunda "Copilot" etiketiyle görünür.
-Copilot'ta model ve plan modu Copilot'un kendi komutlarıyla (`/model`, `/plan`) seçilir; harcama etiketi yalnızca
+Copilot oturumunda sağ üstte **kalan Copilot kotası** (toplam hak, kalan, yüzde; üzerine gelince plan ve sıfırlanma tarihi) ve o oturumda harcanan kredi görünür. Kota, Copilot CLI'ın bilgisayardaki kendi önbelleğinden okunur; Atölye bunun için GitHub'a istek atmaz. Copilot'ta model ve plan modu Copilot'un kendi komutlarıyla (`/model`, `/plan`) seçilir; harcama etiketi yalnızca
 Claude gateway'i içindir. Copilot CLI başka bir yerdeyse `.env` içinde `COPILOT_CLI_PATH` ile gösterilebilir. Copilot konuşmalarının yerel bir kopyası `~/.atolye/copilot/` altında tutulur; böylece Copilot o an bağlanamasa da eski konuşma hemen görünür. Açılış yavaşsa `COPILOT_EXTRA_ARGS=--disable-builtin-mcps` GitHub'ın yerleşik MCP sunucularını kapatır. Kuruluşunuzun Copilot politikası üçüncü taraf MCP sunucularını kapatmışsa Jira / Confluence / Bitbucket araçları yalnızca Claude Code oturumlarında çalışır.
 
 ### Harcama göstergesi
