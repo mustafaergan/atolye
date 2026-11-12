@@ -254,6 +254,11 @@ export const EN = {
     'The download is done with the Git on your computer. If Bitbucket is connected, the saved API key is used only for this download; later pulls and pushes may make Git open its own sign-in window.',
   'Güncelleme var': 'Update available',
   'Şimdi güncelle': 'Update now',
+  'Kayıtlar': 'Logs',
+  'Henüz kayıt yok.': 'No log entries yet.',
+  'Kopyalanamadı': 'Could not copy',
+  "Atölye'nin son çalışma kayıtları: oturum açılışları, süreler, bağlantı ve güncelleme denetimleri, hatalar. Konuşma içeriği ve anahtarlar burada yer almaz. Bir sorun bildirirken bu metni kopyalayıp gönderebilirsiniz.":
+    'Recent Atölye activity: session starts, timings, connection and update checks, errors. Conversation content and keys are not included. You can copy this text when reporting a problem.',
   'Güncellemeleri denetle': 'Check for updates',
   'Denetleniyor…': 'Checking…',
   'Güncel (sürüm {current})': 'Up to date (version {current})',

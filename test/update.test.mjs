@@ -23,3 +23,15 @@ test('yeni sürüm varsa bildirilir; eski/aynı sürümde ya da ağ hatasında b
   process.env.ATOLYE_UPDATE_URL = 'data:application/json,{"version":"99.0.0"}';
   assert.equal((await checkUpdate({ force: true })).available, false);
 });
+
+test('kayıtlar: son satırlar tutulur, anahtarlar gizlenir', async () => {
+  const { mask, record, recentLog } = await import('../src/log.js');
+  assert.equal(mask('Authorization: Bearer abcdef1234567890'), 'Authorization: Bearer ***');
+  assert.equal(mask('token=supersecretvalue123 kaldı'), 'token=*** kaldı');
+  record('error', ['bağlanamadı %s', 'Basic QWxhZGRpbjpvcGVu']);
+  const last = recentLog(1)[0];
+  assert.match(last, /HATA bağlanamadı Basic \*\*\*$/);
+  for (let i = 0; i < 600; i++) record('log', [`satır ${i}`]);
+  assert.equal(recentLog().length, 500);
+  assert.match(recentLog().at(-1), /satır 599$/);
+});

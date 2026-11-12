@@ -18,6 +18,8 @@ const { errorSummary, htmlToText } = await import('../src/atlassian.js');
 
 // Sahte şirket içi (Data Center) sunucu: Bearer anahtarını denetler
 const seen = [];
+let whoamiName = 'deneme';
+let reposVisible = true;
 const server = http.createServer((req, res) => {
   seen.push(`${req.method} ${req.url}`);
   const json = (o) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
@@ -28,7 +30,8 @@ const server = http.createServer((req, res) => {
   if (u.pathname === '/rest/api/2/issue/ABC-1') return json({ key: 'ABC-1', fields: { summary: 'Port hatası', status: { name: 'Açık' }, description: 'Port dolu', comment: { comments: [{ author: { displayName: 'Ali' }, created: '2026-01-02T10:00', body: 'bakıyorum' }] } } });
   if (u.pathname === '/rest/api/content/search') return json({ results: [{ id: '42', title: 'Kurulum', space: { key: 'DOC' }, _links: { webui: '/x/42' } }] });
   if (u.pathname === '/rest/api/content/42') return json({ title: 'Kurulum', version: { number: 3 }, body: { storage: { value: '<h1>Adımlar</h1><p>Önce <b>Node</b> kurun &amp; açın</p>' } } });
-  if (u.pathname === '/plugins/servlet/applinks/whoami') return res.end('deneme');
+  if (u.pathname === '/plugins/servlet/applinks/whoami') return res.end(whoamiName);
+  if (u.pathname === '/rest/api/1.0/repos') return json({ values: reposVisible ? [{ slug: 'depo', project: { key: 'ABC' } }] : [] });
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests') return json({ values: [{ id: 7, state: 'OPEN', title: 'Düzeltme', author: { user: { displayName: 'Ayşe' } }, fromRef: { displayId: 'fix' }, toRef: { displayId: 'main' } }] });
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/raw/src/a.js') return res.end(`at=${u.searchParams.get('at')}`);
   res.statusCode = 404; res.end('yok');
@@ -77,6 +80,19 @@ test('bağlantı sınama: doğru anahtarla kullanıcı adı, yanlış anahtarla 
   assert.deepEqual(await integrations.test('jira'), { ok: true, user: 'Deneme Kullanıcı' });
   assert.deepEqual(await integrations.test('bitbucket'), { ok: true, user: 'deneme' });
   assert.deepEqual(await integrations.test('confluence'), { ok: false, error: 'not-configured' });
+  // Şirket içi kurulumda e-posta yanlışlıkla doldurulsa da belirteç Bearer ile gönderilir
+  integrations.save('bitbucket', { url: base, token: 'gizli-anahtar', email: 'biri@ornek.com' });
+  assert.deepEqual(await integrations.test('bitbucket'), { ok: true, user: 'deneme' });
+  // Proje/depo belirteci: kullanıcı adı dönmez ama depolar görünür → bağlantı geçerli
+  whoamiName = '';
+  assert.deepEqual(await integrations.test('bitbucket'), { ok: true, user: 'erişim belirteci (kullanıcı adı yok)' });
+  // Ne ad ne depo: ne yapılacağı söylenir
+  reposVisible = false;
+  const anon = await integrations.test('bitbucket');
+  assert.equal(anon.ok, false);
+  assert.match(anon.error, /HTTP erişim belirteçleri/);
+  whoamiName = 'deneme'; reposVisible = true;
+  integrations.save('bitbucket', { url: base, token: 'gizli-anahtar' });
   integrations.save('confluence', { url: base, token: 'yanlis' });
   const bad = await integrations.test('confluence');
   assert.equal(bad.ok, false);
