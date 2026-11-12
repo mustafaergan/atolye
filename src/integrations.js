@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clients, configFromEnv, envKey, SERVICES } from './atlassian.js';
+import { availableTools, callTool, TOOLS } from './mcp-server.js';
 
 export const SERVER_NAME = 'atolye';
 const MCP_SCRIPT = fileURLToPath(new URL('./mcp-server.js', import.meta.url));
@@ -123,4 +124,22 @@ export async function test(service) {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+}
+
+/**
+ * Arayüzdeki "veri getir": bağlantının yalnızca okuma yapan işlemleri. Veriyi yapay zekâ değil Atölye çeker
+ * (kayıtlı bağlantıyla doğrudan REST); sonuç kullanıcının mesajına eklenir. MCP gerektirmez.
+ */
+export function readTools(service) {
+  check(service);
+  return availableTools(readEnv()).filter((t) => TOOLS[t.name].service === service && !TOOLS[t.name].write)
+    .map((t) => ({ name: t.name, description: t.description, properties: t.inputSchema.properties, required: t.inputSchema.required }));
+}
+
+export async function runReadTool(name, args) {
+  const tool = TOOLS[name];
+  if (!tool) return { ok: false, text: 'Bilinmeyen işlem' };
+  if (tool.write) return { ok: false, text: 'Bu işlem değişiklik yapar; buradan çalıştırılamaz' };
+  const res = await callTool(name, args && typeof args === 'object' ? args : {}, readEnv());
+  return { ok: !res.isError, text: res.content?.[0]?.text || '' };
 }

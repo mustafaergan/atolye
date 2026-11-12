@@ -172,6 +172,7 @@
               <div class="select-wrap link-wrap" id="linkWrap" title="Soruyu seçtiğiniz bağlantıyla (Jira, Confluence, Bitbucket, Graylog) ilişkilendirir" data-i18n-attr="title" hidden>
                 <select id="linkSelect" aria-label="Bağlantı" data-i18n-attr="aria-label"></select>
               </div>
+              <button class="link-fetch" id="linkFetchBtn" type="button" title="Seçili bağlantıdan veriyi Atölye getirir ve mesajınıza ekler (yapay zekânın araç kullanması gerekmez)" data-i18n data-i18n-attr="title" hidden>Veri getir</button>
             </div>
             <div class="right">
               <span class="hint" id="hint" data-i18n>Enter gönder · Shift+Enter yeni satır</span>
@@ -204,6 +205,16 @@
       <div class="links-tabs" id="linksTabs" role="tablist"></div>
       <div class="links-body" id="linksBody"></div>
       <p class="links-note" id="linksNote"></p>
+    </div>
+  </dialog>
+
+  <dialog id="fetchDialog" class="dialog links-dialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="fetchTitle"></h2>
+        <button class="icon-btn" id="fetchClose" type="button" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="links-body" id="fetchBody"></div>
     </div>
   </dialog>
 
