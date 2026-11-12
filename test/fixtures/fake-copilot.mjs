@@ -103,7 +103,7 @@ acp.agent({ name: 'sahte-copilot' })
         { content: 'Portu düzelt', priority: 'high', status: 'completed' },
         { content: 'Testleri çalıştır', priority: 'medium', status: 'in_progress' },
       ] });
-      await send(cx, sessionId, { sessionUpdate: 'usage_update', used: 42000, size: 200000 });
+      await send(cx, sessionId, { sessionUpdate: 'usage_update', used: 42000, size: 200000, cost: { amount: 1.5, currency: 'AIC' } });
       await send(cx, sessionId, { sessionUpdate: 'session_info_update', title: 'Port düzeltmesi' });
       await send(cx, sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\n\nBitti: port **3000** oldu.' } });
       s.history.push({ role: 'agent', text: 'Bitti' });
