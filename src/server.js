@@ -25,6 +25,7 @@ import { recentLog } from './log.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import { copilotQuota } from './copilot-quota.js';
+import { checkBrowser, installedMcp, installPlaywrightMcp } from './browser-check.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,6 +127,27 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     else if (r.code === 'exists') r.error = msg(lang, 'Bu klasör zaten var: {dir}. Depo daha önce indirilmiş olabilir; soldan "Klasör ekle" ile açabilirsiniz.', { dir: r.dir });
     res.json(r);
   }));
+
+  // Tarayıcı bağlantısı (Playwright MCP): ön koşul denetimi, onay sonrası kurulum, etkinleştirme
+  app.get('/api/browser/check', wrap(async (req, res) => res.json(await checkBrowser(String(req.query.browser || 'chrome')))));
+  app.get('/api/browser/installed', wrap(async (_req, res) => res.json({ version: (await installedMcp())?.version || null })));
+  app.post('/api/browser/install', wrap(async (_req, res) => {
+    console.log('[tarayıcı] Playwright MCP kurulumu başlatıldı');
+    const r = await installPlaywrightMcp();
+    console.log(`[tarayıcı] kurulum: ${r.ok ? `tamam (${r.version})` : r.error}`);
+    res.json(r);
+  }));
+  app.post('/api/browser', wrap(async (req, res) => {
+    try {
+      const mcp = await installedMcp();
+      const st = integrations.saveBrowser({ ...(req.body || {}), cli: mcp?.cli });
+      console.log(`[tarayıcı] etkinleştirildi: ${req.body?.browser}${req.body?.headless ? ' (arka planda)' : ''}`);
+      res.json(st);
+    } catch (err) {
+      res.status(400).json({ error: err.code === 'bad-browser' ? msg(req.query.lang, 'Geçersiz tarayıcı seçimi') : err.code === 'not-installed' ? msg(req.query.lang, 'Önce Playwright MCP kurulmalı') : err.message });
+    }
+  }));
+  app.delete('/api/browser', wrap(async (_req, res) => { console.log('[tarayıcı] bağlantı kaldırıldı'); res.json(integrations.removeBrowser()); }));
 
   // Copilot kalan kotası: Copilot CLI'ın yerel önbelleğinden okunur (bkz. copilot-quota.js)
   app.get('/api/copilot/quota', wrap(async (_req, res) => res.json(copilotQuota())));
