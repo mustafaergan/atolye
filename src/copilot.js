@@ -454,10 +454,15 @@ export class CopilotSession {
       || (this.permissionMode === 'acceptEdits' && group === 'edits');
     if (auto && pick('allow_once', 'allow_always')) return { outcome: { outcome: 'selected', optionId: pick('allow_once', 'allow_always') } };
 
+    // Copilot aynı işlem için izni yeniden isterse (aynı toolCallId) ikinci bir soru gösterilmez:
+    // ekrandaki soruya verilen cevap ikisine de uygulanır.
+    const same = tc.toolCallId && [...this.pending.values()].find((p) => p.tc.toolCallId === tc.toolCallId);
+    if (same) return new Promise((resolve) => { same.also.push({ resolve, pick }); });
+
     const id = randomUUID();
     const { name, input } = toolForUi(tc);
     return new Promise((resolve) => {
-      this.pending.set(id, { resolve, tc, pick, group });
+      this.pending.set(id, { resolve, tc, pick, group, also: [] });
       this.emit({
         type: 'permission', id, toolName: name, input,
         title: tc.title && name === 'Bash' ? undefined : tc.title,
@@ -473,6 +478,10 @@ export class CopilotSession {
     const allow = decision.behavior !== 'deny';
     const optionId = allow ? p.pick('allow_once', 'allow_always') : p.pick('reject_once', 'reject_always');
     p.resolve(optionId ? { outcome: { outcome: 'selected', optionId } } : { outcome: { outcome: 'cancelled' } });
+    for (const o of p.also) {
+      const oid = allow ? o.pick('allow_once', 'allow_always') : o.pick('reject_once', 'reject_always');
+      o.resolve(oid ? { outcome: { outcome: 'selected', optionId: oid } } : { outcome: { outcome: 'cancelled' } });
+    }
     this.emit({ type: 'permission_resolved', id, behavior: decision.behavior, always: Boolean(decision.always) });
     if (allow && decision.always) {
       this.allowed.add(p.group);
@@ -480,6 +489,7 @@ export class CopilotSession {
         if (other.group !== p.group) continue;
         this.pending.delete(otherId);
         other.resolve({ outcome: { outcome: 'selected', optionId: other.pick('allow_once', 'allow_always') } });
+        for (const o of other.also) o.resolve({ outcome: { outcome: 'selected', optionId: o.pick('allow_once', 'allow_always') } });
         this.emit({ type: 'permission_resolved', id: otherId, behavior: 'allow', always: true });
       }
     }
@@ -488,6 +498,7 @@ export class CopilotSession {
   #cancelPending() {
     for (const [id, p] of this.pending) {
       p.resolve({ outcome: { outcome: 'cancelled' } });
+      for (const o of p.also) o.resolve({ outcome: { outcome: 'cancelled' } });
       this.emit({ type: 'permission_resolved', id, behavior: 'cancelled' });
     }
     this.pending.clear();
