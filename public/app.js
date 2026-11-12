@@ -231,7 +231,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: modelFor(engine) || null, lang: getLang(), engine });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: modelFor(engine) || null, effort: store.get(effortKey(engine), '') || null, lang: getLang(), engine });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
@@ -320,6 +320,8 @@ function handleEvent(ev) {
     case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
     case 'mode': return setMode(ev.mode, false);
     case 'model': return setModelValue(ev.model || '');
+    case 'effort': $('#effortSelect').value = ev.effort || ''; return;
+    case 'credits': state.credits = ev.credits; return updateStatus();
     case 'capabilities': return setCapabilities(ev);
     case 'error': clearTimeout(openWatch); setBusy(false); $('.boot-notice', dom.messages)?.remove(); return notice(ev.message);
     case 'opened': return applyOpened(ev);
@@ -541,7 +543,10 @@ function updateStatus() {
   if (dom.statusline.dataset.model) bits.push(dom.statusline.dataset.model);
   if (state.cost) bits.push(T('oturum ≈ ${n}', { n: state.cost.toFixed(3) }));
   // Copilot: bu oturumda harcanan kredi (Copilot bildiriyorsa). Kalan kota Copilot tarafından bildirilmez.
-  if (state.credits && currentEngine() === 'copilot') bits.push(T('oturum: {n} {unit}', { n: Number(state.credits.amount.toFixed(2)), unit: creditUnit(state.credits.unit) }));
+  // Sağ üstteki gösterge: bu oturumda harcanan kredi (yalnızca Copilot oturumunda ve harcama bildirildiyse)
+  const showCredit = Boolean(state.credits) && currentEngine() === 'copilot';
+  $('#copilotCredit').hidden = !showCredit;
+  if (showCredit) $('#copilotCreditText').textContent = T('Bu oturum: {n} {unit}', { n: Number(state.credits.amount.toFixed(2)), unit: creditUnit(state.credits.unit) });
   dom.statusline.replaceChildren(...bits.map((b) => el('span', { text: b })));
 }
 
@@ -987,7 +992,8 @@ const currentEngine = () => state.sessionEngine || state.engine;
 const modelKey = (engine) => (engine === 'copilot' ? 'atolye:model:copilot' : 'atolye:model');
 const modelFor = (engine) => store.get(modelKey(engine), '');
 
-function setCapabilities({ models = [], commands = [] }) {
+function setCapabilities({ models = [], commands = [], effort = null }) {
+  renderEffort(effort);
   state.commands = commands;
   const copilot = currentEngine() === 'copilot';
   const options = models.filter((m) => m.value && m.value !== 'default').map((m) => el('option', { value: m.value, text: m.name || m.value, title: m.description || '' }));
@@ -997,6 +1003,24 @@ function setCapabilities({ models = [], commands = [] }) {
   setModelValue(state.model);
   applyEngineUi();
 }
+
+// Düşünme seviyesi: seçili motorun ve modelin sunduğu seviyeler (yoksa seçici gizlenir). Seçim motor başına saklanır.
+const effortKey = (engine) => `atolye:effort:${engine === 'copilot' ? 'copilot' : 'claude'}`;
+const EFFORT_NAMES = { none: 'kapalı', minimal: 'en düşük', low: 'düşük', medium: 'orta', high: 'yüksek', xhigh: 'çok yüksek', max: 'en yüksek' };
+function renderEffort(effort) {
+  const options = effort?.options || [];
+  const sel = $('#effortSelect');
+  $('#effortWrap').hidden = options.length < 2;
+  sel.replaceChildren(
+    ...(effort?.hasDefault ? [el('option', { value: '', text: T('Düşünme: varsayılan') })] : []),
+    ...options.map((o) => el('option', { value: o.value, title: o.description || '', text: T('Düşünme: {level}', { level: EFFORT_NAMES[o.value] ? T(EFFORT_NAMES[o.value]) : o.name }) })));
+  sel.value = effort?.current || '';
+}
+$('#effortSelect').addEventListener('change', () => {
+  const effort = $('#effortSelect').value;
+  store.set(effortKey(currentEngine()), effort);
+  wsSend({ type: 'set_effort', effort });
+});
 
 function setModelValue(model) {
   state.model = model;
@@ -1670,6 +1694,21 @@ LINKS.graylog = {
   examples: () => T('Örnek: "Graylog\'da son 30 dakikada uygulama-adi için hata kayıtlarını bul ve sebebini özetle".'),
 };
 const links = { status: null, tab: 'jira', result: {} };
+// Kayıtlı parola/anahtar alanda nokta nokta görünür; gerçek değer tarayıcıya hiç gelmez. Alan değiştirilmeden
+// bırakılırsa sunucuya boş gönderilir ve kayıtlı değer korunur.
+const SAVED_SECRET = '\u2022'.repeat(12);
+const secretInput = (saved, placeholder) => {
+  const input = el('input', { type: 'password', placeholder, autocomplete: 'new-password' });
+  if (saved) {
+    input.value = SAVED_SECRET;
+    input.title = T('Kayıtlı. Değiştirmek için silip yenisini yazın.');
+    input.addEventListener('focus', () => { if (input.value === SAVED_SECRET) input.select(); });
+  }
+  return input;
+};
+const secretValue = (input) => (input.value === SAVED_SECRET ? '' : input.value);
+// Alanın altındaki küçük bilgi: değerin bilgisayarda nereye yazıldığı
+const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { class: 'info-dot', text: 'i' }), el('span', { text }));
 
 // ---------- Soruyu bir bağlantıyla ilişkilendirme ----------
 // Mesaj kutusunun altındaki seçici yalnızca kurulmuş bağlantıları gösterir. Bir bağlantı seçiliyken gönderilen
@@ -1728,7 +1767,7 @@ function renderLinks() {
   const cur = services[id] || {};
   const url = el('input', { type: 'url', value: cur.url || '', placeholder: def.urlHint, spellcheck: 'false', autocomplete: 'off' });
   const email = el('input', { type: 'email', value: cur.email || '', placeholder: T('yalnızca Cloud (atlassian.net / bitbucket.org) için'), autocomplete: 'off' });
-  const token = el('input', { type: 'password', placeholder: cur.hasToken ? T('kayıtlı (değiştirmek için yenisini yapıştırın)') : T('API anahtarını yapıştırın'), autocomplete: 'new-password' });
+  const token = secretInput(cur.hasToken, T('API anahtarını yapıştırın'));
   const result = el('div', { class: 'links-result' });
   const show = (r) => {
     links.result[id] = r;
@@ -1749,7 +1788,7 @@ function renderLinks() {
   const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet ve sına'), onclick: async () => {
     saveBtn.disabled = true;
     try {
-      const res = await fetch(`/api/integrations/${id}?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: url.value, email: email.value, token: token.value }) });
+      const res = await fetch(`/api/integrations/${id}?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: url.value, email: email.value, token: secretValue(token) }) });
       const data = await res.json();
       if (!res.ok) return show({ ok: false, error: data.error });
       await loadLinks();
@@ -1771,7 +1810,8 @@ function renderLinks() {
     steps,
     el('label', { class: 'links-field' }, el('span', { text: T('Adres') }), url),
     def.noEmail ? null : el('label', { class: 'links-field' }, el('span', { text: T('E-posta') }), email, el('small', { text: T('Şirket içi kurulumda (kişisel erişim belirteci) boş bırakın.') })),
-    el('label', { class: 'links-field' }, el('span', { text: T('API anahtarı') }), token),
+    el('label', { class: 'links-field' }, el('span', { text: T('API anahtarı') }), token,
+      links.status?.files ? savedWhere(T('Kayıt yeri: {claude} ve {copilot}', links.status.files)) : null),
     el('div', { class: 'links-actions' }, saveBtn,
       cur.connected ? el('button', { class: 'btn', type: 'button', text: T('Bağlantıyı sına'), onclick: runTest }) : null,
       cur.hasToken || cur.url ? removeBtn : null,
@@ -1966,7 +2006,7 @@ async function renderProxyTab() {
   const st = proxyUi.status;
   const address = el('input', { type: 'text', value: st.address || '', placeholder: 'proxy.sirket.com:8080', spellcheck: 'false', autocomplete: 'off' });
   const username = el('input', { type: 'text', value: st.username || '', placeholder: T('gerekmiyorsa boş bırakın'), spellcheck: 'false', autocomplete: 'off' });
-  const password = el('input', { type: 'password', placeholder: st.hasPassword ? T('kayıtlı (değiştirmek için yenisini yazın)') : T('gerekmiyorsa boş bırakın'), autocomplete: 'new-password' });
+  const password = secretInput(st.hasPassword, T('gerekmiyorsa boş bırakın'));
   const noProxy = el('input', { type: 'text', value: st.noProxy || 'localhost,127.0.0.1', placeholder: 'localhost,127.0.0.1,.sirket.com', spellcheck: 'false', autocomplete: 'off' });
   const result = el('div', { class: 'links-result' });
   result.hidden = true;
@@ -1978,19 +2018,21 @@ async function renderProxyTab() {
     result.replaceChildren(el('div', { text: r.pending ? T('Proxy sınanıyor…') : r.ok ? T('Proxy çalışıyor: GitHub\'a ulaşılabiliyor. Yeni açtığınız Copilot oturumları bu ayarı kullanır.') : T('Olmadı: {error}', { error: r.error }) }));
     if (!r.ok && !r.pending) result.append(askErrorButton(T('Proxy ayarını yapma'), r.error));
   };
+  // Sınama, kaydetmeden formdaki değerlerle yapılır
   const runTest = async () => {
     show({ pending: true });
-    show(await fetch(`/api/proxy/test?lang=${getLang()}`, { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message })));
+    show(await fetch(`/api/proxy/test?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: address.value, username: username.value, password: secretValue(password) }) })
+      .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message })));
   };
   const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet ve sına'), onclick: async () => {
     saveBtn.disabled = true;
     try {
       const res = await fetch(`/api/proxy?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ address: address.value, username: username.value, password: password.value, noProxy: noProxy.value }) });
+        body: JSON.stringify({ address: address.value, username: username.value, password: secretValue(password), noProxy: noProxy.value }) });
       const data = await res.json();
       if (!res.ok) return show({ ok: false, error: data.error });
       proxyUi.status = data;
-      password.value = '';
       await runTest();
       if (links.tab === 'proxy') renderLinks(); // sekmedeki nokta ve "sına / kaldır" düğmeleri güncellensin (sonuç korunur)
     } finally { saveBtn.disabled = false; }
@@ -2008,18 +2050,19 @@ async function renderProxyTab() {
       el('li', { text: T('Proxy adresini, kullanıcı adını ve parolayı BT ekibinizden ya da şirket içi kurulum dokümanınızdan alın. Kullanıcı adındaki @ gibi özel karakterleri olduğu gibi yazın; Atölye gerekli dönüşümü kendisi yapar.') }),
       el('li', { text: T('"Proxy kullanılmayacak adresler" alanına şirket içi adresleri yazın (ör. .sirket.com); bunlara proxy olmadan gidilir.') }),
       el('li', { text: T('"Kaydet ve sına" deyin, sonra yeni bir Copilot oturumu açın.') })),
+    st.source === 'system' ? el('div', { class: 'links-result', text: T('Bu bilgisayarda genel bir proxy ayarı (HTTPS_PROXY) bulundu ve form onunla dolduruldu. "Kaydet ve sına" derseniz Atölye\'ye yalnızca Copilot için kaydedilir.') }) : null,
     el('label', { class: 'links-field' }, el('span', { text: T('Proxy adresi') }), address),
     el('label', { class: 'links-field' }, el('span', { text: T('Kullanıcı adı') }), username),
-    el('label', { class: 'links-field' }, el('span', { text: T('Parola') }), password),
+    el('label', { class: 'links-field' }, el('span', { text: T('Parola') }), password, savedWhere(T('Kayıt yeri: {file}', { file: st.file }))),
     el('label', { class: 'links-field' }, el('span', { text: T('Proxy kullanılmayacak adresler') }), noProxy, el('small', { text: T('Virgülle ayırın. localhost ve 127.0.0.1 her zaman eklenir.') })),
     el('div', { class: 'links-actions' }, saveBtn,
-      st.configured ? el('button', { class: 'btn', type: 'button', text: T('Proxy\'yi sına'), onclick: runTest }) : null,
+      el('button', { class: 'btn', type: 'button', text: T('Sına'), title: T('Kaydetmeden, formdaki bilgilerle proxy üzerinden GitHub\'a ulaşılabildiğini denetler'), onclick: runTest }),
       st.configured ? removeBtn : null,
       el('button', { class: 'btn ghost links-help', type: 'button', text: T('Yapay zekâdan yardım al'), onclick: () => askAi(T('Şirket ağında proxy ayarı yapmam gerekiyor ve teknik biri değilim. Proxy nedir, adresini ve kullanıcı bilgilerini kimden öğrenirim, HTTPS_PROXY ve NO_PROXY ne işe yarar? Adım adım, sade bir dille anlat.')) })),
     result,
   ].filter(Boolean));
   show(proxyUi.result);
-  $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve bilgisayardaki diğer programlar etkilenmez. Atölye\'nin .env dosyasında saklanır; parola orada düz metin olarak durur ve Atölye\'nin kayıtlarına yazılmaz.');
+  $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
 }
 
 // ---------- Güncelleme bildirimi ----------

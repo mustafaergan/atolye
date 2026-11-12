@@ -140,7 +140,12 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.delete('/api/proxy', wrap(async (_req, res) => { console.log('[proxy] ayar kaldırıldı'); res.json(await proxy.remove()); }));
   app.post('/api/proxy/test', wrap(async (req, res) => {
     const lang = req.query.lang;
-    const r = await proxy.test();
+    // Formdaki değerler gönderildiyse kaydetmeden onlar sınanır
+    let form = null;
+    if (req.body?.address) {
+      try { form = proxy.fromForm(req.body); } catch { return res.json({ ok: false, error: msg(lang, 'Geçerli bir proxy adresi girin (ör. proxy.sirket.com:8080)') }); }
+    }
+    const r = await proxy.test(form ? { proxy: form } : {});
     console.log(`[proxy] sınama: ${r.ok ? 'başarılı' : `${r.code}${r.status ? ` (${r.status})` : ''}`}`);
     if (!r.ok) {
       r.error = r.code === 'auth' ? msg(lang, 'Proxy kullanıcı adını ya da parolayı kabul etmedi (407).')
@@ -320,6 +325,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
         cwd,
         mode: MODES.has(m.mode) ? m.mode : 'default',
         model: m.model || undefined,
+        effort: typeof m.effort === 'string' && m.effort ? m.effort : undefined,
         general: samePath(cwd, GENERAL_DIR),
         lang,
       });
@@ -369,6 +375,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
           return;
         case 'set_model':
           if (current) await timed(current.agent.setModel(m.model), 'model');
+          return;
+        case 'set_effort':
+          if (current) await timed(current.agent.setEffort(typeof m.effort === 'string' ? m.effort : ''), 'düşünme seviyesi');
           return;
         case 'get_context': {
           // Sadece isteyen bağlantıya gider; olay tamponuna yazılmaz

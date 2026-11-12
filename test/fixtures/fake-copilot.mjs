@@ -20,16 +20,26 @@ const sleep = (ms, signal) => new Promise((r, j) => {
 });
 
 const MODELS = [
-  { modelId: 'sahte-hizli', name: 'Sahte Hızlı', description: 'Hızlı model' },
+  { modelId: 'sahte-hizli', name: 'Sahte Hızlı', description: 'Hızlı model', _meta: { copilotUsage: '0.33x' } },
   { modelId: 'sahte-guclu', name: 'Sahte Güçlü', description: 'Güçlü model' },
 ];
 
-acp.agent({ name: 'sahte-copilot' })
-  .onRequest('initialize', () => ({
+const initResult = {
     protocolVersion: acp.PROTOCOL_VERSION,
     agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
     agentInfo: { name: 'sahte-copilot', version: '1.0.0' },
-  }))
+};
+let usageEvents = false;
+
+const effortOptions = (current) => [{ id: 'reasoning_effort', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: current,
+  options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }];
+
+acp.agent({ name: 'sahte-copilot' })
+  .onRequest('initialize', (ctx) => {
+    // Gerçek Copilot gibi: harcama olayları yalnızca istemci abone olduysa gönderilir
+    usageEvents = Boolean(ctx.params?.clientCapabilities?._meta?.['github.com/copilot']?.events?.includes('session.usage_checkpoint'));
+    return initResult;
+  })
   .onRequest('session/new', (ctx) => {
     const sessionId = `sahte-${++counter}-${Date.now()}`;
     sessions.set(sessionId, { cwd: ctx.params.cwd, history: [] });
@@ -37,7 +47,13 @@ acp.agent({ name: 'sahte-copilot' })
       sessionId,
       update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'compact', description: 'Konuşmayı özetle' }, { name: 'review', description: 'Kod incelemesi' }] },
     });
-    return { sessionId, models: { availableModels: MODELS, currentModelId: 'sahte-hizli' } };
+    sessions.get(sessionId).effort = 'medium';
+    return { sessionId, models: { availableModels: MODELS, currentModelId: 'sahte-hizli' }, configOptions: effortOptions('medium') };
+  })
+  .onRequest('session/set_config_option', (ctx) => {
+    if (ctx.params.configId !== 'reasoning_effort') throw new Error('bilinmeyen seçenek');
+    sessions.get(ctx.params.sessionId).effort = ctx.params.value;
+    return { configOptions: effortOptions(ctx.params.value) };
   })
   .onRequest('session/set_model', (params) => params, (ctx) => {
     if (!MODELS.some((m) => m.modelId === ctx.params.modelId)) throw new Error('bilinmeyen model');
@@ -104,7 +120,8 @@ acp.agent({ name: 'sahte-copilot' })
         { content: 'Portu düzelt', priority: 'high', status: 'completed' },
         { content: 'Testleri çalıştır', priority: 'medium', status: 'in_progress' },
       ] });
-      await send(cx, sessionId, { sessionUpdate: 'usage_update', used: 42000, size: 200000, cost: { amount: 1.5, currency: 'AIC' } });
+      await send(cx, sessionId, { sessionUpdate: 'usage_update', used: 42000, size: 200000 });
+      if (usageEvents) await cx.notify('github.com/copilot/sessionEvent', { sessionId, type: 'session.usage_checkpoint', data: { totalNanoAiu: 1500000000, totalPremiumRequests: 1 } });
       await send(cx, sessionId, { sessionUpdate: 'session_info_update', title: 'Port düzeltmesi' });
       await send(cx, sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\n\nBitti: port **3000** oldu.' } });
       s.history.push({ role: 'agent', text: 'Bitti' });

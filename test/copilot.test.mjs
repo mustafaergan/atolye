@@ -65,7 +65,8 @@ test("Copilot'un akışı arayüzün tanıdığı mesajlara çevrilir", async ()
   // Bağlam kullanımı (usage_update)
   const ctx = await s.contextUsage();
   assert.equal(Math.round(ctx.percentage), 21);
-  // Copilot'un bildirdiği kredi harcaması tur sonucuna eklenir
+  // Copilot'un harcama olayı (nano AIU) krediye çevrilir, anında bildirilir ve tur sonucuna eklenir
+  assert.deepEqual(events.find((e) => e.type === 'credits')?.credits, { amount: 1.5, unit: 'AIC' });
   assert.deepEqual(sdk(events, 'result')[0].copilot_credits, { amount: 1.5, unit: 'AIC' });
   s.close();
 });
@@ -143,6 +144,7 @@ test("model listesi Copilot'un kendisinden gelir; seçilen model oturuma uygulan
   await until(() => events.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
   const caps = events.filter((e) => e.type === 'capabilities').at(-1);
   assert.deepEqual(caps.models.map((m) => m.value), ['sahte-hizli', 'sahte-guclu']);
+  assert.deepEqual(caps.models.map((m) => m.name), ['Sahte Hızlı · 0.33x', 'Sahte Güçlü'], 'kredi çarpanı model adında görünür');
   assert.equal(s.model, 'sahte-hizli');
   await s.setModel('sahte-guclu');
   assert.equal(s.model, 'sahte-guclu');
@@ -220,5 +222,27 @@ test('yüklenemeyen (bulunamayan) oturum hata vermez; yeni oturum açılır', as
   s2.start();
   await until(() => events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
   assert.ok(events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'local_command_output' && /artık bulamıyor/.test(e.msg.content)));
+  s2.close();
+});
+
+test('düşünme seviyesi Copilot\'un sunduğu seçeneklerden gelir ve değiştirilebilir', async () => {
+  const { s, events } = run(() => ({ behavior: 'allow' }));
+  await until(() => events.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  const caps = events.filter((e) => e.type === 'capabilities').at(-1);
+  assert.deepEqual(caps.effort, { current: 'medium', hasDefault: false, options: [{ value: 'low', name: 'Low', description: '' }, { value: 'medium', name: 'Medium', description: '' }, { value: 'high', name: 'High', description: '' }] });
+  assert.equal(caps.models.length, 2, 'model listesi korunur');
+  await s.setEffort('high');
+  assert.ok(events.some((e) => e.type === 'effort' && e.effort === 'high'));
+  assert.equal(events.filter((e) => e.type === 'capabilities').at(-1).effort.current, 'high');
+  await s.setEffort('uydurma'); // listede olmayan değer gönderilmez
+  assert.equal(events.filter((e) => e.type === 'capabilities').at(-1).effort.current, 'high');
+  s.close();
+
+  // Önceki seçim yeni oturuma uygulanır
+  const events2 = [];
+  const s2 = new CopilotSession({ cwd, effort: 'low', emit: (e) => events2.push(e) });
+  s2.start();
+  await until(() => events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.equal(events2.filter((e) => e.type === 'capabilities').at(-1).effort.current, 'low');
   s2.close();
 });
