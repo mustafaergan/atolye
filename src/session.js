@@ -31,6 +31,8 @@ const GENERAL_PROMPT = [
   'Always reply in the language the user writes in.',
 ].join(' ');
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 export class AgentSession {
   /**
    * @param {object} opts
@@ -40,12 +42,16 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, permissionMode, emit, general = false, lang = 'tr' }) {
+  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, lang = 'tr' }) {
     this.cwd = cwd;
     this.lang = lang;
     this.general = general;
     this.resume = resume;
     this.model = model || undefined;
+    this.effort = EFFORTS.includes(effort) ? effort : undefined; // düşünme seviyesi (boş: modelin varsayılanı)
+    this.modelInfos = [];
+    this.commands = [];
+    this.activeModel = null; // Claude Code'un gerçekte kullandığı model (init mesajından)
     this.permissionMode = permissionMode || 'default';
     this.emit = emit;
     this.sessionId = resume || null;
@@ -63,6 +69,7 @@ export class AgentSession {
       cwd: this.cwd,
       resume: this.resume,
       model: this.model,
+      ...(this.effort ? { effort: this.effort } : {}),
       permissionMode: this.permissionMode,
       allowDangerouslySkipPermissions: true,
       includePartialMessages: true,
@@ -96,6 +103,7 @@ export class AgentSession {
         if (msg.type === 'system' && msg.subtype === 'init') {
           this.sessionId = msg.session_id;
           this.permissionMode = msg.permissionMode;
+          if (msg.model && msg.model !== this.activeModel) { this.activeModel = msg.model; this.#emitCapabilities(); }
           const saved = sessionAllowances.get(this.sessionId);
           if (saved && saved !== this.allowed) for (const g of saved) this.allowed.add(g);
           sessionAllowances.set(this.sessionId, this.allowed);
@@ -118,10 +126,28 @@ export class AgentSession {
       this.q.supportedModels().catch(() => []),
       this.q.supportedCommands().catch(() => []),
     ]);
+    this.modelInfos = models;
+    this.commands = commands.map((c) => ({ name: c.name, description: c.description, hint: c.argumentHint }));
+    this.#emitCapabilities();
+  }
+
+  /** Seçili (ya da varsayılan) modelin desteklediği düşünme seviyeleri */
+  #effortLevels() {
+    const infos = this.modelInfos;
+    const row = infos.find((m) => m.value === this.model)
+      || infos.find((m) => this.activeModel && (m.resolvedModel === this.activeModel || m.value === this.activeModel))
+      || (this.model ? null : infos.find((m) => m.value === 'default') || infos[0]);
+    return row?.supportsEffort === false ? [] : (row?.supportedEffortLevels || []);
+  }
+
+  #emitCapabilities() {
+    const levels = this.#effortLevels();
+    if (this.effort && levels.length && !levels.includes(this.effort)) this.effort = undefined; // bu model o seviyeyi desteklemiyor
     this.emit({
       type: 'capabilities',
-      models: models.map((m) => ({ value: m.value, name: m.displayName, description: m.description })),
-      commands: commands.map((c) => ({ name: c.name, description: c.description, hint: c.argumentHint })),
+      models: this.modelInfos.map((m) => ({ value: m.value, name: m.displayName, description: m.description })),
+      commands: this.commands,
+      effort: { current: this.effort || '', hasDefault: true, options: levels.map((v) => ({ value: v, name: v })) },
     });
   }
 
@@ -171,6 +197,14 @@ export class AgentSession {
     this.model = model || undefined;
     await this.q?.setModel(this.model);
     this.emit({ type: 'model', model: model || '' });
+    this.#emitCapabilities(); // düşünme seviyeleri modele göre değişir
+  }
+
+  /** Düşünme seviyesi: boş değer modelin varsayılanına döner */
+  async setEffort(effort) {
+    this.effort = EFFORTS.includes(effort) ? effort : undefined;
+    await this.q?.applyFlagSettings({ effortLevel: this.effort || null });
+    this.emit({ type: 'effort', effort: this.effort || '' });
   }
 
   /** Arayüzden gelen izin / soru cevabı */

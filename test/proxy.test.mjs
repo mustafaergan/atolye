@@ -19,7 +19,8 @@ test('adres kurma ve çözme: kullanıcı adındaki ve paroladaki özel karakter
 
 test('kaydet: ortam değişkenleri uygulanır, parola arayüze dönmez; boş parola eskisini korur; kaldır temizler', async () => {
   const st = await proxy.save({ address: 'proxy.ornek.com:8081', username: 'biri@ornek.com', password: 'gizli', noProxy: '.ornek.com' });
-  assert.deepEqual(st, { configured: true, address: 'proxy.ornek.com:8081', username: 'biri@ornek.com', hasPassword: true, noProxy: 'localhost,127.0.0.1,.ornek.com' });
+  assert.deepEqual(st, { configured: true, source: 'atolye', address: 'proxy.ornek.com:8081', username: 'biri@ornek.com', hasPassword: true, noProxy: 'localhost,127.0.0.1,.ornek.com', file: st.file });
+  assert.match(st.file, /\.env$/);
   assert.equal(JSON.stringify(st).includes('gizli'), false);
   assert.equal(process.env.COPILOT_PROXY, 'http://biri%40ornek.com:gizli@proxy.ornek.com:8081');
   // Atölye'nin kendi ortamı (dolayısıyla Claude Code) değişmez; ayar yalnızca Copilot sürecine verilir
@@ -94,4 +95,20 @@ test('.env dosyası: proxy satırları yazılır, diğer ayarlar korunur ve değ
   assert.equal(fs.readFileSync(file, 'utf8').match(/COPILOT_PROXY=/g).length, 1, 'eski satırlar temizlenir');
   proxy.persistEnvFile({}, file);
   assert.equal(dotenv.parse(fs.readFileSync(file)).COPILOT_PROXY, undefined);
+});
+
+test('Atölye\'de kayıt yokken bilgisayarın genel proxy ayarı öneri olarak gelir; parolası tarayıcıya gitmeden kullanılabilir', async () => {
+  const env = { HTTPS_PROXY: 'http://biri%40ornek.com:sistem-parolasi@proxy.ornek.com:8081', NO_PROXY: 'localhost,.ornek.com' };
+  const st = proxy.status(env);
+  assert.equal(st.configured, false);
+  assert.equal(st.source, 'system');
+  assert.equal(st.address, 'proxy.ornek.com:8081');
+  assert.equal(st.username, 'biri@ornek.com');
+  assert.equal(st.hasPassword, true);
+  assert.equal(st.noProxy, 'localhost,.ornek.com');
+  assert.equal(JSON.stringify(st).includes('sistem-parolasi'), false);
+  // Form parolasız gönderilince (kullanıcı adı aynıysa) bilgisayardaki parola kullanılır
+  assert.equal(proxy.fromForm({ address: st.address, username: st.username, password: '' }, env).password, 'sistem-parolasi');
+  assert.equal(proxy.fromForm({ address: st.address, username: 'baskasi', password: '' }, env).password, '');
+  assert.equal(proxy.status({}).source, null);
 });

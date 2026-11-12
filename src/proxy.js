@@ -43,15 +43,33 @@ export function normalizeNoProxy(value) {
 }
 
 /** Arayüze giden durum: parola asla geri gönderilmez */
+// Kayıtlı ayar; yoksa bilgisayarda zaten tanımlı genel proxy (HTTPS_PROXY ortam değişkeni) öneri olarak kullanılır
+const systemProxy = (env) => parseProxy(env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy);
+const current = (env) => parseProxy(env.COPILOT_PROXY) || systemProxy(env);
+
 export function status(env = process.env) {
-  const p = parseProxy(env.COPILOT_PROXY);
+  const own = parseProxy(env.COPILOT_PROXY);
+  const p = own || systemProxy(env);
   return {
-    configured: Boolean(p),
+    configured: Boolean(own),
+    // Atölye'de kayıt yokken bilgisayarın genel proxy ayarı bulunduysa form onunla doldurulur
+    source: own ? 'atolye' : p ? 'system' : null,
     address: p ? `${p.host}:${p.port}` : '',
     username: p?.username || '',
     hasPassword: Boolean(p?.password),
-    noProxy: env.COPILOT_NO_PROXY || '',
+    noProxy: own ? (env.COPILOT_NO_PROXY || '') : (env.NO_PROXY || env.no_proxy || ''),
+    file: path.join(ROOT, '.env'),
   };
+}
+
+/** Formdaki değerlerden proxy: parola boşsa (ve kullanıcı adı aynıysa) kayıtlı/önerilen parola kullanılır */
+export function fromForm({ address, username, password }, env = process.env) {
+  const p = parseProxy(String(address || '').trim());
+  if (!p || !/^[\w.-]+$/.test(p.host) || !(p.port > 0 && p.port < 65536)) throw Object.assign(new Error('bad-address'), { code: 'bad-address' });
+  const old = current(env);
+  const user = String(username ?? '').trim();
+  const pass = String(password || '') || (old && old.username === user ? old.password : '');
+  return { protocol: p.protocol, host: p.host, port: p.port, username: user, password: pass };
 }
 
 /** Copilot sürecine verilecek ortam: proxy ayarlıysa standart değişkenler eklenir (yalnızca o süreç için) */
@@ -80,13 +98,7 @@ async function apply(values) {
 }
 
 export async function save({ address, username, password, noProxy }) {
-  const p = parseProxy(String(address || '').trim());
-  if (!p || !/^[\w.-]+$/.test(p.host) || !(p.port > 0 && p.port < 65536)) throw Object.assign(new Error('bad-address'), { code: 'bad-address' });
-  const old = parseProxy(process.env.COPILOT_PROXY);
-  const user = String(username ?? '').trim();
-  // Parola boş bırakılırsa (ve kullanıcı adı aynıysa) kayıtlı parola korunur
-  const pass = String(password || '') || (old && old.username === user ? old.password : '');
-  const url = buildProxyUrl({ protocol: p.protocol, host: p.host, port: p.port, username: user, password: pass });
+  const url = buildProxyUrl(fromForm({ address, username, password }));
   await apply({ COPILOT_PROXY: url, COPILOT_NO_PROXY: normalizeNoProxy(noProxy) });
   return status();
 }
@@ -98,10 +110,10 @@ export async function remove() {
 
 /**
  * Proxy üzerinden GitHub'a tünel açmayı dener (HTTP CONNECT). Parolayı ya da adresi bir yere yazmaz.
- * { ok: true } ya da { ok: false, code, status }
+ * { ok: true } ya da { ok: false, code, status }. `proxy` verilirse kayıtlı ayar yerine o sınanır.
  */
-export function test({ target = 'api.github.com:443', timeoutMs = 15_000, env = process.env } = {}) {
-  const p = parseProxy(env.COPILOT_PROXY);
+export function test({ target = 'api.github.com:443', timeoutMs = 15_000, env = process.env, proxy = null } = {}) {
+  const p = proxy || parseProxy(env.COPILOT_PROXY); // proxy: kaydetmeden, formdaki değerlerle sınama
   if (!p) return Promise.resolve({ ok: false, code: 'not-configured' });
   return new Promise((resolve) => {
     let done = false;

@@ -185,7 +185,7 @@ export function describeSession(res) {
 
 // ---------- Oturum ----------
 export class CopilotSession {
-  constructor({ cwd, resume, permissionMode, model, emit, lang = 'tr', skipReplay = false }) {
+  constructor({ cwd, resume, permissionMode, model, effort, emit, lang = 'tr', skipReplay = false }) {
     this.engine = 'copilot';
     this.cwd = cwd;
     this.resume = resume;
@@ -203,6 +203,9 @@ export class CopilotSession {
     this.models = []; // Copilot'un sunduğu modeller
     this.modelConfigId = null; // model, yapılandırma seçeneği olarak sunuluyorsa kimliği
     this.commands = [];
+    this.modelUsage = new Map(); // modelId -> kredi çarpanı
+    this.wantEffort = effort || null; // arayüzde Copilot için son seçilen düşünme seviyesi
+    this.effort = { id: null, current: '', options: [] }; // Copilot'un sunduğu düşünme seviyeleri
     this.sessionId = resume || null;
     this.pending = new Map(); // izin id -> { resolve, toolCall, options }
     this.allowed = new Set();
@@ -235,7 +238,10 @@ export class CopilotSession {
     const child = spawnCopilot(['--acp', '--stdio'], { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: copilotEnv() });
     this.conn = new AcpConnection(child, {
       onRequest: (method, params) => this.#onRequest(method, params),
-      onNotification: (method, params) => { if (method === 'session/update') this.#onUpdate(params.update); },
+      onNotification: (method, params) => {
+        if (method === 'session/update') this.#onUpdate(params.update);
+        else if (method === 'github.com/copilot/sessionEvent') this.#onSessionEvent(params);
+      },
       onExit: () => {
         if (this.closed) return;
         this.#setBusy(false);
@@ -247,7 +253,8 @@ export class CopilotSession {
     });
     const init = await this.conn.request('initialize', {
       protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      // _meta: Copilot'un oturum harcaması (AI kredisi) olaylarına abonelik; tanımayan sürümler yok sayar
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, _meta: { 'github.com/copilot': { events: ['session.usage_checkpoint'] } } },
       clientInfo: { name: 'atolye', version: '1' },
     });
     this.promptCaps = init?.agentCapabilities?.promptCapabilities || {};
@@ -289,8 +296,19 @@ export class CopilotSession {
     if (this.wantModel && this.wantModel !== this.model && this.models.some((m) => m.value === this.wantModel)) {
       await this.setModel(this.wantModel).catch(() => {});
     }
+    if (this.wantEffort && this.wantEffort !== this.effort.current) await this.setEffort(this.wantEffort).catch(() => {});
     this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.#modelName() } });
     this.#drain();
+  }
+
+  // Copilot'a özgü olaylar. usage_checkpoint: oturumun birikimli harcaması (1 AI kredisi = 10^9 nano AIU).
+  // Kalan plan kotası Copilot tarafından bildirilmez.
+  #onSessionEvent(p) {
+    if (p?.type !== 'session.usage_checkpoint') return;
+    const nano = Number(p.data?.totalNanoAiu ?? p.data?.accountingSnapshot?.totalNanoAiu);
+    if (!Number.isFinite(nano)) return;
+    this.credits = { amount: nano / 1e9, unit: 'AIC' };
+    this.emit({ type: 'credits', credits: this.credits });
   }
 
   // Copilot açılışta GitHub'dan model listesini çeker; ağ yavaşsa zaman aşımına düşebilir. Bir kez daha denenir.
@@ -364,17 +382,33 @@ export class CopilotSession {
   // Copilot modellerini iki biçimde bildirebilir: "models" (availableModels/currentModelId) ya da
   // "configOptions" içinde model kategorisindeki seçenek. İkisi de okunur.
   #readModels(res) {
+    // Düşünme seviyesi (Copilot'ta "thought_level" kategorisindeki yapılandırma seçeneği); modele göre değişebilir
+    const eff = (res?.configOptions || []).find((o) => (o.category === 'thought_level' || /reasoning|effort|thought/i.test(o.id || '')) && Array.isArray(o.options));
+    if (res?.configOptions) {
+      this.effort = eff
+        ? { id: eff.id, current: eff.currentValue || '', options: eff.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o])).filter((o) => o.value).map((o) => ({ value: o.value, name: o.name || o.value, description: o.description || '' })) }
+        : { id: null, current: '', options: [] };
+    }
+    // Her modelin kredi çarpanı (ör. "1x", "15x") model listesindeki _meta'dan okunur ve adın yanında gösterilir
+    for (const m of res?.models?.availableModels || []) {
+      const usage = m?._meta?.copilotUsage;
+      if (m?.modelId && typeof usage === 'string' && usage) this.modelUsage.set(m.modelId, usage);
+    }
+    const withUsage = (id, name) => (this.modelUsage.has(id) && !String(name).includes(this.modelUsage.get(id)) ? `${name} · ${this.modelUsage.get(id)}` : name);
     const opt = (res?.configOptions || []).find((o) => (o.category === 'model' || /model/i.test(o.id || '')) && Array.isArray(o.options));
     if (opt) {
       const flat = opt.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o]));
       this.modelConfigId = opt.id;
-      this.models = flat.filter((o) => o.value).map((o) => ({ value: o.value, name: o.name || o.value, description: o.description || '' }));
+      this.models = flat.filter((o) => o.value).map((o) => ({ value: o.value, name: withUsage(o.value, o.name || o.value), description: o.description || '' }));
       this.model = opt.currentValue || this.model;
     } else if (Array.isArray(res?.models?.availableModels)) {
       this.modelConfigId = null;
-      this.models = res.models.availableModels.filter((m) => m.modelId).map((m) => ({ value: m.modelId, name: m.name || m.modelId, description: m.description || '' }));
+      this.models = res.models.availableModels.filter((m) => m.modelId).map((m) => ({ value: m.modelId, name: withUsage(m.modelId, m.name || m.modelId), description: m.description || '' }));
       this.model = res.models.currentModelId || this.model;
-    } else return;
+    } else {
+      if (res?.configOptions) this.#sendCapabilities();
+      return;
+    }
     this.#sendCapabilities();
     this.emit({ type: 'model', model: this.model });
   }
@@ -384,7 +418,7 @@ export class CopilotSession {
   }
 
   #sendCapabilities() {
-    this.emit({ type: 'capabilities', models: this.models, commands: this.commands });
+    this.emit({ type: 'capabilities', models: this.models, commands: this.commands, effort: { current: this.effort.current, hasDefault: false, options: this.effort.options } });
   }
 
   #appendText(type, text) {
@@ -577,6 +611,15 @@ export class CopilotSession {
       this.model = model;
     }
     this.emit({ type: 'model', model });
+  }
+
+  /** Düşünme seviyesi (Copilot sunuyorsa) */
+  async setEffort(effort) {
+    if (!effort || !this.sessionId || !this.effort.id || effort === this.effort.current || !this.effort.options.some((o) => o.value === effort)) return;
+    const res = await this.conn.request('session/set_config_option', { sessionId: this.sessionId, configId: this.effort.id, value: effort });
+    this.effort.current = effort;
+    if (res?.configOptions) this.#readModels(res);
+    this.emit({ type: 'effort', effort: this.effort.current });
   }
 
   async contextUsage() {
