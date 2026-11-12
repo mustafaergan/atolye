@@ -47,3 +47,16 @@ test('Teams için kopyalama: sondan, mesaja sığacak kadar satır alınır', as
   assert.deepEqual(tailForChat(['a', 'b']), ['a', 'b']);
   assert.equal(tailForChat(['y'.repeat(20000)])[0].length, 601); // tek dev satır kısaltılır
 });
+
+test('güncelleme denemesinin çıktısı kayıtlara eklenir (başlık satırları atılır)', async () => {
+  const { recordUpdateLog, recentLog } = await import('../src/log.js');
+  const text = ['**********************', 'Windows PowerShell transcript start', 'Start time: 20261113', 'Username: x', '**********************',
+    '  > Son sürüm indiriliyor…', '  ! Güncelleme sırasında hata oluştu: Dosyalar kopyalanamadı', '  ✓ Eski sürüm geri yüklendi', '**********************', 'End time: 20261113'].join('\r\n');
+  assert.equal(recordUpdateLog('x', () => Buffer.from(text, 'utf8')), 3);
+  const last = recentLog(3);
+  assert.match(last[0], /\[güncelleme kaydı\] > Son sürüm indiriliyor/);
+  assert.match(last[2], /Eski sürüm geri yüklendi/);
+  // UTF-16 kayıt da okunur; dosya yoksa sessizce geçilir
+  assert.equal(recordUpdateLog('x', () => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('  > deneme satırı', 'utf16le')])), 1);
+  assert.equal(recordUpdateLog('x', () => { throw new Error('yok'); }), 0);
+});
