@@ -175,6 +175,7 @@ export const EN = {
 
   // Sayfadaki sabit metinler (index.html)
   'Tema değiştir': 'Toggle theme',
+  'Genişliği ayarlamak için sürükleyin (çift tıklama: varsayılan)': 'Drag to adjust the width (double-click: default)',
   'Projeler': 'Projects',
   'Proje klasörü ekle': 'Add project folder',
   'Klasör ekle': 'Add folder',
