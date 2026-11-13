@@ -207,6 +207,55 @@ function notice(text, kind = 'error') {
   append(el('div', { class: `notice ${kind === 'info' ? 'info' : ''}`, text }));
 }
 
+// ---------- Copilot'a arayüzden (yeniden) giriş ----------
+// Giriş Copilot CLI'ın kendi cihaz kodu akışıyla yapılır: Atölye kodu gösterir, kullanıcı GitHub sayfasında girer.
+let loginPoll = null;
+function offerCopilotLogin() {
+  clearInterval(loginPoll);
+  dom.messages.querySelectorAll('.login-card').forEach((c) => c.remove());
+  const body = el('div', { class: 'login-body' });
+  const card = el('div', { class: 'login-card' }, body);
+  const show = (...kids) => body.replaceChildren(...kids.filter(Boolean));
+  const req = (method) => fetch('/api/copilot/login', { method }).then((r) => r.json());
+  const intro = (error) => show(
+    error ? el('div', { class: 'login-err', text: T('Giriş tamamlanamadı: {error}', { error }) }) : null,
+    el('div', { text: T("GitHub'a buradan giriş yapabilirsiniz: Atölye bir kod gösterir, açılan GitHub sayfasında bu kodu girip onaylarsınız.") }),
+    el('button', { class: 'btn primary', type: 'button', text: error ? T('Yeniden dene') : T("GitHub'a giriş yap"), onclick: start }));
+  const render = (st) => {
+    if (st.status === 'starting') return show(el('div', { text: T('Giriş kodu isteniyor…') }));
+    if (st.status === 'waiting') {
+      if (body.dataset.code === st.code) return null;
+      body.dataset.code = st.code;
+      return show(
+        el('div', { text: T('1. Kodu kopyalayıp GitHub sayfasını açın.  2. Kodu girip Copilot lisansı olan hesabınızla onaylayın.  3. Bu ekrana dönün; giriş kendiliğinden algılanır.') }),
+        el('div', { class: 'login-code', text: st.code }),
+        el('div', { class: 'login-actions' },
+          el('button', { class: 'btn primary', type: 'button', text: T("Kodu kopyala ve GitHub'ı aç"), onclick: () => { navigator.clipboard?.writeText(st.code).catch(() => {}); window.open(st.url, '_blank', 'noopener'); } }),
+          el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => { clearInterval(loginPoll); req('DELETE'); delete body.dataset.code; intro(); } })),
+        el('div', { class: 'login-wait', text: T('GitHub onayı bekleniyor…') }));
+    }
+    clearInterval(loginPoll);
+    delete body.dataset.code;
+    if (st.status === 'done') {
+      show(el('div', { class: 'login-ok', text: T('Giriş yapıldı. Yeni oturum açılıyor…') }));
+      return setTimeout(() => newSession(), 800);
+    }
+    return intro(st.status === 'failed' ? (st.error === 'timeout' ? T('süre doldu') : st.error) : '');
+  };
+  async function start() {
+    render({ status: 'starting' });
+    try {
+      render(await req('POST'));
+      clearInterval(loginPoll);
+      loginPoll = setInterval(async () => { try { render(await req('GET')); } catch { /* sunucu yeniden başlıyor olabilir */ } }, 2000);
+    } catch (err) {
+      intro(String(err.message || err));
+    }
+  }
+  intro();
+  append(card);
+}
+
 function toolResultText(content) {
   if (content == null) return '';
   if (typeof content === 'string') return content;
@@ -366,7 +415,7 @@ function handleEvent(ev) {
     case 'effort': $('#effortSelect').value = ev.effort || ''; return;
     case 'credits': state.credits = ev.credits; return updateStatus();
     case 'capabilities': return setCapabilities(ev);
-    case 'error': clearTimeout(openWatch); setBusy(false); $('.boot-notice', dom.messages)?.remove(); return notice(ev.message);
+    case 'error': clearTimeout(openWatch); setBusy(false); $('.boot-notice', dom.messages)?.remove(); notice(ev.message); if (ev.login === 'copilot') offerCopilotLogin(); return;
     case 'opened': return applyOpened(ev);
     case 'context': return onContext(ev);
     case 'live': return onLiveList(ev.sessions || []);

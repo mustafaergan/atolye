@@ -5,6 +5,14 @@
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 
+if (process.argv.includes('login')) {
+  // FAKE_LOGIN: 'ok' (kod yaz, kısa süre sonra başarıyla çık), 'fail' (hata ile çık), 'wait' (kod yaz ve bekle)
+  const mode = process.env.FAKE_LOGIN || 'ok';
+  if (mode === 'fail') { console.error('Error: device flow is disabled'); process.exit(1); }
+  console.log('To authenticate, visit https://github.com/login/device and enter code ABCD-1234');
+  console.log('Waiting for authorization...');
+  setTimeout(() => process.exit(0), mode === 'wait' ? 60_000 : 300);
+} else
 if (process.argv.includes('--version')) {
   console.log('1.0.0-sahte');
   process.exit(0);

@@ -59,8 +59,8 @@ function copilotPath() {
 // MCP sunucusuna izin vermiyorsa açılıştaki beklemeyi kaldırır). Yalnızca "--seçenek" ve basit değerler kabul edilir.
 export const extraArgs = (env = process.env) => String(env.COPILOT_EXTRA_ARGS || '').split(/\s+/).filter((a) => /^[\w=.,:@/-]+$/.test(a));
 
-function spawnCopilot(baseArgs, opts) {
-  const args = [...baseArgs, ...extraArgs()];
+function spawnCopilot(baseArgs, opts, withExtra = true) {
+  const args = [...baseArgs, ...(withExtra ? extraArgs() : [])];
   const exe = copilotPath() || 'copilot';
   if (isScript(exe)) return spawn(process.execPath, [exe, ...args], opts);
   // Windows'ta npm ile kurulan "copilot" bir .cmd dosyasıdır; kabuk üzerinden çalıştırılır
@@ -274,7 +274,7 @@ export class CopilotSession {
   start() {
     this.ready = this.#boot().catch((err) => {
       if (!this.closed) {
-        this.emit({ type: 'error', message: friendlyError(err, this.lang) });
+        this.emit({ type: 'error', message: friendlyError(err, this.lang), ...(needsLogin(err) ? { login: 'copilot' } : {}) });
         this.emit({ type: 'session_ended' });
       }
       this.closed = true;
@@ -703,6 +703,68 @@ export class CopilotSession {
 }
 
 const strip = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => k !== 'sessionUpdate' && v !== null && v !== undefined));
+
+/** Hata, GitHub'a (yeniden) giriş yapılarak çözülebilecek türden mi? (giriş yok, süresi dolmuş ya da yanlış hesap) */
+export function needsLogin(err) {
+  const text = String(err?.message || err);
+  if (/ENOENT|is not recognized|tanınmıyor|command not found|bulunamad|not found|timed out|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text)) return false;
+  return /not authorized to use this Copilot|\b403\b|permission_denied|auth|login|401/i.test(text);
+}
+
+// ---------- Arayüzden giriş: "copilot login --device-code" ----------
+// Copilot CLI bir kod üretir; kullanıcı GitHub sayfasında bu kodu girince CLI girişi kendi güvenli deposuna kaydeder.
+// Atölye yalnızca kodu ve adresi ekrana taşır; GitHub parolası ya da token Atölye'den geçmez.
+const LOGIN_TIMEOUT_MS = 10 * 60_000;
+let login = { status: 'idle' }; // idle | starting | waiting | done | failed
+let loginChild = null;
+const publicLogin = () => ({ status: login.status, url: login.url || null, code: login.code || null, error: login.error || null });
+
+export function loginStatus() { return publicLogin(); }
+
+export function startLogin() {
+  if (loginChild) return publicLogin();
+  login = { status: 'starting', output: '' };
+  let child;
+  try {
+    child = spawnCopilot(['login', '--device-code'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: copilotEnv() }, false);
+  } catch (err) {
+    login = { status: 'failed', error: String(err.message || err) };
+    return publicLogin();
+  }
+  loginChild = child;
+  const mine = login;
+  const timer = setTimeout(() => { mine.error = 'timeout'; killTree(child); }, LOGIN_TIMEOUT_MS);
+  const onData = (d) => {
+    mine.output = `${mine.output}${d}`.slice(-4000);
+    const url = /https?:\/\/[^\s"')]+/.exec(mine.output)?.[0];
+    const code = /\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/.exec(mine.output)?.[1];
+    if (url && code && mine.status === 'starting') { mine.url = url; mine.code = code; mine.status = 'waiting'; }
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('error', (err) => { mine.error = mine.error || String(err.message || err); });
+  child.on('close', (exit) => {
+    clearTimeout(timer);
+    if (loginChild === child) loginChild = null;
+    if (mine.status === 'cancelled') return;
+    if (exit === 0 && !mine.error) mine.status = 'done';
+    else { mine.status = 'failed'; mine.error = mine.error || mine.output.trim().split(/\r?\n/).filter(Boolean).pop()?.slice(0, 300) || `exit ${exit}`; }
+    console.log(`[copilot] giriş: ${mine.status}${mine.error ? ` (${mine.error})` : ''}`);
+    if (mine.status === 'done') detectCache = null;
+  });
+  return publicLogin();
+}
+
+export function cancelLogin() {
+  if (loginChild) { login.status = 'cancelled'; killTree(loginChild); loginChild = null; }
+  login = { status: 'idle' };
+  return publicLogin();
+}
+
+function killTree(child) {
+  if (isWin && child.pid) spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  else child.kill('SIGTERM');
+}
 
 function friendlyError(err, lang) {
   const text = String(err?.message || err);
