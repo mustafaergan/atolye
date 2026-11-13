@@ -51,6 +51,15 @@ export const ROLE_PROMPTS = {
   ].join(' '),
 };
 
+// Project Owner analistten türetilir: analist yönergesinin tamamı geçerlidir (analist değişince o da değişir),
+// üzerine birden fazla sistemi birlikte ele alma eklenir.
+ROLE_PROMPTS.sahip = [
+  ROLE_PROMPTS.analist,
+  'In addition, the user acts as a project owner and often works across several systems at once (for example several Jira issues, Confluence pages, repositories and pull requests).',
+  'When more than one connection or item is given, handle them together: gather the data from each, relate the items to each other, and present one consolidated summary, preferably as a table with one row per item, covering status, risks and dependencies.',
+  'Before any bulk action that changes something (for example adding comments to several issues), list exactly what will be changed and wait for the user to confirm.',
+].join(' ');
+
 export class AgentSession {
   /**
    * @param {object} opts
