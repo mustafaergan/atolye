@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 process.env.COPILOT_CLI_PATH = fileURLToPath(new URL('./fixtures/fake-copilot.mjs', import.meta.url));
+process.env.ATOLYE_COPILOT_INSTALL_CMD = 'node --version'; // gerçek kurulum yapılmaz
 const { CopilotSession, detectCopilot, toolForUi } = await import('../src/copilot.js');
 const { SessionManager } = await import('../src/manager.js');
 const { StateStore } = await import('../src/store.js');
@@ -285,4 +286,14 @@ test('arayüzden giriş: kod ve adres okunur, bitince durum done olur; hata ve i
   assert.ok(needsLogin(new Error('You are not authorized to use this Copilot feature')));
   assert.ok(!needsLogin(new Error('Request timed out')));
   assert.ok(!needsLogin(new Error('spawn copilot ENOENT')));
+});
+
+test('arayüzden kurulum: komut bitince Copilot yeniden aranır; bulunduysa done', async () => {
+  const { startInstall, installStatus } = await import('../src/copilot.js');
+  assert.equal(installStatus().status, 'idle');
+  assert.equal(startInstall().status, 'running');
+  assert.equal(startInstall().status, 'running', 'süren kurulum varken ikincisi başlatılmaz');
+  for (let i = 0; i < 200 && installStatus().status === 'running'; i++) await new Promise((r) => setTimeout(r, 50));
+  // Testte kurulum komutu zararsız bir komuttur; Copilot olarak sahte ajan (COPILOT_CLI_PATH) bulunur
+  assert.equal(installStatus().status, 'done', JSON.stringify(installStatus()));
 });
