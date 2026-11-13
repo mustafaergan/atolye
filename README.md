@@ -170,11 +170,11 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   dosyasında `COPILOT_PROXY` / `COPILOT_NO_PROXY` olarak saklanır.
 - Bağlantı kurulduktan sonra mesaj kutusunun altında bir **Bağlantı** seçicisi belirir. Bir bağlantı (ör. Jira) seçiliyken
   yazdığınız soruya, yapay zekânın o bağlantının araçlarını kullanması için kısa bir not eklenir.
-- Bir bağlantı seçiliyken görünen **Veri getir** düğmesi, veriyi yapay zekâya bırakmadan Atölye'nin kendisine çektirir:
+- Copilot oturumunda bir bağlantı seçiliyken görünen **Veri getir** düğmesi, veriyi yapay zekâya bırakmadan Atölye'nin kendisine çektirir:
   kayıtlı bağlantıyla doğrudan servisin REST arayüzüne gidilir (yalnızca okuma) ve sonuç mesajınıza eklenir. MCP
   araçlarının kullanılamadığı oturumlarda da (ör. kuruluş politikasıyla kısıtlı Copilot) bu yol çalışır; getirilen metin
   mesajın parçası olarak seçili yapay zekâya gider.
-- Analist modunda, Copilot oturumunda bir bağlantı seçiliyken soru sorulduğunda akış şöyledir: yapay zekâ soruyu yorumlar
+- Copilot oturumunda (her modda) bir bağlantı seçiliyken soru sorulduğunda akış şöyledir: yapay zekâ soruyu yorumlar
   ve hangi veriye ihtiyacı olduğunu yazar → Atölye isteği gösterir ve onayınızla kayıtlı bağlantı üzerinden REST ile
   getirir → veri yapay zekâya geri gönderilir ve soru yanıtlanır. Yalnızca okuma işlemleri vardır; her istek için onay
   sorulur (oturum boyunca izin verilebilir). Claude Code'da aynı iş MCP araçlarıyla doğrudan yapılır.

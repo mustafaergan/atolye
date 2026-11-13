@@ -262,6 +262,7 @@ function applyEngineUi() {
   // Harcama göstergesi Claude gateway'inin bütçesidir; Copilot oturumunda gösterilmez (Copilot'un kotası değildir)
   $('#spendWrap').classList.toggle('other-engine', copilot);
   if (copilot && !state.copilotQuota) loadCopilotQuota(); else renderCopilotCredit();
+  updateFetchButton();
   // Copilot'ta plan modu /plan komutuyla kullanılır
   const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
   planOpt.hidden = copilot;
@@ -1832,7 +1833,6 @@ const ROLES = {
     tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
-    fetch: true, // "Veri getir": veriyi Atölye REST ile çeker (yalnızca bu modda; geliştirici modu MCP araçlarını kullanır)
   },
   gelistirici: {
     name: () => T('Geliştirici'),
@@ -1889,6 +1889,12 @@ function warnIfLinkUnavailable() {
   notice(text, 'info');
 }
 
+// "Veri getir" düğmesi: Copilot oturumunda, veri bağlantısı seçiliyken (her modda). Claude Code'da gizlidir;
+// orada yapay zekâ bağlantının araçlarını doğrudan kullanır.
+function updateFetchButton() {
+  $('#linkFetchBtn').hidden = !activeLink || currentEngine() !== 'copilot' || Boolean(LINKS[activeLink]?.custom);
+}
+
 // ---------- Soruyu bir bağlantıyla ilişkilendirme ----------
 // Mesaj kutusunun altındaki seçici yalnızca kurulmuş bağlantıları gösterir. Bir bağlantı seçiliyken gönderilen
 // soruya, yapay zekânın o bağlantının araçlarını kullanması için kısa bir not eklenir (mesajda görünür).
@@ -1909,11 +1915,11 @@ function renderLinkSelect() {
   $('#linkWrap').hidden = !connected.length;
   sel.replaceChildren(el('option', { value: '', text: T('Bağlantı: yok') }), ...connected.map((id) => el('option', { value: id, text: LINKS[id].name })));
   sel.value = activeLink;
-  $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch || Boolean(LINKS[activeLink]?.custom);
+  updateFetchButton();
   sel.onchange = () => {
     activeLink = sel.value;
     loadFetchTools(activeLink);
-    $('#linkFetchBtn').hidden = !activeLink || !currentRole().fetch || Boolean(LINKS[activeLink]?.custom);
+    updateFetchButton();
     $('#linkWrap').classList.toggle('active', Boolean(activeLink));
     dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
     dom.input.focus();
@@ -2364,11 +2370,11 @@ async function renderBrowserTab() {
     : '';
 }
 
-// ---------- Yapay zekâ ister, Atölye getirir (analist modu) ----------
+// ---------- Yapay zekâ ister, Atölye getirir (Copilot oturumları) ----------
 // Akış: (1) kullanıcı bir bağlantı seçip sorusunu yazar, (2) yapay zekâ soruyu yorumlar ve hangi veriye ihtiyacı
 // olduğunu belirli bir biçimde yazar, (3) Atölye bunu kullanıcıya gösterir ve onayla kayıtlı bağlantı üzerinden
 // REST ile getirir, (4) veri yapay zekâya geri gönderilir ve soru yanıtlanır. Yalnızca okuma yapan işlemler vardır.
-// MCP araçlarının kullanılamadığı oturumlarda (ör. Copilot) kullanılır; Claude Code'da araçlar zaten doğrudan çalışır.
+// Copilot oturumlarında her modda kullanılır; Claude Code'da değişiklik yoktur, araçlar doğrudan çalışır.
 const REQUEST_FENCE = 'atolye-istek';
 const MAX_AUTO_FETCH = 5; // tek soruda art arda en fazla kaç veri isteği
 const fetchTools = {}; // servis -> okuma işlemleri (yapay zekâya tarif etmek ve gelen isteği doğrulamak için)
@@ -2378,7 +2384,7 @@ async function loadFetchTools(service) {
   if (!service || fetchTools[service]) return;
   fetchTools[service] = await fetch(`/api/link-data/tools?service=${service}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
 }
-const usesFetchProtocol = () => Boolean(activeLink) && currentRole().fetch && currentEngine() === 'copilot' && (fetchTools[activeLink] || []).length > 0;
+const usesFetchProtocol = () => Boolean(activeLink) && currentEngine() === 'copilot' && (fetchTools[activeLink] || []).length > 0;
 
 /** Soruya, yapay zekânın veriyi nasıl isteyeceğini anlatan yönerge eklenir */
 function withFetchProtocol(text) {
