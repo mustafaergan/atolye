@@ -104,6 +104,46 @@ const dom = {
   gatewayInfo: $('#gatewayInfo'),
 };
 
+// ---------- Sürükleyerek genişletme / daraltma ----------
+// Sol menünün ve sohbet sütununun genişliği tutamaçlardan sürüklenerek ayarlanır; seçim bu tarayıcıda saklanır.
+function setupResizer({ handle, cssVar, key, min, max, width }) {
+  if (!handle) return;
+  const root = document.documentElement;
+  const apply = (px) => root.style.setProperty(cssVar, `${Math.round(Math.max(min, Math.min(max(), px)))}px`);
+  let saved = null;
+  try { saved = Number(localStorage.getItem(key)) || null; } catch { /* yoksay */ }
+  if (saved) apply(saved);
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    document.body.classList.add('resizing');
+    const move = (ev) => apply(width(ev.clientX));
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.classList.remove('dragging');
+      document.body.classList.remove('resizing');
+      try { localStorage.setItem(key, parseInt(root.style.getPropertyValue(cssVar), 10)); } catch { /* yoksay */ }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up, { once: true });
+    handle.addEventListener('pointercancel', up, { once: true });
+  });
+  handle.addEventListener('dblclick', () => {
+    root.style.removeProperty(cssVar);
+    try { localStorage.removeItem(key); } catch { /* yoksay */ }
+  });
+}
+setupResizer({
+  handle: document.getElementById('sideResizer'), cssVar: '--sidebar-w', key: 'atolye.sidebarW',
+  min: 200, max: () => Math.min(560, window.innerWidth * 0.5), width: (x) => x,
+});
+setupResizer({
+  handle: document.getElementById('contentResizer'), cssVar: '--content-w', key: 'atolye.contentW',
+  min: 520, max: () => 4000,
+  width: (x) => { const r = document.querySelector('.main').getBoundingClientRect(); return 2 * (x - (r.left + r.width / 2)); },
+});
+
 // ---------- Yardımcılar ----------
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
