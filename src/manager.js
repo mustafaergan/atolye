@@ -13,6 +13,7 @@ import * as transcript from './transcript.js';
 import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
 import { aiTitle, shortTitle } from './title.js';
+import { attachmentPrompt } from './attachments.js';
 
 const IDLE_CLOSE_MS = 30_000;
 
@@ -117,12 +118,14 @@ export class SessionManager {
     };
   }
 
-  send(entry, text, images, lang = 'tr') {
-    entry.agent.send(text, images);
+  send(entry, text, images, lang = 'tr', files = []) {
+    // Ekli dosyaların yolu ve içeriğinin başı yalnızca yapay zekâya giden mesaja eklenir; ekranda dosya adları görünür
+    const extra = attachmentPrompt(files, lang);
+    entry.agent.send(extra ? `${text}\n\n${extra}` : text, images);
     entry.sent = true;
     // Başlık yalnızca kullanıcının yazdığından çıkarılır (Atölye'nin eklediği notlar ve getirilen veriler hariç)
     if (!entry.title) { entry.title = shortTitle(text) || msg(lang, 'Görsel'); entry.firstPrompt = text; entry.lang = lang; }
-    this.#onEvent(entry, { type: 'user_prompt', text, images });
+    this.#onEvent(entry, { type: 'user_prompt', text, images, ...(files.length ? { files: files.map((f) => ({ name: f.name, size: f.size })) } : {}) });
   }
 
   close(entry) {

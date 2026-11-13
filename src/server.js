@@ -23,6 +23,7 @@ import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
 import { shortTitle } from './title.js';
+import { saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import { copilotQuota } from './copilot-quota.js';
@@ -415,7 +416,11 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
         case 'send':
           await opening; // oturum açılırken yazılan mesaj, açılan oturuma gitsin
           if (!entry || entry.agent.closed) throw new Error(msg(lang, 'Aktif oturum yok'));
-          manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang);
+          {
+            const files = saveAttachments(m.files);
+            if (files.length) console.log(`[ek] ${files.length} dosya kaydedildi (${files.map((f) => `${f.kind}${f.note ? `:${f.note.split(':')[0]}` : ''}`).join(', ')})`);
+            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files);
+          }
           return;
         case 'interrupt':
           if (!current) return;
