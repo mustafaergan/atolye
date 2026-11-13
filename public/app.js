@@ -231,7 +231,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: modelFor(engine) || null, effort: store.get(effortKey(engine), '') || null, role: state.role, lang: getLang(), engine });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, lang: getLang(), engine });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
@@ -1513,9 +1513,18 @@ function newSession(dir = state.cwd) {
   renderSessions();
   state.sessionEngine = state.engine;
   applyEngineUi();
+  resetSessionParams();
   openLive({ isNew: true, cwd: dir, engine: state.engine });
   dom.input.focus();
   closeMenu();
+}
+
+// Yeni oturum önceki oturumun ayarlarını devralmaz: izin modu "Her işlemde sor"a döner, bağlantı seçimi kalkar,
+// model ve düşünme seviyesi motorun varsayılanıyla başlar (openLive yeni oturumda tercih göndermez).
+function resetSessionParams() {
+  setMode('default', false);
+  state.model = '';
+  clearActiveLink();
 }
 
 function openSession({ sessionId, liveId, cwd, engine = 'claude' }) {
@@ -1530,6 +1539,7 @@ function openSession({ sessionId, liveId, cwd, engine = 'claude' }) {
   setWorking(T('Oturum açılıyor…'));
   state.sessionEngine = engine;
   applyEngineUi();
+  clearActiveLink();
   openLive({ sessionId, liveId, cwd: state.cwd, engine });
 }
 
@@ -1918,13 +1928,20 @@ function renderLinkSelect() {
   sel.value = activeLink;
   updateFetchButton();
   sel.onchange = () => {
-    activeLink = sel.value;
-    loadFetchTools(activeLink);
-    updateFetchButton();
-    $('#linkWrap').classList.toggle('active', Boolean(activeLink));
-    dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
+    setActiveLink(sel.value);
     dom.input.focus();
   };
+}
+function setActiveLink(link) {
+  activeLink = link || '';
+  $('#linkSelect').value = activeLink;
+  loadFetchTools(activeLink);
+  updateFetchButton();
+  $('#linkWrap').classList.toggle('active', Boolean(activeLink));
+  dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
+}
+function clearActiveLink() {
+  if (activeLink) setActiveLink('');
 }
 const linkPlaceholder = dom.input.placeholder;
 function withLinkHint(text) {
