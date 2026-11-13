@@ -10,7 +10,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-tarayici-'));
 process.env.ATOLYE_CLAUDE_JSON = path.join(dir, '.claude.json');
 process.env.ATOLYE_COPILOT_MCP = path.join(dir, 'copilot', 'mcp-config.json');
 const integrations = await import('../src/integrations.js');
-const { installedBrowserPath } = await import('../src/browser-check.js');
+const { installedBrowserPath, playwrightLibrary } = await import('../src/browser-check.js');
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const cli = path.join(dir, 'node_modules', '@playwright', 'mcp', 'cli.js');
 
@@ -58,4 +58,18 @@ test('kurulu tarayıcı algılama (Chrome / Edge); Playwright\'ın kendi tarayı
   assert.equal(installedBrowserPath('chrome', env, exists, 'win32'), null);
   assert.equal(installedBrowserPath('firefox', env, () => true, 'win32'), null);
   assert.equal(installedBrowserPath('msedge', env, exists, 'linux'), null);
+});
+
+test('Playwright kütüphanesinin yeri paketin yanından bulunur (betikle kullanım için)', () => {
+  // Sahte bir kurulum: <kök>/@playwright/mcp/cli.js ve yanında node_modules/playwright
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-pw-'));
+  const mcp = path.join(root, 'node_modules', '@playwright', 'mcp');
+  const lib = path.join(root, 'node_modules', 'playwright');
+  fs.mkdirSync(mcp, { recursive: true });
+  fs.mkdirSync(lib, { recursive: true });
+  fs.writeFileSync(path.join(mcp, 'cli.js'), '');
+  fs.writeFileSync(path.join(lib, 'package.json'), '{"name":"playwright","version":"1.0.0"}');
+  assert.equal(fs.realpathSync(playwrightLibrary(path.join(mcp, 'cli.js'))), fs.realpathSync(lib));
+  assert.equal(playwrightLibrary(null), null);
+  assert.equal(playwrightLibrary(path.join(os.tmpdir(), 'yok', 'cli.js')), null);
 });

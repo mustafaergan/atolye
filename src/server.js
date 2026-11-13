@@ -25,7 +25,7 @@ import { recentLog } from './log.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import { copilotQuota } from './copilot-quota.js';
-import { checkBrowser, installedMcp, installPlaywrightMcp } from './browser-check.js';
+import { checkBrowser, installedMcp, installPlaywrightMcp, playwrightLibrary } from './browser-check.js';
 import { msg, normalizeLang } from './messages.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -200,7 +200,12 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     if (err.code === 'no-token') return msg(lang, 'API anahtarı gerekli');
     return err.message;
   };
-  app.get('/api/integrations', wrap(async (_req, res) => res.json(integrations.status())));
+  app.get('/api/integrations', wrap(async (_req, res) => {
+    const st = integrations.status();
+    // Tarayıcı bağlantısı kuruluysa Playwright kütüphanesinin yeri de bildirilir (betikle kullanım için)
+    if (st.services.tarayici?.connected) st.services.tarayici.library = playwrightLibrary((await installedMcp())?.cli);
+    res.json(st);
+  }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
     try {
       const st = integrations.save(req.params.service, req.body || {});

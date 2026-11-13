@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const PACKAGE = '@playwright/mcp';
 
@@ -38,6 +39,20 @@ export async function installedMcp() {
     const bin = typeof pkg.bin === 'string' ? pkg.bin : Object.values(pkg.bin || {})[0];
     const cli = bin && path.join(dir, bin);
     return cli && fs.existsSync(cli) ? { version: pkg.version, cli } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Playwright MCP ile birlikte kurulan Playwright kütüphanesinin klasörü. MCP araçlarının kullanılamadığı oturumlarda
+ * (ör. kuruluş politikasıyla kısıtlı Copilot) yapay zekâ tarayıcıyı bir betikle sürebilir; kütüphane zaten kurulu
+ * olduğu için yeniden bir şey kurması gerekmez.
+ */
+export function playwrightLibrary(cli) {
+  if (!cli) return null;
+  try {
+    return path.dirname(createRequire(cli).resolve('playwright/package.json'));
   } catch {
     return null;
   }
