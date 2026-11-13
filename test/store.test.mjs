@@ -50,17 +50,15 @@ test('proje değişiklikleri dinleyicilere duyurulur, hatırlananlar duyurulmaz'
   assert.deepEqual(seen, [1, 1]);
 });
 
-test('varsayılan motor Copilot; kullanıcının seçimi saklanır', () => {
+test('motor seçimi saklanmaz: her açılışta Copilot (eski kayıtlardaki seçim yok sayılır)', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-eng-')), 'durum.json');
-  // Eski sürümün kaydı: motor hiç seçilmemişken "claude" yazılmıştı
-  fs.writeFileSync(file, JSON.stringify({ projects: [], engine: 'claude' }));
+  // Eski sürümün kaydı: kullanıcı Claude Code'u seçmişti
+  fs.writeFileSync(file, JSON.stringify({ projects: [], engine: 'claude', engineChosen: true }));
   const a = new StateStore(file);
   assert.equal(a.get().engine, 'copilot');
-  assert.equal(a.get().engineChosen, false);
-  a.remember({ engine: 'claude' });
-  const b = new StateStore(file);
-  assert.equal(b.get().engine, 'claude');
-  assert.equal(b.get().engineChosen, true);
+  a.remember({ engine: 'claude', cwd: 'C:\\x' }); // arayüz artık göndermez; gönderilse de saklanmaz
+  assert.equal(new StateStore(file).get().engine, 'copilot');
+  assert.equal(new StateStore(file).get().cwd, 'C:\\x');
 });
 
 test('kullanım rolü saklanır; geçersiz değer varsayılana (analist) döner', () => {
