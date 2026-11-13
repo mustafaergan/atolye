@@ -345,6 +345,7 @@ function handleSdk(msg) {
       state.sessionId = msg.session_id;
       setMode(msg.permissionMode, false);
       dom.statusline.dataset.model = msg.model;
+      if (Array.isArray(msg.mcp_servers)) state.mcpServers = Object.fromEntries(msg.mcp_servers.map((m) => [m.name, m.status]));
       updateStatus();
       if (isNew) { rememberOpen(); renderSessions(); }
     } else if (msg.subtype === 'local_command_output') {
@@ -1096,6 +1097,7 @@ function send() {
   const images = state.attachments.map(({ mediaType, data }) => ({ mediaType, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
+  warnIfLinkUnavailable();
   const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? withFetchProtocol(text) : withLinkHint(text || T('Bu görsele bak.'));
   wsSend({ type: 'send', text: outgoing, images });
   dom.input.value = '';
@@ -1487,6 +1489,7 @@ function resetTranscript() {
   state.credits = null;
   autoFetch.active = false;
   autoFetch.allowed = false;
+  state.mcpServers = null;
   state.metrics = newMetrics();
   state.context = null;
   state.ctxRetries = 0;
@@ -1859,6 +1862,31 @@ $('#roleSelect').addEventListener('change', () => {
   // Yapay zekânın anlatım biçimi oturum açılırken belirlenir: yeni mod için temiz bir oturum açılır
   newSession(state.cwd);
 });
+
+// ---------- Seçili bağlantı bu oturumda kullanılabilir mi? ----------
+// Bağlantılar oturum açılırken yüklenir. Bağlantı sonradan kurulduysa, oturum eski bir sürümle açıldıysa ya da
+// araç sunucusu başlatılamadıysa yapay zekâ "araç tanımlı değil" der; bunu kullanıcıya önceden ve sebebiyle söyleriz.
+state.mcpServers = null; // Claude Code'un bildirdiği { sunucu adı: durum } (Copilot bildirmez)
+const linkServer = (link) => (LINKS[link]?.custom ? link : 'atolye');
+let linkWarned = '';
+function warnIfLinkUnavailable() {
+  if (!activeLink) return;
+  const name = LINKS[activeLink].name;
+  const key = `${state.liveId}|${activeLink}`;
+  if (linkWarned === key) return; // aynı oturumda aynı uyarı bir kez
+  let text = '';
+  if (currentEngine() === 'copilot') {
+    // Copilot hangi araçların yüklendiğini bildirmez; veri bağlantılarında Atölye REST ile getirir, tarayıcıda getiremez
+    if (LINKS[activeLink].custom) text = T('{name} bağlantısı yapay zekânın kendi aracıyla çalışır. Kuruluşunuzun Copilot politikası üçüncü taraf araçları kapatmışsa Copilot bunu kullanamaz; bu durumda sağ üstten Claude Code\'u seçip yeni bir oturum açın.', { name });
+  } else if (state.mcpServers) {
+    const status = state.mcpServers[linkServer(activeLink)];
+    if (!status) text = T('{name} bağlantısı bu oturuma yüklenmemiş: bağlantı oturum açıldıktan sonra kurulmuş olabilir. Yeni bir oturum açıp yeniden deneyin.', { name });
+    else if (status !== 'connected') text = T('{name} bağlantısı bu oturumda başlatılamadı (durum: {status}). Yeni bir oturum açın; sürerse Bağlantılar penceresinden yeniden kaydedin ve Kayıtlar sayfasına bakın.', { name, status });
+  }
+  if (!text) return;
+  linkWarned = key;
+  notice(text, 'info');
+}
 
 // ---------- Soruyu bir bağlantıyla ilişkilendirme ----------
 // Mesaj kutusunun altındaki seçici yalnızca kurulmuş bağlantıları gösterir. Bir bağlantı seçiliyken gönderilen
