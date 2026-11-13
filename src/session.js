@@ -47,7 +47,7 @@ export const ROLE_PROMPTS = {
   gelistirici: [
     'The user is a software developer.',
     'Be concise and technical; show the relevant code, commands and file paths.',
-    'When build, security-scan or server tools are available (Jenkins, Fortify, WebLogic), use them to check facts instead of guessing.',
+    'When build, security-scan or server tools are available (Jenkins, Fortify, SonarQube, WebLogic), use them to check facts instead of guessing.',
   ].join(' '),
 };
 

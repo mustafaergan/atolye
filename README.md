@@ -158,7 +158,7 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 |---|---|---|
 | **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; ek olarak mesaj kutusunda **birden fazla bağlantı birlikte seçilebilir** (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
-| **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
+| **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
 Seçim saklanır. Mod değişince yeni bir oturum açılır (anlatım biçimi oturum açılırken belirlenir; Copilot'ta sistem
 yönergesi değiştirilemediği için orada yalnızca görünen bağlantılar ve öneriler değişir). Yeni bir mod (ör. yönetici,
@@ -205,6 +205,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   - **Jenkins** (kullanıcı adı + API belirteci): `jenkins_list_jobs`, `jenkins_get_build`, `jenkins_get_console`,
     `jenkins_trigger_build` (derleme başlatır; diğer yazan araçlar gibi önce izin sorar).
   - **OpenText Fortify SSC** (erişim belirteci, ya da kullanıcı adı + parola; ikincisinde her oturumda geçici belirteç alınır): `fortify_list_versions`, `fortify_list_issues`, `fortify_get_issue`.
+  - **SonarQube** (kullanıcı belirteci; yalnızca okuma): `sonarqube_list_projects`, `sonarqube_quality_gate`,
+    `sonarqube_measures`, `sonarqube_list_issues`, `sonarqube_list_hotspots`.
   - **WebLogic** (REST yönetim arayüzü; kullanıcı adı + parola, yalnızca okuma): `weblogic_servers`,
     `weblogic_applications`, `weblogic_deployments`, `weblogic_datasources`. Parola düz metin saklandığı için
     yönetici hesabı yerine "Monitor" rolünde bir kullanıcı kullanın.
@@ -289,7 +291,7 @@ Tarayıcı (public/)  ⇄  WebSocket  ⇄  Node.js sunucusu (src/)  →  Claude 
 MIT lisansı (bkz. `LICENSE`): yazılım olduğu gibi, hiçbir garanti verilmeden sunulur.
 
 Atölye yalnızca bir arayüzdür; Claude Code, GitHub Copilot ve bağlanan servislerin (Jira, Confluence, Bitbucket, Graylog,
-Jenkins, Fortify, WebLogic) lisansını içermez. Bağlantılar üzerinden getirilen veriler, sorularla birlikte seçilen yapay
+Jenkins, Fortify, SonarQube, WebLogic) lisansını içermez. Bağlantılar üzerinden getirilen veriler, sorularla birlikte seçilen yapay
 zekâ hizmetine gönderilir. **Kurulumdan ve kullanımdan doğacak tüm sorumluluk — veri paylaşımı, lisans ve kuruluş
 kurallarına uygunluk, yapılan işlemler ve sonuçları dahil — kurulumu yapan ve kullanan kişiye aittir; yazılımı
 geliştirenler sorumlu tutulamaz.** Bu koşullar kurulum sırasında gösterilir ve `evet` yazılarak kabul edilmeden kurulum

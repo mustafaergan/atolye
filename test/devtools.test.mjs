@@ -58,6 +58,23 @@ const server = http.createServer((req, res) => {
     if (q === '/domainConfig/appDeployments') return json({ items: [{ name: 'rezervasyon', sourcePath: '/u01/app/rezervasyon.ear', targets: [{ identity: ['clusters', 'kume1'] }] }] });
     if (q === '/domainRuntime/serverRuntimes/ms1/JDBCServiceRuntime/JDBCDataSourceRuntimeMBeans') return json({ items: [{ name: 'anaDS', state: 'Running', activeConnectionsCurrentCount: 4, waitingForConnectionCurrentCount: 0, failuresToReconnectCount: 1 }] });
   }
+  if (p.startsWith('/sonar/')) {
+    if (p === '/sonar/api/authentication/validate') return json({ valid: auth === basic('sq-belirtec', '') });
+    if (auth !== basic('sq-belirtec', '')) return deny();
+    const q = u.searchParams;
+    if (p === '/sonar/api/server/version') return res.end('10.7.0.96327');
+    if (p === '/sonar/api/components/search' && q.get('qualifiers') === 'TRK') return json({ components: [{ key: 'rez', name: 'Rezervasyon' }].filter((c) => !q.get('q') || c.name.toLowerCase().includes(q.get('q'))) });
+    if (p === '/sonar/api/qualitygates/project_status' && q.get('projectKey') === 'rez') return json({ projectStatus: { status: 'ERROR', conditions: [{ status: 'OK', metricKey: 'new_bugs' }, { status: 'ERROR', metricKey: 'new_coverage', comparator: 'LT', errorThreshold: '80', actualValue: '61.5' }] } });
+    if (p === '/sonar/api/measures/component' && q.get('component') === 'rez') return json({ component: { name: 'Rezervasyon', measures: [{ metric: 'coverage', value: '61.5' }, { metric: 'bugs', value: '3' }, { metric: 'security_rating', value: '2.0' }, { metric: 'alert_status', value: 'ERROR' }] } });
+    if (p === '/sonar/api/issues/search') {
+      if (q.get('componentKeys')) { res.statusCode = 400; return json({ errors: [{ msg: 'componentKeys kaldırıldı' }] }); }
+      if (q.get('components') !== 'rez' || q.get('resolved') !== 'false') return json({ issues: [] });
+      const all = [{ key: 'AX1', severity: 'CRITICAL', type: 'BUG', component: 'rez:src/Dao.java', line: 55, message: 'Null olabilir', rule: 'java:S2259' }, { key: 'AX2', severity: 'MINOR', type: 'CODE_SMELL', component: 'rez:src/Log.java', message: 'Kullanılmayan değişken', rule: 'java:S1481' }];
+      const rows = all.filter((i) => !q.get('severities') || q.get('severities').split(',').includes(i.severity));
+      return json({ paging: { total: rows.length }, issues: rows });
+    }
+    if (p === '/sonar/api/hotspots/search' && q.get('projectKey') === 'rez') return json({ paging: { total: 1 }, hotspots: [{ key: 'H1', vulnerabilityProbability: 'HIGH', securityCategory: 'sql-injection', component: 'rez:src/Dao.java', line: 70, message: 'Sorgu birleştiriliyor' }] });
+  }
   res.statusCode = 404; res.end('yok');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -68,13 +85,14 @@ const env = {
   JENKINS_URL: `${base}/jenkins`, JENKINS_EMAIL: 'gelistirici', JENKINS_TOKEN: 'jk-belirtec',
   FORTIFY_URL: `${base}/ssc`, FORTIFY_TOKEN: 'fy-belirtec',
   WEBLOGIC_URL: base, WEBLOGIC_EMAIL: 'izleyici', WEBLOGIC_TOKEN: 'wl-parola',
+  SONARQUBE_URL: `${base}/sonar`, SONARQUBE_TOKEN: 'sq-belirtec',
 };
 const text = async (name, args = {}, e = env) => (await callTool(name, args, e)).content[0].text;
 
 test('araçlar: yalnızca bağlı servisler sunulur; yazan tek geliştirici aracı derleme başlatmadır', () => {
-  assert.equal(availableTools(env).length, 11);
+  assert.equal(availableTools(env).length, 16);
   assert.deepEqual(availableTools({ FORTIFY_URL: base, FORTIFY_TOKEN: 'x' }).map((t) => t.name), ['fortify_list_versions', 'fortify_list_issues', 'fortify_get_issue']);
-  const writes = Object.entries(TOOLS).filter(([, t]) => t.write && ['jenkins', 'fortify', 'weblogic'].includes(t.service)).map(([n]) => n);
+  const writes = Object.entries(TOOLS).filter(([, t]) => t.write && ['jenkins', 'fortify', 'weblogic', 'sonarqube'].includes(t.service)).map(([n]) => n);
   assert.deepEqual(writes, ['jenkins_trigger_build']);
 });
 
@@ -146,4 +164,19 @@ test('Fortify: adres /ssc olmadan ya da tarayıcıdaki uzun sayfa adresiyle giri
   // Yanlış belirteç yine 401 olarak görünür (adres denemeleri bunu gizlemez)
   const bad = await callTool('fortify_list_versions', {}, { FORTIFY_URL: base, FORTIFY_TOKEN: 'yanlis' });
   assert.match(bad.content[0].text, /401/);
+});
+
+test('SonarQube: giriş, projeler, kalite kapısı, ölçümler, bulgular ve sıcak noktalar (yalnızca okuma)', async () => {
+  const { clients, configFromEnv } = await import('../src/atlassian.js');
+  assert.equal(await clients.sonarqube.whoami(configFromEnv('sonarqube', env)), 'SonarQube 10.7.0.96327');
+  await assert.rejects(clients.sonarqube.whoami(configFromEnv('sonarqube', { ...env, SONARQUBE_TOKEN: 'yanlis' })), /belirteci kabul etmedi/);
+  assert.equal(await text('sonarqube_list_projects', { query: 'rez' }), 'rez | Rezervasyon');
+  assert.equal(await text('sonarqube_quality_gate', { project: 'rez' }), 'Kalite kapısı: KALDI\n- new_coverage: 61.5 (eşik: en az 80) — ERROR');
+  assert.equal(await text('sonarqube_measures', { project: 'rez' }), 'Rezervasyon:\n- Kalite kapısı: KALDI\n- Hata: 3\n- Test kapsamı (%): 61.5\n- Güvenlik notu: B');
+  // eski parametre adı reddedilince yenisiyle yeniden denenir
+  assert.equal(await text('sonarqube_list_issues', { project: 'rez' }), 'Toplam 2 açık bulgu (gösterilen 2):\nAX1 | CRITICAL | BUG | src/Dao.java:55 | Null olabilir [java:S2259]\nAX2 | MINOR | CODE_SMELL | src/Log.java | Kullanılmayan değişken [java:S1481]');
+  assert.match(await text('sonarqube_list_issues', { project: 'rez', severities: 'critical' }), /gösterilen 1\)/);
+  assert.equal(await text('sonarqube_list_hotspots', { project: 'rez' }), 'Toplam 1 incelenecek güvenlik sıcak noktası (gösterilen 1):\nH1 | HIGH | sql-injection | src/Dao.java:70 | Sorgu birleştiriliyor');
+  const bad = await callTool('sonarqube_list_projects', {}, { ...env, SONARQUBE_TOKEN: 'yanlis' });
+  assert.equal(bad.isError, true);
 });

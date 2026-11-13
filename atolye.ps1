@@ -293,7 +293,7 @@ function Confirm-Terms {
     '2) Bu ürünleri, şirketinizin o sağlayıcılarla yaptığı sözleşmelere ve',
     '   şirketinizin bilgi güvenliği kurallarına uygun kullanacaksınız.',
     '3) Size verilen token ve API anahtarları kişiseldir; başkasıyla paylaşılmaz.',
-    '4) Bağlantılar (Jira, Confluence, Bitbucket, Graylog, Jenkins, Fortify, WebLogic)',
+    '4) Bağlantılar (Jira, Confluence, Bitbucket, Graylog, Jenkins, Fortify, SonarQube, WebLogic)',
     '   üzerinden getirilen veriler, sorduğunuz sorularla birlikte seçtiğiniz yapay',
     '   zekâ hizmetine gönderilir. Hangi verinin gönderilebileceğine şirketinizin',
     '   kuralları çerçevesinde siz karar verirsiniz.',

@@ -1912,6 +1912,18 @@ LINKS.fortify = {
   ],
   examples: () => T('Örnek: "Fortify\'da proje-adi sürümündeki kritik bulguları listele ve ilkinin nasıl düzeltileceğini anlat".'),
 };
+LINKS.sonarqube = {
+  name: 'SonarQube',
+  urlHint: 'https://sonarqube.sirket.com',
+  noEmail: true,
+  steps: () => [
+    T('SonarQube\'u tarayıcıda açın ve ana adresi kopyalayın (ör. https://sonarqube.sirket.com).'),
+    T('Sağ üstteki hesap simgesi → "My Account" → "Security" sekmesi. "Generate Tokens" bölümünde bir ad yazın, tür olarak "User Token" seçin, bir bitiş süresi belirleyip "Generate" deyin.'),
+    T('Oluşan belirteci kopyalayıp aşağıdaki alana yapıştırın (yalnızca bir kez gösterilir). Atölye SonarQube\'da yalnızca okuma yapar; belirteç sizin görebildiğiniz projeleri görür.'),
+    SAVE_STEP(),
+  ],
+  examples: () => T('Örnek: "SonarQube\'da proje-adi kalite kapısından geçiyor mu? Geçmiyorsa en önemli bulguları ve nasıl düzeltileceğini anlat".'),
+};
 LINKS.weblogic = {
   name: 'WebLogic',
   urlHint: 'http://weblogic.sirket.com:7001',
@@ -1955,7 +1967,7 @@ const ROLES = {
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2028,6 +2040,7 @@ const LINK_TOOLS = {
   graylog: 'graylog_search, graylog_list_streams',
   jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
+  sonarqube: 'sonarqube_list_projects, sonarqube_quality_gate, sonarqube_measures, sonarqube_list_issues, sonarqube_list_hotspots',
   weblogic: 'weblogic_servers, weblogic_applications, weblogic_deployments, weblogic_datasources',
 };
 let activeLink = ''; // seçili (ilk) bağlantı

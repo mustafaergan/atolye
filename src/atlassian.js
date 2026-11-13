@@ -15,7 +15,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -476,4 +476,70 @@ export const weblogic = {
   },
 };
 
-export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic };
+// ---------- SonarQube ----------
+// Kullanıcı belirteci Basic ile gönderilir: kullanıcı adı = belirteç, parola boş (bütün sürümlerde geçerlidir).
+// Yalnızca okuma yapılır.
+const sq = (cfg) => ({ url: cfg.url, email: cfg.token, token: '', basicOnly: true });
+const SQ_METRICS = 'alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,ncloc,reliability_rating,security_rating,sqale_rating';
+const SQ_LABELS = { alert_status: 'Kalite kapısı', bugs: 'Hata', vulnerabilities: 'Güvenlik açığı', security_hotspots: 'Güvenlik sıcak noktası', code_smells: 'Kod kokusu', coverage: 'Test kapsamı (%)', duplicated_lines_density: 'Tekrarlanan satır (%)', ncloc: 'Kod satırı', reliability_rating: 'Güvenilirlik notu', security_rating: 'Güvenlik notu', sqale_rating: 'Bakım notu' };
+const sqRating = (v) => 'ABCDE'[Math.round(Number(v)) - 1] || v;
+const sqFile = (component) => String(component || '').split(':').slice(1).join(':') || component || '';
+const sqBranch = (branch) => (branch ? `&branch=${enc(branch)}` : '');
+export const sonarqube = {
+  async whoami(cfg) {
+    const c = sq(cfg);
+    const v = await call(c, `${cfg.url}/api/authentication/validate`);
+    if (!v.valid) throw new Error('SonarQube belirteci kabul etmedi. Belirteci eksiksiz kopyaladığınızdan ve süresinin dolmadığından emin olun');
+    const version = await call(c, `${cfg.url}/api/server/version`, { text: true }).catch(() => '');
+    return `SonarQube ${String(version).trim().slice(0, 30)}`.trim();
+  },
+  async listProjects(cfg, { query, limit } = {}) {
+    const data = await call(sq(cfg), `${cfg.url}/api/components/search?qualifiers=TRK&ps=${clamp(limit, 50, 200)}${query ? `&q=${enc(query)}` : ''}`);
+    const rows = data.components || [];
+    return rows.map((p) => `${p.key} | ${p.name}`).join('\n') || 'Proje bulunamadı.';
+  },
+  async qualityGate(cfg, { project, branch }) {
+    const st = (await call(sq(cfg), `${cfg.url}/api/qualitygates/project_status?projectKey=${enc(project)}${sqBranch(branch)}`)).projectStatus || {};
+    const failed = (st.conditions || []).filter((c) => c.status !== 'OK');
+    return [
+      `Kalite kapısı: ${st.status === 'OK' ? 'GEÇTİ' : st.status === 'ERROR' ? 'KALDI' : st.status || '?'}`,
+      ...failed.map((c) => `- ${c.metricKey}: ${c.actualValue} (eşik: ${c.comparator === 'LT' ? 'en az' : 'en çok'} ${c.errorThreshold}) — ${c.status}`),
+    ].join('\n');
+  },
+  async measures(cfg, { project, branch, metrics }) {
+    const keys = String(metrics || SQ_METRICS).split(',').map((m) => m.trim()).filter(Boolean).join(',');
+    const data = await call(sq(cfg), `${cfg.url}/api/measures/component?component=${enc(project)}&metricKeys=${enc(keys)}${sqBranch(branch)}`);
+    const rows = data.component?.measures || [];
+    if (!rows.length) return 'Ölçüm yok (proje henüz taranmamış olabilir).';
+    const order = keys.split(',');
+    return [`${data.component.name || project}:`, ...rows.sort((a, b) => order.indexOf(a.metric) - order.indexOf(b.metric)).map((m) => {
+      const value = m.value ?? m.period?.value ?? '';
+      return `- ${SQ_LABELS[m.metric] || m.metric}: ${/_rating$/.test(m.metric) ? sqRating(value) : m.metric === 'alert_status' ? (value === 'OK' ? 'GEÇTİ' : value === 'ERROR' ? 'KALDI' : value) : value}`;
+    })].join('\n');
+  },
+  async listIssues(cfg, { project, branch, severities, types, limit }) {
+    const rest = `&resolved=false&ps=${clamp(limit, 30, 100)}&s=SEVERITY&asc=false${severities ? `&severities=${enc(String(severities).toUpperCase())}` : ''}${types ? `&types=${enc(String(types).toUpperCase())}` : ''}${sqBranch(branch)}`;
+    let data;
+    try {
+      data = await call(sq(cfg), `${cfg.url}/api/issues/search?componentKeys=${enc(project)}${rest}`);
+    } catch (err) {
+      if (!/HTTP 400/.test(err.message)) throw err;
+      // Yeni sürümlerde parametrenin adı "components"
+      data = await call(sq(cfg), `${cfg.url}/api/issues/search?components=${enc(project)}${rest}`);
+    }
+    const rows = data.issues || [];
+    if (!rows.length) return 'Açık bulgu yok.';
+    const total = data.paging?.total ?? data.total ?? rows.length;
+    return cut([`Toplam ${total} açık bulgu (gösterilen ${rows.length}):`, ...rows.map((i) =>
+      `${i.key} | ${i.severity || i.impacts?.[0]?.severity || '?'} | ${i.type || i.impacts?.[0]?.softwareQuality || '?'} | ${sqFile(i.component)}${i.line ? `:${i.line}` : ''} | ${oneLine(i.message).slice(0, 200)} [${i.rule}]`)].join('\n'));
+  },
+  async listHotspots(cfg, { project, branch, limit }) {
+    const data = await call(sq(cfg), `${cfg.url}/api/hotspots/search?projectKey=${enc(project)}&status=TO_REVIEW&ps=${clamp(limit, 30, 100)}${sqBranch(branch)}`);
+    const rows = data.hotspots || [];
+    if (!rows.length) return 'İncelenecek güvenlik sıcak noktası yok.';
+    return cut([`Toplam ${data.paging?.total ?? rows.length} incelenecek güvenlik sıcak noktası (gösterilen ${rows.length}):`, ...rows.map((h) =>
+      `${h.key} | ${h.vulnerabilityProbability || '?'} | ${h.securityCategory || '?'} | ${sqFile(h.component)}${h.line ? `:${h.line}` : ''} | ${oneLine(h.message).slice(0, 200)}`)].join('\n'));
+  },
+};
+
+export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic, sonarqube };
