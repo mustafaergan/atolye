@@ -37,6 +37,22 @@ if (full) {
   if (process.platform !== 'win32') console.warn('Uyarı: tam paket Windows dışında hazırlanıyor; içindeki Claude Code dosyası Windows için olmayabilir.');
   console.log('node_modules kopyalanıyor…');
   fs.cpSync(path.join(ROOT, 'node_modules'), path.join(stage, 'node_modules'), { recursive: true });
+
+  // Node.js'in kendisi de pakete girer: Node kurulamayan bilgisayarlarda kurulum gerektirmeden çalışsın diye.
+  // Paketi hazırlayan bilgisayardaki Node kullanılır (node.exe + npm). Hedefte "runtime" klasöründen çalışır.
+  if (process.platform === 'win32') {
+    const nodeDir = path.dirname(process.execPath);
+    const runtime = path.join(stage, 'runtime');
+    fs.mkdirSync(runtime, { recursive: true });
+    console.log(`Node.js ${process.version} pakete ekleniyor…`);
+    for (const f of ['node.exe', 'npm', 'npm.cmd', 'npx', 'npx.cmd', 'LICENSE', 'README.md']) {
+      if (fs.existsSync(path.join(nodeDir, f))) fs.copyFileSync(path.join(nodeDir, f), path.join(runtime, f));
+    }
+    const npmDir = path.join(nodeDir, 'node_modules', 'npm');
+    if (fs.existsSync(npmDir)) fs.cpSync(npmDir, path.join(runtime, 'node_modules', 'npm'), { recursive: true });
+  } else {
+    console.warn('Uyarı: Node.js yalnızca Windows\'ta hazırlanan tam pakete eklenir.');
+  }
 }
 
 // Kurulum script'i bu dosyadan paketten kurulduğunu anlar
@@ -70,7 +86,9 @@ fs.writeFileSync(path.join(stage, 'KURULUM.txt'), BOM + [
   `Atölye ${pkg.version}${commit ? ` (${commit})` : ''}${full ? ' — tam paket' : ''}`,
   '',
   'Kurulum',
-  '  1. Node.js kurulu değilse https://nodejs.org adresinden LTS sürümünü kurun.',
+  full
+    ? '  1. Node.js kurmanız gerekmez: bu paket kendi Node.js\'ini içinde getirir.'
+    : '  1. Node.js kurulu değilse https://nodejs.org adresinden LTS sürümünü kurun (ya da Node.js içeren tam paketi kullanın).',
   '  2. Bu zip dosyasını herhangi bir klasöre çıkarın.',
   '  3. Kur.bat dosyasına çift tıklayın.',
   '     (Windows "bilinmeyen yayımcı" uyarısı verirse "Ek bilgi" > "Yine de çalıştır".)',
