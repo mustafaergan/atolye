@@ -261,3 +261,28 @@ test('Copilot CLI yalnızca PATH\'te değil, bilinen kurulum klasörlerinde de a
   assert.ok(!list.some((f) => /copilot-shim/.test(f)), 'VS Code yönlendiricisi atlanır');
   assert.deepEqual(copilotCandidates({ HOME: '/home/x', PATH: '/usr/bin' }, 'linux', '/usr/bin/node').slice(0, 2), ['/home/x/.local/bin/copilot', '/usr/local/bin/copilot']);
 });
+
+test('arayüzden giriş: kod ve adres okunur, bitince durum done olur; hata ve iptal doğru bildirilir', async () => {
+  const { startLogin, loginStatus, cancelLogin, needsLogin } = await import('../src/copilot.js');
+  const until = async (fn) => { for (let i = 0; i < 100 && !fn(); i++) await new Promise((r) => setTimeout(r, 50)); assert.ok(fn(), JSON.stringify(loginStatus())); };
+  process.env.FAKE_LOGIN = 'wait';
+  assert.equal(startLogin().status, 'starting');
+  await until(() => loginStatus().status === 'waiting');
+  assert.deepEqual(loginStatus(), { status: 'waiting', url: 'https://github.com/login/device', code: 'ABCD-1234', error: null });
+  assert.equal(startLogin().status, 'waiting', 'süren giriş varken ikinci süreç başlatılmaz');
+  assert.equal(cancelLogin().status, 'idle');
+  process.env.FAKE_LOGIN = 'ok';
+  startLogin();
+  await until(() => loginStatus().status === 'done');
+  process.env.FAKE_LOGIN = 'fail';
+  startLogin();
+  await until(() => loginStatus().status === 'failed');
+  assert.match(loginStatus().error, /device flow is disabled/);
+  delete process.env.FAKE_LOGIN;
+  cancelLogin();
+
+  assert.ok(needsLogin(new Error('Authentication required')));
+  assert.ok(needsLogin(new Error('You are not authorized to use this Copilot feature')));
+  assert.ok(!needsLogin(new Error('Request timed out')));
+  assert.ok(!needsLogin(new Error('spawn copilot ENOENT')));
+});
