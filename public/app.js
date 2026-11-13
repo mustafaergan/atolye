@@ -1877,7 +1877,8 @@ function warnIfLinkUnavailable() {
   let text = '';
   if (currentEngine() === 'copilot') {
     // Copilot hangi araçların yüklendiğini bildirmez; veri bağlantılarında Atölye REST ile getirir, tarayıcıda getiremez
-    if (LINKS[activeLink].custom) text = T('{name} bağlantısı yapay zekânın kendi aracıyla çalışır. Kuruluşunuzun Copilot politikası üçüncü taraf araçları kapatmışsa Copilot bunu kullanamaz; bu durumda sağ üstten Claude Code\'u seçip yeni bir oturum açın.', { name });
+    if (LINKS[activeLink].custom && links.status?.services?.tarayici?.library) text = T('Copilot\'ta tarayıcı araçları kuruluş politikasıyla kapalı olabilir. Bu durumda Copilot, bağlantı kurulurken yüklenen Playwright\'ı bir betikle kullanır; yeni bir şey kurması gerekmez.');
+    else if (LINKS[activeLink].custom) text = T('{name} bağlantısı yapay zekânın kendi aracıyla çalışır. Kuruluşunuzun Copilot politikası üçüncü taraf araçları kapatmışsa Copilot bunu kullanamaz; bu durumda sağ üstten Claude Code\'u seçip yeni bir oturum açın.', { name });
   } else if (state.mcpServers) {
     const status = state.mcpServers[linkServer(activeLink)];
     if (!status) text = T('{name} bağlantısı bu oturuma yüklenmemiş: bağlantı oturum açıldıktan sonra kurulmuş olabilir. Yeni bir oturum açıp yeniden deneyin.', { name });
@@ -1923,6 +1924,12 @@ function withLinkHint(text) {
   if (!activeLink || text.startsWith('/')) return text; // komutlara not eklenmez
   // Veri mesaja zaten eklendiyse yapay zekânın araç aramasına gerek yok
   if (text.includes(T('[veri sonu]'))) return text;
+  // Tarayıcı + Copilot: araçlar kuruluş politikasıyla kapalı olabilir. Bağlantı kurulurken Playwright zaten kuruldu;
+  // yapay zekâ yeni bir şey kurmak yerine onu bir betikle kullanabilsin diye yeri ve seçilen tarayıcı bildirilir.
+  const br = links.status?.services?.tarayici;
+  if (activeLink === 'tarayici' && currentEngine() === 'copilot' && br?.library) {
+    return `${text}\n\n${T('(Tarayıcı araçları (browser_navigate vb.) bu oturumda varsa onları kullan. Yoksa yeni bir kütüphane KURMA: Playwright bu bilgisayarda kurulu. Bir Node.js betiği yazıp çalıştır; kütüphane: require("{library}"), tarayıcı: chromium.launch({ channel: "{channel}", headless: {headless} }). Ekran görüntülerini çalışma klasörüne kaydet ve ne gördüğünü anlat.)', { library: br.library.replace(/\\/g, '/'), channel: br.browser, headless: String(Boolean(br.headless)) })}`;
+  }
   return `${text}\n\n${T('({name} bağlantısını kullan; araçlar: {tools})', { name: LINKS[activeLink].name, tools: LINK_TOOLS[activeLink] })}`;
 }
 const linksDlg = $('#linksDialog');
