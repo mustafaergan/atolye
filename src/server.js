@@ -22,6 +22,7 @@ import * as integrations from './integrations.js';
 import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
+import { shortTitle } from './title.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import { copilotQuota } from './copilot-quota.js';
@@ -40,7 +41,12 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   await fs.mkdir(GENERAL_DIR, { recursive: true });
   const app = express();
   const store = new StateStore();
-  const manager = new SessionManager({ store });
+  const manager = new SessionManager({
+    store,
+    aiTitles: process.env.ATOLYE_AI_TITLE !== '0',
+    // Claude oturumunun başlığı Claude Code'un kendi oturum kaydına yazılır (liste oradan okunur)
+    onTitle: (entry, title) => { if (entry.agent.sessionId) renameSession(entry.agent.sessionId, title, { dir: entry.cwd }).catch(() => {}); },
+  });
   // Klasörsüz sohbet listede her zaman arayüz tarafından en üste konur; kayda yazılmaz
   const notGeneral = (p) => typeof p === 'string' && p && !samePath(p, GENERAL_DIR);
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -203,7 +209,16 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.get('/api/integrations', wrap(async (_req, res) => {
     const st = integrations.status();
     // Tarayıcı bağlantısı kuruluysa Playwright kütüphanesinin yeri de bildirilir (betikle kullanım için)
-    if (st.services.tarayici?.connected) st.services.tarayici.library = playwrightLibrary((await installedMcp())?.cli);
+    if (st.services.tarayici?.connected) {
+      const mcp = await installedMcp();
+      // Eski sürümler sunucuyu npx ile indirerek başlatıyordu (npm erişimi olmayan ağlarda çalışmaz): kayıtlı ayar,
+      // seçilen tarayıcı korunarak Atölye ile gelen Playwright'a çevrilir
+      if (mcp && integrations.browserCli() !== mcp.cli) {
+        integrations.saveBrowser({ browser: st.services.tarayici.browser, headless: st.services.tarayici.headless, cli: mcp.cli });
+        console.log('[tarayıcı] kayıtlı ayar Atölye ile gelen Playwright\'a güncellendi');
+      }
+      st.services.tarayici.library = playwrightLibrary(mcp?.cli);
+    }
     res.json(st);
   }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
@@ -243,7 +258,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const claude = sessions.map((s) => ({
       id: s.sessionId,
       engine: 'claude',
-      title: s.customTitle || s.summary || s.firstPrompt || msg(req.query.lang, 'Adsız oturum'),
+      title: s.customTitle || s.summary || shortTitle(s.firstPrompt) || msg(req.query.lang, 'Adsız oturum'),
       lastModified: s.lastModified,
       gitBranch: s.gitBranch,
       cwd: s.cwd,

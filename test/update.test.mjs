@@ -60,3 +60,18 @@ test('güncelleme denemesinin çıktısı kayıtlara eklenir (başlık satırlar
   assert.equal(recordUpdateLog('x', () => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('  > deneme satırı', 'utf16le')])), 1);
   assert.equal(recordUpdateLog('x', () => { throw new Error('yok'); }), 0);
 });
+
+test('oturum başlığı: yalnızca kullanıcının yazdığı ilk paragraf, kısa; yapay zekâ başlığı temizlenir', async () => {
+  const { shortTitle, cleanAiTitle } = await import('../src/title.js');
+  // Atölye'nin eklediği bağlantı notu başlığa karışmaz
+  assert.equal(shortTitle('test sayfasını aç ve kontrol et\n\n(Tarayıcı bağlantısını kullan; araçlar: browser_navigate, browser_snapshot)'), 'test sayfasını aç ve kontrol et');
+  const long = shortTitle('bu çok uzun bir soru cümlesi ve içinde pek çok kelime var ki başlık olarak hiç uygun değil gerçekten');
+  assert.ok(long.length <= 61 && long.endsWith('…'), long);
+  assert.ok(!long.includes('  '));
+  assert.equal(shortTitle(''), '');
+  assert.equal(cleanAiTitle('"Graylog Hata Kayıtları İncelemesi."'), 'Graylog Hata Kayıtları İncelemesi');
+  assert.equal(cleanAiTitle('Başlık: Test Ortamı Erişim Sorunu\nAçıklama: ...'), 'Test Ortamı Erişim Sorunu');
+  assert.equal(cleanAiTitle('**Port Düzeltmesi**'), 'Port Düzeltmesi');
+  assert.equal(cleanAiTitle(''), '');
+  assert.ok(cleanAiTitle('a'.repeat(200)).length <= 61);
+});
