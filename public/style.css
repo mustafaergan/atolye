@@ -758,3 +758,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .login-wait { color: var(--text-3); font-size: 12.5px; }
 .login-err { color: var(--err); }
 .login-ok { color: var(--ok, #2e7d32); font-weight: 600; }
+
+/* ---------- Birden fazla bağlantı seçimi (Proje Sahibi modu) ---------- */
+.link-multi { position: relative; }
+.link-multi[hidden] { display: none; }
+.link-multi-btn { font: inherit; font-size: 13px; color: var(--text-2); height: 28px; padding: 0 22px 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; cursor: pointer; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; }
+.link-multi-btn::after { content: ''; position: absolute; right: 8px; top: 11px; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); }
+.link-multi-btn:hover { background: var(--surface-2); color: var(--text); }
+.link-multi.active .link-multi-btn { border-color: var(--accent); color: var(--accent); }
+.link-multi-pop { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 20; min-width: 200px; padding: 6px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; }
+.link-multi-pop[hidden] { display: none; }
+.link-multi-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.link-multi-item:hover { background: var(--surface-2); }
+.link-multi-item input { accent-color: var(--accent); }
+.link-multi-foot { display: flex; justify-content: space-between; gap: 6px; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.link-multi-foot .btn { font-size: 12px; padding: 3px 8px; }

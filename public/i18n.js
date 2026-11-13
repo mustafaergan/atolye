@@ -339,6 +339,13 @@ export const EN = {
   'Kullanım modu': 'Usage mode',
   'Kullanım modu: görünen bağlantılar, öneriler ve yapay zekânın anlatım biçimi buna göre değişir': 'Usage mode: the visible connections, the suggestions and the way the AI explains things change accordingly',
   'Analist': 'Analyst',
+  'Proje Sahibi': 'Project Owner',
+  '{n} bağlantı': '{n} connections',
+  'Tümünü seç': 'Select all',
+  'Temizle': 'Clear',
+  'Soruyu bir ya da birden fazla bağlantıyla ilişkilendirir; birkaçını birlikte seçip topluca işlem yaptırabilirsiniz': 'Relates the question to one or more connections; you can select several together for bulk work',
+  '(Bu soruda {n} bağlantı birlikte seçili: {names}. Gerekiyorsa hepsinden veri topla, sonuçları bağlantılar arasında ilişkilendir ve tek bir özet hâlinde sun.)': '({n} connections are selected together for this question: {names}. If needed, gather data from all of them, relate the results across connections and present a single summary.)',
+  '(Birden fazla bağlantı seçili: her seferinde yine TEK istek yaz; veri geldikçe sıradaki isteği yaz, hepsi tamamlanınca sonuçları birleştirerek yanıtla.)': '(Several connections are selected: still write ONE request at a time; write the next request as data arrives, and when all are done answer by combining the results.)',
   'Geliştirici': 'Developer',
   'Neyi anlamak istersiniz?': 'What would you like to understand?',
   'Bu projeyi sizin için okuyup sade bir dille anlatabilirim: ne işe yarar, hangi iş kuralları var, bir değişiklik nereleri etkiler. Siz istemedikçe hiçbir şeyi değiştirmem.':

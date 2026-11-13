@@ -109,3 +109,9 @@ test('kullanım rolü Claude\'un sistem yönergesine eklenir', () => {
   assert.equal(started[2].systemPrompt.append, undefined);
   analist.close(); dev.close(); bilinmeyen.close();
 });
+
+test('Proje Sahibi rolü analistten türetilir: analist yönergesinin tamamını içerir', () => {
+  assert.ok(ROLE_PROMPTS.sahip.startsWith(ROLE_PROMPTS.analist));
+  assert.ok(ROLE_PROMPTS.sahip.length > ROLE_PROMPTS.analist.length);
+  assert.match(ROLE_PROMPTS.sahip, /bulk action/);
+});

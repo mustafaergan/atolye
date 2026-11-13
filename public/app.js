@@ -1956,12 +1956,15 @@ const ROLES = {
     emptyGeneral: 'general',
   },
 };
+// Project Owner analistten türetilir: analistte ne varsa (bağlantılar, öneriler) onda da vardır; analist değişince
+// o da değişir. Tek farkı, aynı soruda birden fazla bağlantının birlikte seçilebilmesidir.
+ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi'), multiLink: true };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
 const roleTabs = () => currentRole().tabs;
 function applyRole() {
   const sel = $('#roleSelect');
-  sel.replaceChildren(...Object.entries(ROLES).map(([id, r]) => el('option', { value: id, text: r.name() })));
+  sel.replaceChildren(...['analist', 'sahip', 'gelistirici'].filter((id) => ROLES[id]).map((id) => el('option', { value: id, text: ROLES[id].name() })));
   if (!ROLES[state.role]) state.role = 'analist';
   sel.value = state.role;
   document.body.dataset.role = state.role;
@@ -1983,12 +1986,13 @@ $('#roleSelect').addEventListener('change', () => {
 // araç sunucusu başlatılamadıysa yapay zekâ "araç tanımlı değil" der; bunu kullanıcıya önceden ve sebebiyle söyleriz.
 state.mcpServers = null; // Claude Code'un bildirdiği { sunucu adı: durum } (Copilot bildirmez)
 const linkServer = (link) => (LINKS[link]?.custom ? link : 'atolye');
-let linkWarned = '';
-function warnIfLinkUnavailable() {
+const linkWarned = new Set();
+function warnIfLinkUnavailable() { activeLinks.forEach(warnOneLink); }
+function warnOneLink(activeLink) {
   if (!activeLink) return;
   const name = LINKS[activeLink].name;
   const key = `${state.liveId}|${activeLink}`;
-  if (linkWarned === key) return; // aynı oturumda aynı uyarı bir kez
+  if (linkWarned.has(key)) return; // aynı oturumda aynı uyarı bir kez
   let text = '';
   if (currentEngine() === 'copilot') {
     // Copilot hangi araçların yüklendiğini bildirmez; veri bağlantılarında Atölye REST ile getirir, tarayıcıda getiremez
@@ -2000,14 +2004,14 @@ function warnIfLinkUnavailable() {
     else if (status !== 'connected') text = T('{name} bağlantısı bu oturumda başlatılamadı (durum: {status}). Yeni bir oturum açın; sürerse Bağlantılar penceresinden yeniden kaydedin ve Kayıtlar sayfasına bakın.', { name, status });
   }
   if (!text) return;
-  linkWarned = key;
+  linkWarned.add(key);
   notice(text, 'info');
 }
 
 // "Veri getir" düğmesi: Copilot oturumunda, veri bağlantısı seçiliyken (her modda). Claude Code'da gizlidir;
 // orada yapay zekâ bağlantının araçlarını doğrudan kullanır.
 function updateFetchButton() {
-  $('#linkFetchBtn').hidden = !activeLink || currentEngine() !== 'copilot' || Boolean(LINKS[activeLink]?.custom);
+  $('#linkFetchBtn').hidden = !activeLink || activeLinks.length > 1 || currentEngine() !== 'copilot' || Boolean(LINKS[activeLink]?.custom);
 }
 
 // ---------- Soruyu bir bağlantıyla ilişkilendirme ----------
@@ -2022,33 +2026,71 @@ const LINK_TOOLS = {
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
   weblogic: 'weblogic_servers, weblogic_applications, weblogic_deployments, weblogic_datasources',
 };
-let activeLink = '';
+let activeLink = ''; // seçili (ilk) bağlantı
+let activeLinks = []; // seçili bağlantıların tümü; birden fazlası yalnızca çoklu seçime izin veren modda (Proje Sahibi)
+let linkConnected = [];
+const multiLink = () => Boolean(currentRole().multiLink);
+const linkNames = (list) => list.map((id) => LINKS[id].name).join(' + ');
 function renderLinkSelect() {
   const sel = $('#linkSelect');
   const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && roleTabs().includes(id)).map(([id]) => id);
-  if (!connected.includes(activeLink)) activeLink = '';
-  $('#linkWrap').hidden = !connected.length;
+  linkConnected = connected;
+  activeLinks = activeLinks.filter((id) => connected.includes(id)).slice(0, multiLink() ? connected.length : 1);
+  activeLink = activeLinks[0] || '';
+  $('#linkWrap').hidden = !connected.length || multiLink();
+  $('#linkMulti').hidden = !connected.length || !multiLink();
   sel.replaceChildren(el('option', { value: '', text: T('Bağlantı: yok') }), ...connected.map((id) => el('option', { value: id, text: LINKS[id].name })));
   sel.value = activeLink;
+  renderLinkMulti();
   updateFetchButton();
   sel.onchange = () => {
     setActiveLink(sel.value);
     dom.input.focus();
   };
 }
-function setActiveLink(link) {
-  activeLink = link || '';
+// Çoklu seçim: düğmeye basınca kurulmuş bağlantılar onay kutularıyla listelenir
+function renderLinkMulti() {
+  const btn = $('#linkMultiBtn');
+  btn.textContent = !activeLinks.length ? T('Bağlantı: yok') : activeLinks.length <= 2 ? linkNames(activeLinks) : T('{n} bağlantı', { n: activeLinks.length });
+  $('#linkMulti').classList.toggle('active', activeLinks.length > 0);
+  const pick = (id, on) => setActiveLinks(linkConnected.filter((x) => (x === id ? on : activeLinks.includes(x))));
+  $('#linkMultiPop').replaceChildren(
+    ...linkConnected.map((id) => {
+      const box = el('input', { type: 'checkbox' });
+      box.checked = activeLinks.includes(id);
+      box.onchange = () => pick(id, box.checked);
+      return el('label', { class: 'link-multi-item' }, box, el('span', { text: LINKS[id].name }));
+    }),
+    el('div', { class: 'link-multi-foot' },
+      el('button', { type: 'button', class: 'btn ghost', text: T('Tümünü seç'), onclick: () => setActiveLinks(linkConnected) }),
+      el('button', { type: 'button', class: 'btn ghost', text: T('Temizle'), onclick: () => setActiveLinks([]) })));
+}
+$('#linkMultiBtn').onclick = () => { $('#linkMultiPop').hidden = !$('#linkMultiPop').hidden; };
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('#linkMulti')) $('#linkMultiPop').hidden = true; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#linkMultiPop').hidden = true; });
+
+function setActiveLinks(list) {
+  activeLinks = [...new Set(list.filter(Boolean))];
+  activeLink = activeLinks[0] || '';
   $('#linkSelect').value = activeLink;
-  loadFetchTools(activeLink);
+  activeLinks.forEach(loadFetchTools);
+  renderLinkMulti();
   updateFetchButton();
   $('#linkWrap').classList.toggle('active', Boolean(activeLink));
-  dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: LINKS[activeLink].name }) : linkPlaceholder;
+  dom.input.placeholder = activeLink ? T('{name} ile ilgili sorunuzu yazın…', { name: linkNames(activeLinks) }) : linkPlaceholder;
 }
+const setActiveLink = (link) => setActiveLinks(link ? [link] : []);
 function clearActiveLink() {
   if (activeLink) setActiveLink('');
 }
 const linkPlaceholder = dom.input.placeholder;
 function withLinkHint(text) {
+  if (activeLinks.length < 2) return withOneLinkHint(text, activeLink);
+  if (text.startsWith('/') || text.includes(T('[veri sonu]'))) return text;
+  // Birden fazla bağlantı: her birinin notu eklenir ve yapay zekâdan sonuçları birleştirmesi istenir
+  return `${text}\n\n${T('(Bu soruda {n} bağlantı birlikte seçili: {names}. Gerekiyorsa hepsinden veri topla, sonuçları bağlantılar arasında ilişkilendir ve tek bir özet hâlinde sun.)', { n: activeLinks.length, names: linkNames(activeLinks) })}\n${activeLinks.map((id) => withOneLinkHint('', id).trim()).join('\n')}`;
+}
+function withOneLinkHint(text, activeLink) {
   if (!activeLink || text.startsWith('/')) return text; // komutlara not eklenmez
   // Veri mesaja zaten eklendiyse yapay zekânın araç aramasına gerek yok
   if (text.includes(T('[veri sonu]'))) return text;
@@ -2506,16 +2548,20 @@ async function loadFetchTools(service) {
   if (!service || fetchTools[service]) return;
   fetchTools[service] = await fetch(`/api/link-data/tools?service=${service}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
 }
-const usesFetchProtocol = () => Boolean(activeLink) && currentEngine() === 'copilot' && (fetchTools[activeLink] || []).length > 0;
+const fetchLinks = () => activeLinks.filter((id) => (fetchTools[id] || []).length > 0);
+const usesFetchProtocol = () => currentEngine() === 'copilot' && fetchLinks().length > 0;
+/** İstenen işlem, bu soruda seçili bağlantılardan hangisine ait? */
+const fetchServiceOf = (op) => (autoFetch.service || []).find((id) => (fetchTools[id] || []).some((t) => t.name === op)) || null;
 
 /** Soruya, yapay zekânın veriyi nasıl isteyeceğini anlatan yönerge eklenir */
 function withFetchProtocol(text) {
-  const tools = fetchTools[activeLink].map((t) => `- ${t.name}(${Object.keys(t.properties || {}).map((k) => `${k}${t.required.includes(k) ? '' : '?'}`).join(', ')}): ${t.description}`).join('\n');
+  const services = fetchLinks();
+  const tools = services.flatMap((id) => fetchTools[id]).map((t) => `- ${t.name}(${Object.keys(t.properties || {}).map((k) => `${k}${t.required.includes(k) ? '' : '?'}`).join(', ')}): ${t.description}`).join('\n');
   autoFetch.active = true;
-  autoFetch.service = activeLink;
+  autoFetch.service = services;
   autoFetch.text = '';
   autoFetch.count = 0;
-  return `${text}\n\n${T('({name} verisi gerekiyorsa kendin erişmeye çalışma ve tahmin yürütme. Önce soruyu yorumla, sonra hangi veriye ihtiyacın olduğunu aşağıdaki biçimde TEK bir istek olarak yaz ve dur; veriyi Atölye getirip sana gönderecek.)', { name: LINKS[activeLink].name })}\n\`\`\`${REQUEST_FENCE}\n{"islem": "<işlem adı>", "args": { ... }}\n\`\`\`\n${T('Kullanılabilir işlemler:')}\n${tools}`;
+  return `${text}\n\n${T('({name} verisi gerekiyorsa kendin erişmeye çalışma ve tahmin yürütme. Önce soruyu yorumla, sonra hangi veriye ihtiyacın olduğunu aşağıdaki biçimde TEK bir istek olarak yaz ve dur; veriyi Atölye getirip sana gönderecek.)', { name: linkNames(services) })}${services.length > 1 ? `\n${T('(Birden fazla bağlantı seçili: her seferinde yine TEK istek yaz; veri geldikçe sıradaki isteği yaz, hepsi tamamlanınca sonuçları birleştirerek yanıtla.)')}` : ''}\n\`\`\`${REQUEST_FENCE}\n{"islem": "<işlem adı>", "args": { ... }}\n\`\`\`\n${T('Kullanılabilir işlemler:')}\n${tools}`;
 }
 
 /** Yapay zekânın cevabındaki veri isteğini ayıklar: { name, args } ya da null */
@@ -2538,7 +2584,7 @@ function sendToAi(text) {
 }
 
 async function runAutoFetch(req, card) {
-  const name = LINKS[autoFetch.service]?.name || autoFetch.service;
+  const name = LINKS[fetchServiceOf(req.name)]?.name || req.name;
   const what = Object.entries(req.args).map(([k, v]) => `${k}=${v}`).join(', ') || req.name;
   if (card) { card.classList.add('resolved'); $('.actions', card)?.remove(); card.append(el('div', { class: 'resolved-note', text: T('Veri getiriliyor…') })); }
   const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: req.name, args: req.args }) })
@@ -2555,12 +2601,13 @@ function checkFetchRequest() {
   const req = parseFetchRequest(autoFetch.text);
   autoFetch.text = '';
   if (!req) { autoFetch.active = false; return; } // yapay zekâ yanıt verdi: akış bitti
-  const tool = (fetchTools[autoFetch.service] || []).find((t) => t.name === req.name);
-  const name = LINKS[autoFetch.service]?.name || autoFetch.service;
+  const service = fetchServiceOf(req.name);
+  const tool = (fetchTools[service] || []).find((t) => t.name === req.name);
+  const name = LINKS[service]?.name || req.name;
   if (!tool) {
     return sendToAi(T('("{op}" diye bir işlem yok. Yalnızca listedeki işlemleri kullan.)', { op: req.name }));
   }
-  if (++autoFetch.count > MAX_AUTO_FETCH) {
+  if (++autoFetch.count > MAX_AUTO_FETCH * Math.max(1, (autoFetch.service || []).length)) { // bağlantı başına sınır
     autoFetch.active = false;
     return notice(T('Yapay zekâ art arda çok fazla veri istedi; durduruldu. Sorunuzu daraltıp yeniden deneyin.'), 'info');
   }
