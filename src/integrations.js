@@ -107,6 +107,12 @@ function writeServer(name, base) {
   }
 }
 
+/** Kayıtlı ayarda sunucunun başlatıldığı dosya (eski, npx ile başlatan ayarlarda null) */
+export function browserCli() {
+  const args = readServer(BROWSER_SERVER)?.args || [];
+  return args.find((a) => /[\\/]@playwright[\\/]mcp[\\/]/.test(a)) || null;
+}
+
 export function browserStatus() {
   const args = readServer(BROWSER_SERVER)?.args || [];
   const i = args.indexOf('--browser');

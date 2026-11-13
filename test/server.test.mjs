@@ -9,6 +9,7 @@ import WebSocket from 'ws';
 
 process.env.ATOLYE_STATE_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-srv-')), 'durum.json');
 process.env.ATOLYE_CONTROL_TIMEOUT_MS = '300';
+process.env.ATOLYE_AI_TITLE = '0'; // başlık isteği bu testlerin konusu değil
 
 const never = () => new Promise(() => {});
 let sessionCounter = 0;

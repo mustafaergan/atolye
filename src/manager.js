@@ -12,13 +12,16 @@ import { AgentSession } from './session.js';
 import * as transcript from './transcript.js';
 import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
+import { aiTitle, shortTitle } from './title.js';
 
 const IDLE_CLOSE_MS = 30_000;
 
 export class SessionManager {
   /** @param {{ store?: import('./store.js').StateStore }} [opts] store: Copilot oturumlarını listelemek için */
-  constructor({ store } = {}) {
+  constructor({ store, aiTitles = false, onTitle = null } = {}) {
     this.store = store;
+    this.aiTitles = aiTitles; // ilk cevaptan sonra yapay zekâya kısa bir başlık yazdır
+    this.onTitle = onTitle; // (entry, title): başlığı kalıcı kaydetmek için (Claude oturumlarında)
     this.entries = new Map(); // liveId -> entry
     this.listeners = new Set(); // canlı oturum listesi değişince çağrılır
   }
@@ -117,7 +120,8 @@ export class SessionManager {
   send(entry, text, images, lang = 'tr') {
     entry.agent.send(text, images);
     entry.sent = true;
-    if (!entry.title) entry.title = text.slice(0, 120) || msg(lang, 'Görsel');
+    // Başlık yalnızca kullanıcının yazdığından çıkarılır (Atölye'nin eklediği notlar ve getirilen veriler hariç)
+    if (!entry.title) { entry.title = shortTitle(text) || msg(lang, 'Görsel'); entry.firstPrompt = text; entry.lang = lang; }
     this.#onEvent(entry, { type: 'user_prompt', text, images });
   }
 
@@ -162,9 +166,18 @@ export class SessionManager {
       if (entry.agent.sessionId && entry.unsaved.length) transcript.append(entry.agent.sessionId, entry.unsaved.splice(0));
     }
     if (ev.type === 'session_title') {
-      if (ev.title) entry.title = ev.title;
+      if (ev.title) { entry.title = ev.title; entry.aiTitled = true; } // motor kendi başlığını verdiyse ayrıca istenmez
       this.#broadcast();
       return;
+    }
+    // İlk turun cevabı biriktirilir; tur bitince başlık istenir
+    if (this.aiTitles && !entry.aiTitled && ev.type === 'sdk') {
+      if (ev.msg.type === 'assistant' && !ev.msg.parent_tool_use_id) {
+        entry.firstAnswer = `${entry.firstAnswer || ''}${(ev.msg.message?.content || []).filter((c) => c.type === 'text').map((c) => c.text).join(' ')}`.slice(0, 2000);
+      } else if (ev.msg.type === 'result' && entry.firstPrompt && entry.firstAnswer) {
+        entry.aiTitled = true;
+        this.#requestTitle(entry);
+      }
     }
     if (ev.type === 'capabilities') {
       entry.capabilities = ev;
@@ -181,6 +194,17 @@ export class SessionManager {
       this.#broadcast();
       this.#maybeClose(entry);
     }
+  }
+
+  // Yapay zekâdan kısa başlık: asıl oturumu etkilemeyen ayrı, tek seferlik bir istek
+  async #requestTitle(entry) {
+    const title = await aiTitle({ engine: entry.engine, cwd: entry.cwd, model: entry.agent.model || undefined, question: entry.firstPrompt, answer: entry.firstAnswer, lang: entry.lang });
+    if (!title) return;
+    entry.title = title;
+    console.log(`[oturum] başlık: ${title}`);
+    if (entry.engine === 'copilot') this.store?.setCopilotTitle(entry.agent.sessionId, title);
+    else this.onTitle?.(entry, title);
+    this.#broadcast();
   }
 
   // Copilot oturumları listede görünsün diye kalıcı depoya yazılır (oluşunca, ilk mesajda, başlıkta, tur sonunda)

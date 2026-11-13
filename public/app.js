@@ -1355,6 +1355,8 @@ function refreshDirSoon(dir) {
 function onLiveList(sessions) {
   const prev = state.running;
   state.running = sessions;
+  const mine = sessions.find((r) => r.liveId && r.liveId === state.liveId);
+  if (mine?.title && dom.sessionTitle.textContent !== mine.title) dom.sessionTitle.textContent = mine.title;
   const now = new Set(sessions.map((r) => `${r.liveId}:${r.sessionId}:${r.busy}`));
   for (const r of prev) if (!now.has(`${r.liveId}:${r.sessionId}:${r.busy}`)) refreshDirSoon(r.cwd);
   for (const r of sessions) {
