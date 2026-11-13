@@ -25,7 +25,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 💬 **Klasörsüz sohbet**: projeye bağlı olmadan soru sorma (ör. ağ/sistem sorunları); oturumlar boş bir klasörde (`~/.atolye/genel`) çalışır, gerekirse izinle komut çalıştırılır
 - 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma; liste diskte (`~/.atolye/durum.json`) tutulur, tarayıcı verileri silinse, port değişse ya da bilgisayar yeniden başlasa da korunur
 - 📁 Klasör seçici, `@dosya` önerisi, `/komut` menüsü (`/compact`, `/context`, kendi komutlarınız…)
-- 🖼️ Görsel ekleme (yapıştır, sürükle-bırak, dosya seç)
+- 🖼️ Görsel ve dosya ekleme (yapıştır, sürükle-bırak, dosya seç): CSV, Excel (`.xlsx`, sayfa sayfa CSV'ye çevrilir), metin, JSON, PDF… Dosyalar bu bilgisayarda `~/.atolye/ekler` altına kaydedilir (30 gün sonra silinir); içeriğin başı mesaja eklenir, tamamını yapay zekâ verilen yoldan okur
 - ⏹️ Durdurma (Esc), açık/koyu tema, mobil uyumlu düzen
 
 ## Gereksinimler

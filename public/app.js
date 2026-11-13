@@ -72,7 +72,7 @@ const state = {
   mode: 'default',
   model: '',
   commands: [],
-  attachments: [],      // { mediaType, data, url }
+  attachments: [],      // görsel: { mediaType, data, url }; dosya: { file: true, name, size, data }
   tools: new Map(),     // tool_use_id -> kart
   live: new Map(),      // message.id -> [{ type, el, raw }]
   liveByIndex: new Map(), // `${msgId}:${index}` -> live kayıt
@@ -372,7 +372,7 @@ function handleEvent(ev) {
     case 'live': return onLiveList(ev.sessions || []);
     case 'state': return applyServerState(ev.state);
     case 'user_prompt':
-      return renderUserBubble(ev.text, (ev.images || []).map((i) => `data:${i.mediaType};base64,${i.data}`));
+      return renderUserBubble(ev.text, (ev.images || []).map((i) => `data:${i.mediaType};base64,${i.data}`), ev.files || []);
     case 'session_ended': return;
   }
 }
@@ -544,16 +544,18 @@ function cleanUserText(text) {
   const cmd = text.match(/<command-name>([^<]*)<\/command-name>[\s\S]*?(?:<command-args>([^<]*)<\/command-args>)?/);
   if (cmd) return `${cmd[1]} ${cmd[2] || ''}`.trim();
   return text
+    .replace(/\n*\[(?:Ekli dosyalar|Attached files): [\s\S]*$/, (m) => `\n\n${[...m.matchAll(/^- (.+?) \(\d+ bayt\): /gm)].map((x) => `📎 ${x[1]}`).join('\n')}`)
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<local-command-[a-z]+>[\s\S]*?<\/local-command-[a-z]+>/g, '')
     .replace(/<command-[a-z]+>[\s\S]*?<\/command-[a-z]+>/g, '')
     .trim();
 }
 
-function renderUserBubble(text, images = []) {
-  if (!text && !images.length) return;
+function renderUserBubble(text, images = [], files = []) {
+  if (!text && !images.length && !files.length) return;
   append(el('div', { class: 'msg-user' },
     images.length ? el('div', { class: 'imgs' }, images.map((src) => el('img', { src, alt: T('Ek görsel') }))) : null,
+    files.length ? el('div', { class: 'files' }, files.map((f) => fileChip(f.name, f.size))) : null,
     text ? el('div', { class: 'bubble', text }) : null));
 }
 
@@ -1136,12 +1138,13 @@ function send() {
   const text = dom.input.value.trim();
   if (!text && !state.attachments.length) return;
   if (text === '/clear' || text === '/new') { newSession(); dom.input.value = ''; autoGrow(); return; }
-  const images = state.attachments.map(({ mediaType, data }) => ({ mediaType, data }));
+  const images = state.attachments.filter((a) => !a.file).map(({ mediaType, data }) => ({ mediaType, data }));
+  const files = state.attachments.filter((a) => a.file).map(({ name, data }) => ({ name, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
   warnIfLinkUnavailable();
-  const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? withFetchProtocol(text) : withLinkHint(text || T('Bu görsele bak.'));
-  wsSend({ type: 'send', text: outgoing, images });
+  const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? withFetchProtocol(text) : withLinkHint(text || (files.length ? T('Ekteki dosyaya bak.') : T('Bu görsele bak.')));
+  wsSend({ type: 'send', text: outgoing, images, ...(files.length ? { files } : {}) });
   dom.input.value = '';
   state.attachments = [];
   renderAttachments();
@@ -1191,28 +1194,38 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ---------- Görsel ekleri ----------
+// ---------- Ekler: görseller ve dosyalar (CSV, Excel, metin, PDF…) ----------
+const fileSize = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+function fileChip(name, size) {
+  return el('span', { class: 'file-chip', title: name },
+    el('span', { class: 'file-ext', text: (name.includes('.') ? name.split('.').pop() : '?').slice(0, 5) }),
+    el('span', { class: 'file-name', text: name }),
+    size ? el('span', { class: 'file-size', text: fileSize(size) }) : null);
+}
 function addImageFile(file) {
-  if (!file.type.startsWith('image/')) return;
-  if (file.size > 5 * 1024 * 1024) return notice(T("{name} 5 MB'tan büyük, eklenmedi.", { name: file.name }));
+  const image = file.type.startsWith('image/');
+  if (image && file.size > 5 * 1024 * 1024) return notice(T("{name} 5 MB'tan büyük, eklenmedi.", { name: file.name }));
+  if (!image && file.size > 10 * 1024 * 1024) return notice(T("{name} 10 MB'tan büyük, eklenmedi.", { name: file.name }));
+  if (!image && !file.size) return;
   const reader = new FileReader();
   reader.onload = () => {
     const url = reader.result;
-    state.attachments.push({ mediaType: file.type, data: String(url).split(',')[1], url });
+    const data = String(url).split(',')[1] || '';
+    state.attachments.push(image ? { mediaType: file.type, data, url } : { file: true, name: file.name, size: file.size, data });
     renderAttachments();
   };
   reader.readAsDataURL(file);
 }
 function renderAttachments() {
   dom.attachments.replaceChildren(...state.attachments.map((a, i) =>
-    el('div', { class: 'att' }, el('img', { src: a.url, alt: '' }),
+    el('div', { class: 'att' }, a.file ? fileChip(a.name, a.size) : el('img', { src: a.url, alt: '' }),
       el('button', { type: 'button', text: '×', 'aria-label': T('Kaldır'), onclick: () => { state.attachments.splice(i, 1); renderAttachments(); } }))));
   updateSendBtn();
 }
 $('#attachBtn').onclick = () => dom.fileInput.click();
 dom.fileInput.onchange = () => { [...dom.fileInput.files].forEach(addImageFile); dom.fileInput.value = ''; };
 dom.input.addEventListener('paste', (e) => {
-  const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+  const files = [...(e.clipboardData?.files || [])];
   if (files.length) { e.preventDefault(); files.forEach(addImageFile); }
 });
 for (const ev of ['dragenter', 'dragover']) dom.composer.addEventListener(ev, (e) => { e.preventDefault(); dom.composer.classList.add('drag'); });

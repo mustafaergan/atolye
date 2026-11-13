@@ -109,6 +109,9 @@ export const EN = {
   'İzinleri atla modunda Claude dosya düzenleme ve komut çalıştırma işlemlerini SORMADAN yapar. Emin misiniz?':
     'In bypass mode Claude edits files and runs commands WITHOUT asking. Are you sure?',
   'Bu görsele bak.': 'Look at this image.',
+  'Ekteki dosyaya bak.': 'Look at the attached file.',
+  "{name} 10 MB'tan büyük, eklenmedi.": '{name} is larger than 10 MB and was not attached.',
+  'Dosya ya da görsel ekle (CSV, Excel, metin, PDF…)': 'Attach a file or image (CSV, Excel, text, PDF…)',
   "{name} 5 MB'tan büyük, eklenmedi.": '{name} is larger than 5 MB and was not attached.',
   'Kaldır': 'Remove',
   'Yeni oturum başlat': 'Start a new session',
