@@ -711,8 +711,8 @@ a.check-update { color: var(--text-2); }
 .composer-bar .select-wrap select { max-width: 170px; text-overflow: ellipsis; }
 @container (max-width: 640px) { .hint { display: none; } }
 /* Düşünme ve Bağlantı seçicilerinin ikisi de görünürken klavye ipucuna yer kalmaz */
-.composer-bar .left:has(#effortWrap:not([hidden])):has(#linkWrap:not([hidden])) ~ .right .hint { display: none; }
-@container (max-width: 760px) { .composer-bar .left:has(#effortWrap:not([hidden])) ~ .right .hint, .composer-bar .left:has(#linkWrap:not([hidden])) ~ .right .hint { display: none; } }
+.composer-bar .left:has(#effortWrap:not([hidden])):has(:is(#linkWrap, #linkMulti):not([hidden])) ~ .right .hint { display: none; }
+@container (max-width: 760px) { .composer-bar .left:has(#effortWrap:not([hidden])) ~ .right .hint, .composer-bar .left:has(:is(#linkWrap, #linkMulti):not([hidden])) ~ .right .hint { display: none; } }
 @container (max-width: 560px) { .composer-bar .select-wrap select { max-width: 120px; } }
 .copilot-credit.warn { border-color: #c98a1a; color: #c98a1a; }
 .copilot-credit.err { border-color: var(--err); color: var(--err); }
@@ -764,7 +764,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* ---------- Birden fazla bağlantı seçimi (Proje Sahibi modu) ---------- */
 .link-multi { position: relative; }
 .link-multi[hidden] { display: none; }
-.link-multi-btn { font: inherit; font-size: 13px; color: var(--text-2); height: 28px; padding: 0 22px 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; cursor: pointer; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; }
+.link-multi-btn { font: inherit; font-size: 13px; color: var(--text-2); height: 28px; padding: 0 22px 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; cursor: pointer; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: relative; }
 .link-multi-btn::after { content: ''; position: absolute; right: 8px; top: 11px; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); }
 .link-multi-btn:hover { background: var(--surface-2); color: var(--text); }
 .link-multi.active .link-multi-btn { border-color: var(--accent); color: var(--accent); }
