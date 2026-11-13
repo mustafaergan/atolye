@@ -209,7 +209,21 @@ function Resolve-PortConflict([switch]$Auto) {
   Write-Host '  Not: Tarayıcı proje listesini adrese göre saklar; yeni adreste klasörleri bir kez yeniden eklemeniz gerekebilir.' -ForegroundColor Gray
 }
 
+# Tam paket kendi Node.js'ini "runtime" klasöründe getirir (Node kurulamayan bilgisayarlar için). Kurulum
+# gerektirmez: node.exe olduğu yerden çalışır. Varsa her zaman o kullanılır ve npm/npx de oradan bulunur.
+function Get-BundledNodeDir {
+  foreach ($dir in @((Join-Path $InstallDir 'runtime'), (Join-Path $PSScriptRoot 'runtime'))) {
+    if ($dir -and (Test-Path (Join-Path $dir 'node.exe'))) { return $dir }
+  }
+  return $null
+}
+
 function Get-NodePath {
+  $bundled = Get-BundledNodeDir
+  if ($bundled) {
+    if (($env:PATH -split ';') -notcontains $bundled) { $env:PATH = "$bundled;$env:PATH" } # npm, npx ve oraya kurulan araçlar
+    return (Join-Path $bundled 'node.exe')
+  }
   $cmd = Get-Command node -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
   # Node.js az önce kurulduysa bu pencerenin PATH'i henüz güncel olmayabilir: bilinen yerlere bak
@@ -316,7 +330,7 @@ function Test-Requirements {
   try { $ver = [version]((& $node --version).Trim().TrimStart('v')) } catch { }
   if (-not $ver) { Stop-NodeMissing "Node.js çalıştırılamadı: $node" }
   if ($ver -lt $MinNode) { Stop-NodeMissing "Node.js $ver çok eski." }
-  Write-Ok "Node.js $ver"
+  Write-Ok "Node.js $ver$(if (Get-BundledNodeDir) { ' (paketle birlikte geldi; ayrıca kurulum gerekmez)' })"
   if ($FromPackage) { return } # paketten kurulumda Git gerekmez
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Stop-WithError "Git bulunamadı. https://git-scm.com adresinden kurup tekrar deneyin." }
   Write-Ok "Git $(((git --version) -replace 'git version ', ''))"

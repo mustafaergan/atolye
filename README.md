@@ -122,6 +122,13 @@ node src/cli.js --port 3211 --cwd C:\projeler\uygulamam --no-open
 | `ATOLYE_SPEND=0` | Harcama göstergesini kapat |
 | `ATOLYE_SPEND_PATH` | Harcama özeti yolu (varsayılan `/spend-summary`) |
 
+### Node.js kurulamayan bilgisayarlar
+
+`npm run paket:tam` ile hazırlanan **tam paket**, kütüphanelerle birlikte Node.js'in kendisini de (`runtime` klasöründe
+`node.exe` ve npm) içerir. Hedef bilgisayarda Node.js kurulu olması, yönetici izni ya da bir kurulum programı gerekmez:
+`Kur.bat` paketteki Node'u kullanır ve Atölye onunla çalışır. Bilgisayarda ayrıca Node.js kurulu olsa bile paketteki
+kullanılır. Kuruluşunuz kurulumsuz çalışan programları da kısıtlıyorsa (uygulama denetimi) BT ekibinize danışın.
+
 ### Kurulumda yapılan denetimler
 
 `atolye.ps1` (ve paketteki `Kur.bat`) kurulum sırasında şunlara bakar; eksik olanı Türkçe adımlarla anlatır, istenirse
