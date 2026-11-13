@@ -24,7 +24,7 @@ export function installedBrowserPath(browser, env = process.env, exists = fs.exi
 
 // npm komutları: Bağlantılar > Proxy'de bir proxy tanımlıysa o kullanılır; kurumsal ağların araya giren sertifikaları
 // için Node'un işletim sistemi sertifika deposuna güvenmesi istenir (destekleyen sürümlerde).
-function npmEnv() {
+export function npmEnv() {
   const env = { ...copilotEnv() };
   const [major, minor] = process.versions.node.split('.').map(Number);
   if ((major > 22 || (major === 22 && minor >= 15)) && !/--use-system-ca/.test(env.NODE_OPTIONS || '')) {

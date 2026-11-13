@@ -20,7 +20,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 📊 **Bağlam ve metrikler**: mesaj kutusunda bağlam doluluk halkası; tıklayınca `/context` dökümü (sistem, araçlar, MCP, CLAUDE.md, mesajlar), oturumun token/süre/maliyet metrikleri ve tek tıkla `/compact`
 - 🗂️ Oturum geçmişi: listeleme, devam etme, yeniden adlandırma, silme (Claude CLI oturumlarıyla ortak)
 - 🔄 **Arka planda çalışma**: başka oturuma geçmek ya da sayfayı yenilemek işi durdurmaz; geri dönünce kaldığı yerden (bekleyen izinler dahil) görünür. Çalışan oturumlar kenar çubuğunda işaretlenir, işi biten ve bakılmayan oturumlar 30 sn sonra bellekten silinir
-- 🔁 **İki motor**: sağ üstteki seçiciyle oturumlar Claude Code ya da GitHub Copilot CLI ile çalışır (aşağıya bakın)
+- 🔁 **İki motor**: sağ üstteki seçiciyle oturumlar Claude Code ya da GitHub Copilot CLI ile çalışır (aşağıya bakın) Copilot CLI kurulu değilse Atölye onu arayüzden kurmayı önerir (onayla `npm install -g @github/copilot`), GitHub girişi de arayüzden yapılır
 - 🌐 **Türkçe / İngilizce arayüz**: kenar çubuğundaki TR / EN seçici; ilk açılışta tarayıcının diline göre seçilir
 - 💬 **Klasörsüz sohbet**: projeye bağlı olmadan soru sorma (ör. ağ/sistem sorunları); oturumlar boş bir klasörde (`~/.atolye/genel`) çalışır, gerekirse izinle komut çalıştırılır
 - 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma; liste diskte (`~/.atolye/durum.json`) tutulur, tarayıcı verileri silinse, port değişse ya da bilgisayar yeniden başlasa da korunur

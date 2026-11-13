@@ -207,6 +207,60 @@ function notice(text, kind = 'error') {
   append(el('div', { class: `notice ${kind === 'info' ? 'info' : ''}`, text }));
 }
 
+// ---------- Copilot CLI'ı arayüzden kurma ----------
+// İlk kurulumda Copilot atlandıysa (ya da kurulamadıysa) buradan kurulur. Kart, Copilot kurulu değilken sayfa
+// açılışında bir kez ve motor seçicide Copilot seçildiğinde gösterilir.
+let installPoll = null;
+let installOffered = false;
+// Sayfa açıldıktan sonraki ilk boş oturumda, Copilot kurulu değilse kurulum bir kez önerilir
+function maybeOfferCopilotInstall() {
+  if (installOffered || state.engines.copilot?.available !== false || dom.messages.children.length) return;
+  installOffered = true;
+  offerCopilotInstall();
+}
+const INSTALL_DISMISS = 'atolye:copilotKurmaSorma';
+function offerCopilotInstall(asked = false) {
+  if (!asked && store.get(INSTALL_DISMISS, '') === '1') return;
+  clearInterval(installPoll);
+  dom.messages.querySelectorAll('.install-card').forEach((c) => c.remove());
+  const body = el('div', { class: 'login-body' });
+  const card = el('div', { class: 'login-card install-card' }, body);
+  const show = (...kids) => body.replaceChildren(...kids.filter(Boolean));
+  const req = (method) => fetch('/api/copilot/install', { method }).then((r) => r.json());
+  const intro = (error) => show(
+    error ? el('div', { class: 'login-err', text: T('Kurulum tamamlanamadı: {error}', { error }) }) : null,
+    error ? el('div', { class: 'login-wait', text: T('Şirket ağı npm erişimini engelliyor olabilir: Bağlantılar → Proxy sekmesini doldurup yeniden deneyin. Olmazsa bir terminalde şunu çalıştırın: npm install -g @github/copilot') }) : null,
+    error ? null : el('div', { text: T('GitHub Copilot bu bilgisayarda kurulu değil. Atölye sizin için kurabilir (npm ile indirilir; birkaç dakika sürebilir). Kurulumdan sonra GitHub girişi de buradan yapılır.') }),
+    el('div', { class: 'login-actions' },
+      el('button', { class: 'btn primary', type: 'button', text: error ? T('Yeniden dene') : T("GitHub Copilot'u kur"), onclick: start }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Gerek yok, Claude Code kullanacağım'), onclick: () => { store.set(INSTALL_DISMISS, '1'); card.remove(); } })));
+  const render = (st) => {
+    if (st.status === 'running') return show(el('div', {}, el('span', { class: 'btn-spin' }), T('GitHub Copilot kuruluyor… Bu birkaç dakika sürebilir; bu sırada Claude Code ile çalışmaya devam edebilirsiniz.')));
+    clearInterval(installPoll);
+    if (st.status === 'done') {
+      show(el('div', { class: 'login-ok', text: T('GitHub Copilot kuruldu. Copilot oturumu açılıyor…') }));
+      store.del(INSTALL_DISMISS);
+      return setTimeout(async () => { await loadEngines(true); card.remove(); state.engine = 'copilot'; newSession(state.cwd); }, 800);
+    }
+    return intro(st.status === 'failed' ? (st.error === 'timeout' ? T('süre doldu') : st.error || '?') : '');
+  };
+  async function start() {
+    try {
+      render(await req('POST'));
+      clearInterval(installPoll);
+      installPoll = setInterval(async () => { try { render(await req('GET')); } catch { /* sunucu meşgul olabilir */ } }, 2500);
+    } catch (err) {
+      intro(String(err.message || err));
+    }
+  }
+  intro();
+  // Boş ekrandaki öneriler gizlenmesin diye doğrudan eklenir
+  dom.messages.append(card);
+  scrollDown(true);
+  // Kurulum başka bir sekmeden başlatılmış ve sürüyorsa kaldığı yerden gösterilir
+  req('GET').then((st) => { if (st.status === 'running') { render(st); installPoll = setInterval(async () => { try { render(await req('GET')); } catch { /* yoksay */ } }, 2500); } }).catch(() => {});
+}
+
 // ---------- Copilot'a arayüzden (yeniden) giriş ----------
 // Giriş Copilot CLI'ın kendi cihaz kodu akışıyla yapılır: Atölye kodu gösterir, kullanıcı GitHub sayfasında girer.
 let loginPoll = null;
@@ -334,8 +388,9 @@ async function loadEngines(refresh = false) {
   state.engines = await fetch(`/api/engines${refresh ? '?refresh=1' : ''}`).then((r) => r.json()).catch(() => state.engines);
   const opt = dom.engineSelect.querySelector('option[value="copilot"]');
   const cp = state.engines.copilot || {};
-  opt.disabled = !cp.available;
-  opt.textContent = cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil)');
+  // Kurulu değilken de seçilebilir: seçilince kurulum önerilir (terminale dönmek gerekmez)
+  opt.disabled = false;
+  opt.textContent = cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil: kur…)');
   opt.title = cp.available ? `Copilot CLI ${cp.version || ''}` : cp.error || '';
   if (!cp.available && state.engine === 'copilot') state.engine = 'claude';
   applyEngineUi();
@@ -362,6 +417,7 @@ function applyEngineUi() {
 dom.engineSelect.addEventListener('pointerdown', () => { if (!state.engines.copilot?.available) loadEngines(true); });
 dom.engineSelect.addEventListener('change', () => {
   const engine = dom.engineSelect.value;
+  if (engine === 'copilot' && !state.engines.copilot?.available) { applyEngineUi(); return offerCopilotInstall(true); }
   state.engine = engine; // yalnızca bu sayfa açıkken geçerli; bir sonraki açılışta yine Copilot gelir
   if (engine !== state.sessionEngine) newSession(state.cwd);
 });
@@ -416,7 +472,7 @@ function handleEvent(ev) {
     case 'credits': state.credits = ev.credits; return updateStatus();
     case 'capabilities': return setCapabilities(ev);
     case 'error': clearTimeout(openWatch); setBusy(false); $('.boot-notice', dom.messages)?.remove(); notice(ev.message); if (ev.login === 'copilot') offerCopilotLogin(); return;
-    case 'opened': return applyOpened(ev);
+    case 'opened': applyOpened(ev); maybeOfferCopilotInstall(); return;
     case 'context': return onContext(ev);
     case 'live': return onLiveList(ev.sessions || []);
     case 'state': return applyServerState(ev.state);

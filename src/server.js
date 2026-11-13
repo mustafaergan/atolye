@@ -17,7 +17,7 @@ import {
 import { SessionManager } from './manager.js';
 import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
-import { detectCopilot, startLogin, loginStatus, cancelLogin } from './copilot.js';
+import { detectCopilot, startLogin, loginStatus, cancelLogin, startInstall, installStatus } from './copilot.js';
 import * as integrations from './integrations.js';
 import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
@@ -158,6 +158,10 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   // Copilot kalan kotası: Copilot CLI'ın yerel önbelleğinden okunur (bkz. copilot-quota.js)
   app.get('/api/copilot/quota', wrap(async (_req, res) => res.json(copilotQuota())));
+
+  // Copilot CLI'ı arayüzden kurma (kullanıcı onayıyla): durum 'running' → 'done' / 'failed'
+  app.get('/api/copilot/install', wrap(async (_req, res) => res.json(installStatus())));
+  app.post('/api/copilot/install', wrap(async (_req, res) => res.json(startInstall())));
 
   // Copilot'a arayüzden giriş (cihaz kodu akışı): kod ve adres ekranda gösterilir, giriş bitince durum 'done' olur
   app.get('/api/copilot/login', wrap(async (_req, res) => res.json(loginStatus())));

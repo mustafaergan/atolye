@@ -654,16 +654,17 @@ function Test-CopilotCli {
   $ver = if ($exe) { Get-CliVersion $exe } else { $null }
   if (-not $ver) {
     Write-Box Yellow @(
-      'GitHub Copilot CLI kurulu değil (isteğe bağlı).',
+      'GitHub Copilot CLI kurulu değil.',
       '',
-      'Atölye''de sağ üstten "GitHub Copilot" motorunu seçmek için gereklidir.',
-      'Sadece Claude Code kullanacaksanız kurmanıza gerek yok.',
+      'Atölye varsayılan olarak GitHub Copilot ile açılır; kurmanız önerilir.',
+      'Şimdi kurmazsanız sonradan Atölye''nin içinden de kurabilirsiniz',
+      '(sağ üstteki motor seçicisinden "GitHub Copilot" seçilir).',
       '',
       'Kurmak için bir terminalde:',
       '  npm install -g @github/copilot',
       'Ardından giriş yapmak için:  copilot login'
     )
-    if (-not ((Test-Interactive) -and (Confirm-Yes 'GitHub Copilot CLI şimdi kurulsun mu?' $false))) { return $false }
+    if (-not ((Test-Interactive) -and (Confirm-Yes 'GitHub Copilot CLI şimdi kurulsun mu?' $true))) { return $false }
     if (-not (Install-NpmGlobal '@github/copilot' 'GitHub Copilot CLI')) { return $false }
     $exe = Find-Cli 'copilot'
     $ver = if ($exe) { Get-CliVersion $exe } else { $null }

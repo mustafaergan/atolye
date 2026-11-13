@@ -9,10 +9,11 @@
 // ajana karşı çalışır (test/fixtures/fake-copilot.mjs).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, execFile } from 'node:child_process';
+import { exec, spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { msg } from './messages.js';
 import { copilotEnv } from './proxy.js';
+import { npmEnv } from './browser-check.js';
 
 const PROTOCOL_VERSION = 1;
 const isWin = process.platform === 'win32';
@@ -85,6 +86,7 @@ export function detectCopilot({ force = false } = {}) {
       if (changed) console.log(`[copilot] algılama: ${value.available ? `bulundu (${exe}${value.version ? `, sürüm ${value.version}` : ', sürüm okunamadı'})` : value.error}`);
       resolve(value);
     };
+    if (exe && path.isAbsolute(exe) && !fs.existsSync(exe)) return done({ available: false, error: `Copilot CLI bulunamadı: ${exe}` });
     if (!exe) return done({ available: false, error: 'Copilot CLI bulunamadı (PATH ve bilinen kurulum klasörlerine bakıldı). Kurmak için: npm install -g @github/copilot' });
     const cb = (err, stdout, stderr) => {
       const out = `${stdout || ''}${stderr || ''}`.trim();
@@ -709,6 +711,31 @@ export function needsLogin(err) {
   const text = String(err?.message || err);
   if (/ENOENT|is not recognized|tanınmıyor|command not found|bulunamad|not found|timed out|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text)) return false;
   return /not authorized to use this Copilot|\b403\b|permission_denied|auth|login|401/i.test(text);
+}
+
+// ---------- Arayüzden kurulum: "npm install -g @github/copilot" ----------
+// İlk kurulumda Copilot atlandıysa terminale dönmek gerekmesin diye. Yalnızca kullanıcı arayüzde onaylayınca çalışır.
+// Bağlantılar > Proxy'deki ayar ve işletim sisteminin sertifika deposu kullanılır (bkz. browser-check.js npmEnv).
+const INSTALL_CMD = process.env.ATOLYE_COPILOT_INSTALL_CMD || 'npm install -g @github/copilot --no-audit --no-fund --loglevel=error';
+let install = { status: 'idle' }; // idle | running | done | failed
+const publicInstall = () => ({ status: install.status, error: install.error || null, version: install.version || null });
+export function installStatus() { return publicInstall(); }
+export function startInstall() {
+  if (install.status === 'running') return publicInstall();
+  const mine = { status: 'running' };
+  install = mine;
+  console.log('[copilot] kurulum başladı');
+  exec(INSTALL_CMD, { timeout: 10 * 60_000, windowsHide: true, env: npmEnv(), maxBuffer: 4 * 1024 * 1024 }, async (err, stdout, stderr) => {
+    const found = await detectCopilot({ force: true });
+    if (found.available) { mine.status = 'done'; mine.version = found.version || null; }
+    else {
+      mine.status = 'failed';
+      const lines = `${stderr || ''}\n${stdout || ''}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      mine.error = (err?.killed ? 'timeout' : lines.find((l) => /E[A-Z]{4,}|error|ERR!/i.test(l)) || lines.pop() || String(err?.message || found.error || '')).slice(0, 300);
+    }
+    console.log(`[copilot] kurulum: ${mine.status}${mine.error ? ` (${mine.error})` : ''}`);
+  });
+  return publicInstall();
 }
 
 // ---------- Arayüzden giriş: "copilot login --device-code" ----------
