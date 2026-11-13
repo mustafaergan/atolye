@@ -10,7 +10,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-tarayici-'));
 process.env.ATOLYE_CLAUDE_JSON = path.join(dir, '.claude.json');
 process.env.ATOLYE_COPILOT_MCP = path.join(dir, 'copilot', 'mcp-config.json');
 const integrations = await import('../src/integrations.js');
-const { installedBrowserPath, playwrightLibrary } = await import('../src/browser-check.js');
+const { installedBrowserPath, installedMcp, playwrightLibrary } = await import('../src/browser-check.js');
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const cli = path.join(dir, 'node_modules', '@playwright', 'mcp', 'cli.js');
 
@@ -72,4 +72,13 @@ test('Playwright kütüphanesinin yeri paketin yanından bulunur (betikle kullan
   assert.equal(fs.realpathSync(playwrightLibrary(path.join(mcp, 'cli.js'))), fs.realpathSync(lib));
   assert.equal(playwrightLibrary(null), null);
   assert.equal(playwrightLibrary(path.join(os.tmpdir(), 'yok', 'cli.js')), null);
+});
+
+test('Playwright MCP Atölye ile birlikte gelir: npm erişimi olmadan da kurulu sayılır', async () => {
+  const mcp = await installedMcp();
+  assert.ok(mcp, 'paket Atölye\'nin kütüphaneleri arasında olmalı (optionalDependencies)');
+  assert.equal(mcp.bundled, true);
+  assert.match(mcp.version, /^\d+\.\d+/);
+  assert.ok(fs.existsSync(mcp.cli));
+  assert.ok(playwrightLibrary(mcp.cli), 'Playwright kütüphanesi de yanında gelir');
 });

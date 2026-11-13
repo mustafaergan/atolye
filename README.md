@@ -188,8 +188,9 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - **Tarayıcı** sekmesi, yapay zekânın bir tarayıcıyı sürmesini sağlar (sayfa açma, tıklama, form doldurma, ekran
   görüntüsü). Hangi tarayıcının açılacağı seçilir: bilgisayarda kurulu Chrome ya da Edge, ya da Playwright'ın kendi
   Chromium / Firefox / WebKit tarayıcıları. Bunun için Microsoft'un Playwright MCP paketi (`@playwright/mcp`) gerekir:
-  kurulu değilse ne indirileceği bildirilir ve yalnızca onay verilirse `npm install -g` ile kurulur; kuruluysa bu adım
-  atlanır ve "kurulu" olarak gösterilir. Ayar CLI dosyalarına `tarayici` adıyla yazılır. Açılan tarayıcı ayrı ve boş bir
+  paket Atölye ile birlikte gelir, bu yüzden npm erişimi olmayan ağlarda da ek kurulum gerekmez ve sekmede "kurulu" görünür
+  (eksikse ne indirileceği bildirilir ve yalnızca onay verilirse `npm install -g` ile kurulur). Kurulu Chrome ya da Edge
+  seçildiğinde tarayıcı da indirilmez. Ayar CLI dosyalarına `tarayici` adıyla yazılır. Açılan tarayıcı ayrı ve boş bir
   profildir; yapay zekâ açtığı sayfalardaki metinlerden etkilenebileceği için gerçek sistemlerde dikkatli kullanılmalıdır.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
   işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner ve ayrı ayrı proje

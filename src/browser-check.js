@@ -4,8 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { copilotEnv } from './proxy.js';
 
 const PACKAGE = '@playwright/mcp';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Kurulu tarayıcıyı kullanan seçenekler için bilinen yerler (Playwright'ın kendi tarayıcıları ayrıca indirilir) */
 export function installedBrowserPath(browser, env = process.env, exists = fs.existsSync, platform = process.platform) {
@@ -19,8 +22,18 @@ export function installedBrowserPath(browser, env = process.env, exists = fs.exi
   return null;
 }
 
+// npm komutları: Bağlantılar > Proxy'de bir proxy tanımlıysa o kullanılır; kurumsal ağların araya giren sertifikaları
+// için Node'un işletim sistemi sertifika deposuna güvenmesi istenir (destekleyen sürümlerde).
+function npmEnv() {
+  const env = { ...copilotEnv() };
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if ((major > 22 || (major === 22 && minor >= 15)) && !/--use-system-ca/.test(env.NODE_OPTIONS || '')) {
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS || ''} --use-system-ca`.trim();
+  }
+  return env;
+}
 const run = (cmd, timeout) => new Promise((resolve) => {
-  exec(cmd, { timeout, windowsHide: true }, (err, stdout) => resolve(err ? null : String(stdout).trim()));
+  exec(cmd, { timeout, windowsHide: true, env: npmEnv() }, (err, stdout) => resolve(err ? null : String(stdout).trim()));
 });
 
 let globalRoot = null; // npm'in genel paket klasörü (bir kez sorulur)
@@ -29,12 +42,8 @@ async function npmGlobalRoot() {
   return globalRoot;
 }
 
-/** Playwright MCP bu bilgisayarda (npm genel paketleri arasında) kurulu mu? { version, cli } ya da null */
-export async function installedMcp() {
-  const root = await npmGlobalRoot();
-  if (!root) return null;
+function readPackage(dir) {
   try {
-    const dir = path.join(root, ...PACKAGE.split('/'));
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
     const bin = typeof pkg.bin === 'string' ? pkg.bin : Object.values(pkg.bin || {})[0];
     const cli = bin && path.join(dir, bin);
@@ -42,6 +51,19 @@ export async function installedMcp() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Playwright MCP kullanılabilir mi? { version, cli, bundled } ya da null. Önce Atölye'nin kendi kütüphaneleri
+ * arasına bakılır: paket Atölye ile birlikte gelir, bu yüzden npm erişimi olmayan ağlarda da kurulum gerekmez.
+ * Orada yoksa (eski ya da eksik kurulum) npm'in genel paketlerine bakılır.
+ */
+export async function installedMcp(root = ROOT) {
+  const bundled = readPackage(path.join(root, 'node_modules', ...PACKAGE.split('/')));
+  if (bundled) return { ...bundled, bundled: true };
+  const globalDir = await npmGlobalRoot();
+  const global = globalDir && readPackage(path.join(globalDir, ...PACKAGE.split('/')));
+  return global ? { ...global, bundled: false } : null;
 }
 
 /**
