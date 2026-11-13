@@ -432,6 +432,7 @@ function handleSdk(msg) {
   if (msg.type === 'system') {
     if (msg.subtype === 'init') {
       $('.boot-notice', dom.messages)?.remove();
+      if (!dom.messages.children.length) dom.empty.hidden = false;
       const isNew = state.sessionId !== msg.session_id;
       state.sessionId = msg.session_id;
       setMode(msg.permissionMode, false);
@@ -1674,6 +1675,9 @@ const EMPTY = {
     title: 'Neyi anlamak istersiniz?',
     text: 'Bu projeyi sizin için okuyup sade bir dille anlatabilirim: ne işe yarar, hangi iş kuralları var, bir değişiklik nereleri etkiler. Siz istemedikçe hiçbir şeyi değiştirmem.',
     tips: [
+      // İlk öneri analiste özellikle önerilir: eski kodla yapılan inceleme yanıltır
+      ['Kodu güncelle (önerilir)', 'Bu klasördeki ve alt klasörlerindeki git repolarını bul. Önce her repo için sunucudaki güncel bilgileri al (git fetch). Sonra her repodaki güncel release dallarını ve etiketlerini, en yenisi üstte olacak şekilde listele; bilgisayarımdaki kodun şu an hangi sürümde olduğunu da yaz. Ardından bana hangi release ile güncellemek istediğimi sor ve cevabımı bekle. Seçtiğim release için, bilgisayarımdaki kodda kaydedilmemiş değişiklik varsa bunları göster ve "üzerine yazılsın mı?" diye sor; ben onaylamadan hiçbir değişikliği silme. Yalnızca bilgisayarımdaki kodu güncelle. Sunucuya kesinlikle hiçbir şey gönderme (push yapma, sunucuda dal ya da etiket oluşturma, silme).', false, true],
+      ['Jira kodda var mı?', 'Aşağıdaki Jira kaydı kodda var mı, kontrol et. Önce Jira kaydını ve varsa alt görevlerini (sub-task) oku. Sonra kodda her birinin karşılığını ara: commit mesajlarında, dal adlarında ve gerekirse kodun içinde Jira numarasını ara. Sonucu sade bir dille yaz: hangi kayıt kodda var, hangisi yok, hangisi yarım görünüyor; var olanlar hangi dalda ya da sürümde. Koda ya da sunucuya hiçbir değişiklik yapma. Jira numarası: ', true],
       ['Projeyi sade dille anlat', 'Bu proje ne işe yarıyor? Teknik olmayan, sade bir dille anlat: ana işlevler, kullanıcılar ve dış sistemlerle bağlantıları.'],
       ['İş kurallarını çıkar', 'Bu projedeki iş kurallarını ve doğrulamaları koddan çıkar; madde madde, sade bir dille yaz ve her birinin hangi dosyada olduğunu belirt.'],
       ['Bir değişikliğin etkisi', 'Şu değişikliği yapmak istesek hangi ekranlar, servisler ve veriler etkilenir? Sade bir dille anlat: ', true],
@@ -1703,8 +1707,8 @@ function updateEmptyState(cwd) {
   const e = isGeneral(cwd) ? (EMPTY[r.emptyGeneral] || EMPTY.general) : (EMPTY[r.emptyProject] || EMPTY.project);
   $('h1', dom.empty).textContent = T(e.title);
   $('p', dom.empty).textContent = T(e.text);
-  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly]) =>
-    el('button', { type: 'button', text: T(label), onclick: () => {
+  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly, recommended]) =>
+    el('button', { type: 'button', class: recommended ? 'recommended' : '', text: T(label), onclick: () => {
       const prompt = T(key);
       dom.input.value = prompt;
       autoGrow();
