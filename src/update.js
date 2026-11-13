@@ -51,7 +51,10 @@ export async function checkUpdate({ force = false } = {}) {
       if (typeof tls.getCACertificates === 'function' && typeof tls.setDefaultCACertificates === 'function')
         tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
     } catch { /* eski Node */ }
-    const res = await fetch(process.env.ATOLYE_UPDATE_URL || DEFAULT_URL, { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } });
+    // GitHub bu dosyayı birkaç dakika önbellekte tutar; kullanıcı elle denetlediğinde adres benzersiz yapılarak
+    // yeni gönderilmiş bir sürümün hemen görülmesi sağlanır
+    const url = process.env.ATOLYE_UPDATE_URL || DEFAULT_URL;
+    const res = await fetch(force ? `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}` : url, { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } });
     if (res.ok) {
       const latest = String(JSON.parse(await res.text()).version || '');
       if (/^\d+\.\d+\.\d+/.test(latest)) value = { latest, available: compareVersions(latest, current) > 0 };
