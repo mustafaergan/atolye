@@ -246,3 +246,18 @@ test('düşünme seviyesi Copilot\'un sunduğu seçeneklerden gelir ve değişti
   assert.equal(events2.filter((e) => e.type === 'capabilities').at(-1).effort.current, 'low');
   s2.close();
 });
+
+test('Copilot CLI yalnızca PATH\'te değil, bilinen kurulum klasörlerinde de aranır; VS Code yönlendiricisi sayılmaz', async () => {
+  const { copilotCandidates } = await import('../src/copilot.js');
+  const env = {
+    APPDATA: 'C:\\Users\\x\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local', USERPROFILE: 'C:\\Users\\x',
+    PATH: 'C:\\Windows;C:\\Program Files\\Microsoft VS Code\\bin\\copilot-shim;C:\\araclar',
+  };
+  const list = copilotCandidates(env, 'win32', 'C:\\Atolye\\runtime\\node.exe');
+  assert.equal(list[0], 'C:\\Users\\x\\AppData\\Roaming\\npm\\copilot.cmd', 'PATH güncel olmasa da npm klasörüne bakılır');
+  assert.ok(list.includes('C:\\Atolye\\runtime\\copilot.cmd'), 'Atölye ile gelen Node ile kurulan Copilot');
+  assert.ok(list.includes('C:\\Users\\x\\AppData\\Local\\Microsoft\\WinGet\\Links\\copilot.exe'), 'winget kurulumu');
+  assert.ok(list.includes('C:\\araclar\\copilot.exe'), 'PATH\'teki klasörler');
+  assert.ok(!list.some((f) => /copilot-shim/.test(f)), 'VS Code yönlendiricisi atlanır');
+  assert.deepEqual(copilotCandidates({ HOME: '/home/x', PATH: '/usr/bin' }, 'linux', '/usr/bin/node').slice(0, 2), ['/home/x/.local/bin/copilot', '/usr/local/bin/copilot']);
+});

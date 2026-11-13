@@ -7,6 +7,8 @@
 // Protokol: satır satır JSON-RPC 2.0 (https://agentclientprotocol.com). Bilinçli olarak
 // küçük ve bağımlılıksız yazıldı; testler resmî ACP kütüphanesiyle yazılmış bir sahte
 // ajana karşı çalışır (test/fixtures/fake-copilot.mjs).
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { msg } from './messages.js';
@@ -16,9 +18,42 @@ const PROTOCOL_VERSION = 1;
 const isWin = process.platform === 'win32';
 export const COPILOT_MODEL_LABEL = 'GitHub Copilot';
 
-// Copilot CLI'ın yeri: COPILOT_CLI_PATH (Copilot'un kendi örneğinin de kullandığı ad) ya da PATH'teki "copilot"
-const copilotPath = () => process.env.COPILOT_CLI_PATH?.trim() || 'copilot';
+// Copilot CLI'ın yeri. Atölye bir kısayoldan ya da Windows açılışında başlatıldığında PATH güncel olmayabilir
+// (Copilot sonradan kurulduysa "kurulu değil" görünürdü). Bu yüzden yalnızca PATH'e değil, kurulumların dosyayı
+// koyduğu bilinen klasörlere de bakılır. VS Code'un "copilot" yönlendiricisi (copilot-shim) gerçek CLI sayılmaz.
 const isScript = (p) => /\.(mjs|cjs|js)$/i.test(p);
+const isShim = (p) => /copilot-shim/i.test(p);
+
+/** Copilot CLI'ın bulunabileceği yerler, öncelik sırasıyla */
+export function copilotCandidates(env = process.env, platform = process.platform, execPath = process.execPath) {
+  const win = platform === 'win32';
+  const p = win ? path.win32 : path.posix;
+  const list = [];
+  const names = win ? ['copilot.cmd', 'copilot.exe', 'copilot.bat'] : ['copilot'];
+  const addDir = (...parts) => { if (parts.every(Boolean)) for (const n of names) list.push(p.join(...parts, n)); };
+  if (win) {
+    addDir(env.APPDATA, 'npm');                                  // npm install -g (kurulu Node)
+    addDir(p.dirname(execPath));                                 // npm install -g (Atölye ile gelen Node)
+    addDir(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links');    // winget
+    addDir(env.LOCALAPPDATA, 'Programs', 'GitHub Copilot');
+    addDir(env.USERPROFILE, '.local', 'bin');
+  } else {
+    addDir(env.HOME, '.local', 'bin');
+    addDir('/usr/local/bin');
+    addDir('/opt/homebrew/bin');
+  }
+  for (const dir of String(env.PATH || env.Path || '').split(win ? ';' : ':')) addDir(dir.trim());
+  return [...new Set(list)].filter((f) => !isShim(f));
+}
+
+let resolvedCopilot = null; // bulunan dosyanın tam yolu (bulunamadıysa null)
+/** Kullanılacak Copilot CLI: COPILOT_CLI_PATH verilmişse o, yoksa bilinen yerlerde bulunan ilk dosya */
+function copilotPath() {
+  const explicit = process.env.COPILOT_CLI_PATH?.trim();
+  if (explicit) return explicit;
+  if (!resolvedCopilot || !fs.existsSync(resolvedCopilot)) resolvedCopilot = copilotCandidates().find((f) => fs.existsSync(f)) || null;
+  return resolvedCopilot;
+}
 
 // COPILOT_EXTRA_ARGS: Copilot'a eklenecek seçenekler (ör. --disable-builtin-mcps: şirket ağı GitHub'ın kendi
 // MCP sunucusuna izin vermiyorsa açılıştaki beklemeyi kaldırır). Yalnızca "--seçenek" ve basit değerler kabul edilir.
@@ -26,7 +61,7 @@ export const extraArgs = (env = process.env) => String(env.COPILOT_EXTRA_ARGS ||
 
 function spawnCopilot(baseArgs, opts) {
   const args = [...baseArgs, ...extraArgs()];
-  const exe = copilotPath();
+  const exe = copilotPath() || 'copilot';
   if (isScript(exe)) return spawn(process.execPath, [exe, ...args], opts);
   // Windows'ta npm ile kurulan "copilot" bir .cmd dosyasıdır; kabuk üzerinden çalıştırılır
   if (isWin) return spawn(`"${exe}" ${args.join(' ')}`, { ...opts, shell: true });
@@ -35,19 +70,32 @@ function spawnCopilot(baseArgs, opts) {
 
 // ---------- Kurulu mu? ----------
 let detectCache = null;
-/** Copilot CLI kurulu ve çalışıyor mu? (VS Code'un "kurulu değil" yönlendiricisini ayırt eder) */
+/**
+ * Copilot CLI kurulu mu? Dosya bilinen yerlerden birinde bulunursa kurulu sayılır; sürüm ayrıca sorulur ama
+ * cevap gecikirse (şirket ağında açılış denetimleri uzun sürebilir) bu "kurulu değil" anlamına gelmez.
+ */
 export function detectCopilot({ force = false } = {}) {
   if (!force && detectCache && Date.now() - detectCache.at < 60_000) return Promise.resolve(detectCache.value);
+  if (force) resolvedCopilot = null;
   const exe = copilotPath();
   return new Promise((resolve) => {
-    const done = (value) => { detectCache = { at: Date.now(), value }; resolve(value); };
+    const done = (value) => {
+      const changed = JSON.stringify(detectCache?.value) !== JSON.stringify(value);
+      detectCache = { at: Date.now(), value };
+      if (changed) console.log(`[copilot] algılama: ${value.available ? `bulundu (${exe}${value.version ? `, sürüm ${value.version}` : ', sürüm okunamadı'})` : value.error}`);
+      resolve(value);
+    };
+    if (!exe) return done({ available: false, error: 'Copilot CLI bulunamadı (PATH ve bilinen kurulum klasörlerine bakıldı). Kurmak için: npm install -g @github/copilot' });
     const cb = (err, stdout, stderr) => {
       const out = `${stdout || ''}${stderr || ''}`.trim();
-      const version = out.match(/\d+\.\d+\.\d+[\w.-]*/)?.[0];
+      const version = out.match(/\d+\.\d+\.\d+[\w.-]*/)?.[0]?.replace(/[.-]+$/, ''); // cümle sonundaki nokta sürüme dahil değil
       if (!err && version && !/not found|bulunamad/i.test(out)) return done({ available: true, version });
-      done({ available: false, error: (out || err?.message || 'copilot bulunamadı').split('\n')[0].slice(0, 200) });
+      // Yönlendirici "kurulu değil" diyorsa gerçekten yok; bunun dışında dosya yerindeyse kurulu sayılır
+      if (/not found|bulunamad|is not recognized|tanınmıyor/i.test(out)) return done({ available: false, error: out.split('\n')[0].slice(0, 200) });
+      if (process.env.COPILOT_CLI_PATH?.trim() && err?.code === 'ENOENT') return done({ available: false, error: `COPILOT_CLI_PATH bulunamadı: ${exe}` });
+      done({ available: true, version: null });
     };
-    const opts = { timeout: 15_000, windowsHide: true };
+    const opts = { timeout: 20_000, windowsHide: true };
     if (isScript(exe)) execFile(process.execPath, [exe, '--version'], opts, cb);
     else if (isWin) execFile(`"${exe}" --version`, { ...opts, shell: true }, cb);
     else execFile(exe, ['--version'], opts, cb);

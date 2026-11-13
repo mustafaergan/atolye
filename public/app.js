@@ -237,7 +237,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
 // Sağ üstteki seçici açık oturumun motorunu gösterir; değiştirmek o klasörde seçilen motorla
 // yeni bir oturum açar (açık oturum kendi motoruyla listede çalışmaya devam eder).
-state.engine = 'copilot';       // yeni oturumlar için seçilen (varsayılan Copilot; kullanıcının seçimi sunucuda saklanır)
+state.engine = 'copilot';       // yeni oturumlar için seçilen. Sayfa her açıldığında Copilot'tur; seçim saklanmaz
 state.sessionEngine = null;     // açık oturumun motoru
 state.engines = { claude: { available: true }, copilot: { available: false } };
 
@@ -269,10 +269,11 @@ function applyEngineUi() {
   planOpt.disabled = copilot;
 }
 
+// Copilot "kurulu değil" görünüyorsa seçici açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
+dom.engineSelect.addEventListener('pointerdown', () => { if (!state.engines.copilot?.available) loadEngines(true); });
 dom.engineSelect.addEventListener('change', () => {
   const engine = dom.engineSelect.value;
-  state.engine = engine;
-  remember({ engine });
+  state.engine = engine; // yalnızca bu sayfa açıkken geçerli; bir sonraki açılışta yine Copilot gelir
   if (engine !== state.sessionEngine) newSession(state.cwd);
 });
 
@@ -2628,13 +2629,14 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   // Aktarım yapılan açılışta eski kayıttaki son klasör/oturum önceliklidir
   setCwdLabel((migrating && legacyCwd) || saved?.cwd || legacyCwd || state.projects[0] || state.config.defaultCwd);
   // Sayfa yenilendiyse ya da tarayıcı yeniden açıldıysa en son bakılan oturuma dön
-  if (saved?.engine) state.engine = saved.engine;
   if (saved?.role) state.role = saved.role;
   applyRole();
   let last = (migrating && legacyOpen) || saved?.open || legacyOpen;
   // Motor hiç seçilmediyse varsayılan (Copilot) geçerlidir: eski bir Claude oturumuna değil, yeni oturuma açılır
   await loadEngines(); // Copilot kurulu değilse seçim Claude'a düşer
-  if (last && !saved?.engineChosen && (last.engine || 'claude') !== state.engine) last = null;
+  // Sayfa her açıldığında Copilot gelir (kurulu değilse Claude Code): son oturum başka motordaysa ona dönülmez,
+  // yeni bir oturum açılır. O oturum kaybolmaz; motoru değiştirince listede görünür.
+  if (last && (last.engine || 'claude') !== state.engine) last = null;
   if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; state.sessionEngine = last.engine || 'claude'; }
   applyEngineUi();
   // Son oturum Copilot'tu ama Copilot artık yoksa: hata göstermek yerine Claude ile temiz başla
