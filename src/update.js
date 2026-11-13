@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_URL = 'https://raw.githubusercontent.com/mustafaergan/atolye/main/package.json';
+const API_URL = 'https://api.github.com/repos/mustafaergan/atolye/contents/package.json?ref=main';
 const CACHE_MS = 24 * 60 * 60 * 1000; // günde bir kez
 let cache = null;
 
@@ -51,13 +52,18 @@ export async function checkUpdate({ force = false } = {}) {
       if (typeof tls.getCACertificates === 'function' && typeof tls.setDefaultCACertificates === 'function')
         tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
     } catch { /* eski Node */ }
-    // GitHub bu dosyayı birkaç dakika önbellekte tutar; kullanıcı elle denetlediğinde adres benzersiz yapılarak
-    // yeni gönderilmiş bir sürümün hemen görülmesi sağlanır
-    const url = process.env.ATOLYE_UPDATE_URL || DEFAULT_URL;
-    const res = await fetch(force && /^https?:/i.test(url) ? `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}` : url, { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } });
-    if (res.ok) {
-      const latest = String(JSON.parse(await res.text()).version || '');
-      if (/^\d+\.\d+\.\d+/.test(latest)) value = { latest, available: compareVersions(latest, current) > 0 };
+    // Olağan adres (raw.githubusercontent.com) dosyayı birkaç dakika önbellekte tutar. Kullanıcı elle denetlediğinde
+    // önce önbelleksiz GitHub API'si sorulur ki yeni gönderilmiş sürüm hemen görülsün; o yanıt vermezse (saatlik
+    // istek sınırı, ağ engeli) olağan adrese dönülür.
+    const custom = process.env.ATOLYE_UPDATE_URL;
+    const sources = custom ? [[custom, 'application/json']] : [...(force ? [[API_URL, 'application/vnd.github.raw+json']] : []), [DEFAULT_URL, 'application/json']];
+    for (const [url, accept] of sources) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { accept, 'user-agent': 'atolye' } });
+        if (!res.ok) continue;
+        const latest = String(JSON.parse(await res.text()).version || '');
+        if (/^\d+\.\d+\.\d+/.test(latest)) { value = { latest, available: compareVersions(latest, current) > 0 }; break; }
+      } catch { /* sıradaki kaynak denenir */ }
     }
   } catch { /* ağ yok / engelli: bildirim gösterilmez */ }
   cache = { at: Date.now(), value };
