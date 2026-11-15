@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { detect, save, status, remove } from '../src/testauto.js';
+import { execFileSync } from 'node:child_process';
+import { detect, save, status, remove, branches } from '../src/testauto.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-test-'));
 const put = (dir, name, text = '') => fs.writeFileSync(path.join(dir, name), text);
@@ -45,4 +46,28 @@ test('ayar kaydedilir, okunur ve kaldırılır; eksik ya da hatalı girişte anl
   assert.equal(status({ file }).exists, false, 'klasör silinmişse bildirilir');
   assert.equal(remove({ file }).connected, false);
   assert.equal(remove({ file }).connected, false);
+});
+
+test('release dalı saklanır; geçersiz dal adı reddedilir', () => {
+  const file = path.join(tmp(), 'test-otomasyon.json');
+  const repo = tmp();
+  assert.equal(save({ dir: repo, command: 'mvn test', branch: ' release/2.5.0 ' }, { file }).branch, 'release/2.5.0');
+  assert.equal(save({ dir: repo, command: 'mvn test' }, { file }).branch, '');
+  assert.throws(() => save({ dir: repo, command: 'mvn test', branch: 'main; rm -rf x' }, { file }), { code: 'bad-branch' });
+  assert.throws(() => save({ dir: repo, command: 'mvn test', branch: '--force' }, { file }), { code: 'bad-branch' });
+});
+
+test('dallar: release dalları en yenisi üstte gelir; git deposu olmayan klasör bildirilir', async () => {
+  assert.deepEqual(await branches(tmp()), { git: false, current: '', branches: [] });
+  assert.equal((await branches('')).git, false);
+  const repo = tmp();
+  const g = (...a) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { stdio: 'pipe' });
+  g('init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'x');
+  g('add', '.'); g('commit', '-q', '-m', 'ilk');
+  for (const b of ['release/2.9.0', 'release/2.10.0', 'feature/deneme']) g('branch', b);
+  const r = await branches(repo);
+  assert.equal(r.git, true);
+  assert.equal(r.current, 'main');
+  assert.deepEqual(r.branches, ['release/2.10.0', 'release/2.9.0', 'feature/deneme', 'main']);
 });

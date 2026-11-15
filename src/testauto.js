@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 
 export const defaultFile = () => path.join(os.homedir(), '.atolye', 'test-otomasyon.json');
 const isWin = process.platform === 'win32';
@@ -45,6 +46,29 @@ export function detect(dir) {
   return out('', '', '');
 }
 
+const git = (dir, args) => new Promise((resolve) => {
+  execFile('git', ['-C', dir, ...args], { timeout: 15_000, windowsHide: true }, (err, stdout) => resolve(err ? null : String(stdout).trim()));
+});
+const validBranch = (b) => /^[\w][\w./@+-]{0,199}$/.test(b) && !b.includes('..');
+// Sürüm numaraları sayısal karşılaştırılır: release/2.10 > release/2.9
+const natural = new Intl.Collator('en', { numeric: true });
+
+/**
+ * Depodaki dallar (sunucudakiler dahil; ağa çıkılmaz, son "git fetch"te bilinenler): { git, current, branches }.
+ * release/sürüm dalları en yenisi üstte olacak şekilde önce gelir.
+ */
+export async function branches(dir) {
+  const d = String(dir || '').trim();
+  if (!d || !path.isAbsolute(d) || !fs.existsSync(d)) return { git: false, current: '', branches: [] };
+  const current = await git(d, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (current === null) return { git: false, current: '', branches: [] };
+  const raw = (await git(d, ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes'])) || '';
+  const names = [...new Set(raw.split(/\r?\n/).map((l) => l.trim().replace(/^origin\//, '')).filter((b) => b && b !== 'HEAD' && b !== 'origin' && validBranch(b)))];
+  const isRelease = (b) => /(^|\/)(release|rel|hotfix)([/_-]|$)|\d+\.\d+/i.test(b);
+  names.sort((a, b) => (isRelease(b) - isRelease(a)) || (isRelease(a) ? natural.compare(b, a) : natural.compare(a, b)));
+  return { git: true, current, branches: names.slice(0, 300) };
+}
+
 /** Arayüze giden durum */
 export function status({ file = defaultFile() } = {}) {
   const c = read(file);
@@ -55,13 +79,14 @@ export function status({ file = defaultFile() } = {}) {
     command: typeof c.command === 'string' ? c.command : '',
     notes: typeof c.notes === 'string' ? c.notes : '',
     repoUrl: typeof c.repoUrl === 'string' ? c.repoUrl : '',
+    branch: typeof c.branch === 'string' ? c.branch : '',
     exists: Boolean(dir) && fs.existsSync(dir),
     file,
   };
 }
 
-/** Kaydeder; hata kodu: 'no-dir' | 'bad-dir' | 'no-command' */
-export function save({ dir, command, notes, repoUrl } = {}, { file = defaultFile() } = {}) {
+/** Kaydeder; hata kodu: 'no-dir' | 'bad-dir' | 'no-command' | 'bad-branch' */
+export function save({ dir, command, notes, repoUrl, branch } = {}, { file = defaultFile() } = {}) {
   const d = String(dir || '').trim();
   // Tek satır: komut, soruya eklenen nota olduğu gibi yazılır
   const cmd = String(command || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
@@ -69,8 +94,10 @@ export function save({ dir, command, notes, repoUrl } = {}, { file = defaultFile
   if (!d) throw fail('no-dir');
   if (!path.isAbsolute(d) || !fs.existsSync(d) || !fs.statSync(d).isDirectory()) throw fail('bad-dir');
   if (!cmd) throw fail('no-command');
+  const br = String(branch || '').trim();
+  if (br && !validBranch(br)) throw fail('bad-branch');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify({ dir: path.resolve(d), command: cmd, notes: String(notes || '').trim().slice(0, 2000), repoUrl: String(repoUrl || '').trim().slice(0, 500) }, null, 2)}\n`);
+  fs.writeFileSync(file, `${JSON.stringify({ dir: path.resolve(d), command: cmd, notes: String(notes || '').trim().slice(0, 2000), repoUrl: String(repoUrl || '').trim().slice(0, 500), branch: br }, null, 2)}\n`);
   return status({ file });
 }
 

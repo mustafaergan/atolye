@@ -138,6 +138,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   // Test otomasyonu bağlantısı (bkz. testauto.js): depo klasörü ve çalıştırma komutu
   app.get('/api/testauto/detect', wrap(async (req, res) => res.json(testauto.detect(String(req.query.dir || '')))));
+  app.get('/api/testauto/branches', wrap(async (req, res) => res.json(await testauto.branches(String(req.query.dir || '')))));
   app.post('/api/testauto', wrap(async (req, res) => {
     const lang = req.query.lang;
     try {
@@ -147,7 +148,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     } catch (err) {
       const text = err.code === 'no-dir' ? msg(lang, 'Depo klasörünü yazın')
         : err.code === 'bad-dir' ? msg(lang, 'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\test-otomasyon) ya da önce depoyu indirin.')
-          : err.code === 'no-command' ? msg(lang, 'Testleri çalıştıran komutu yazın (ör. mvn test)') : err.message;
+          : err.code === 'no-command' ? msg(lang, 'Testleri çalıştıran komutu yazın (ör. mvn test)')
+            : err.code === 'bad-branch' ? msg(lang, 'Dal adı geçersiz (ör. release/2.5.0)') : err.message;
       res.json({ ok: false, error: text });
     }
   }));

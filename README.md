@@ -202,7 +202,9 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`,
   `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
 - **Test Otomasyonu** (bütün modlarda): test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir (depo buradan
-  indirilebilir, komut proje türüne göre önerilir: Maven/Cucumber, Gradle, Playwright, Cypress, pytest, .NET). Mesaj
+  indirilebilir, komut proje türüne göre önerilir: Maven/Cucumber, Gradle, Playwright, Cypress, pytest, .NET). Bitbucket bağlıysa
+  depo oradaki listeden seçilir. İsteğe bağlı bir release dalı kaydedilebilir; kaydedilmezse yapay zekâ çalıştırmadan
+  önce hangi release dalında çalışacağını sorar. Mesaj
   kutusunda bu bağlantı seçiliyken yapay zekâ testleri sizin izninizle çalıştırır ve sonucu özetler. Ayar
   `~/.atolye/test-otomasyon.json` dosyasında tutulur.
 - **ReportPortal** (API anahtarı; bütün modlarda, yalnızca okuma): `reportportal_list_projects`, `reportportal_list_launches`,
