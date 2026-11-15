@@ -1249,7 +1249,7 @@ function send() {
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
   warnIfLinkUnavailable();
-  const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? withFetchProtocol(text) : withLinkHint(text || (files.length ? T('Ekteki dosyaya bak.') : T('Bu görsele bak.')));
+  const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? `${withFetchProtocol(text)}${activeLinks.filter((id) => !fetchLinks().includes(id)).map((id) => `\n${withOneLinkHint('', id).trim()}`).join('')}` : withLinkHint(text || (files.length ? T('Ekteki dosyaya bak.') : T('Bu görsele bak.')));
   wsSend({ type: 'send', text: outgoing, images, ...(files.length ? { files } : {}) });
   dom.input.value = '';
   state.attachments = [];
@@ -2031,13 +2031,13 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2075,7 +2075,7 @@ const linkServer = (link) => (LINKS[link]?.custom ? link : 'atolye');
 const linkWarned = new Set();
 function warnIfLinkUnavailable() { activeLinks.forEach(warnOneLink); }
 function warnOneLink(activeLink) {
-  if (!activeLink) return;
+  if (!activeLink || LINKS[activeLink].local) return; // yerel bağlantılar araç sunucusu kullanmaz
   const name = LINKS[activeLink].name;
   const key = `${state.liveId}|${activeLink}`;
   if (linkWarned.has(key)) return; // aynı oturumda aynı uyarı bir kez
@@ -2184,6 +2184,10 @@ function withOneLinkHint(text, activeLink) {
   if (text.includes(T('[veri sonu]'))) return text;
   // Tarayıcı + Copilot: araçlar kuruluş politikasıyla kapalı olabilir. Bağlantı kurulurken Playwright zaten kuruldu;
   // yapay zekâ yeni bir şey kurmak yerine onu bir betikle kullanabilsin diye yeri ve seçilen tarayıcı bildirilir.
+  if (activeLink === 'testotomasyon') {
+    const ta = links.status?.services?.testotomasyon || {};
+    return `${text}\n\n${T('(Test otomasyonu bağlantısını kullan. Test otomasyon deposu bu bilgisayarda şu klasörde: {dir}. Testler o klasörde şu komutla çalıştırılır: {command}. {notes}Önce isteğime göre hangi testleri çalıştıracağını ve tam komutu bir cümleyle söyle, sonra komutu o klasörde çalıştır; uzun sürebilir, bitmesini bekle. Bitince sonucu sade bir dille özetle: kaç test çalıştı, kaçı geçti, kaçı kaldı ve kalanların sebebi. Ben istemedikçe test kodunu değiştirme ve sunucuya hiçbir şey gönderme (push yapma).)', { dir: ta.dir, command: ta.command, notes: ta.notes ? T('Ek bilgi: {notes} ', { notes: ta.notes.replace(/\s+/g, ' ') }) : '' })}`;
+  }
   const br = links.status?.services?.tarayici;
   if (activeLink === 'tarayici' && currentEngine() === 'copilot' && br?.library) {
     return `${text}\n\n${T('(Tarayıcı araçları (browser_navigate vb.) bu oturumda varsa onları kullan. Yoksa yeni bir kütüphane KURMA: Playwright bu bilgisayarda kurulu. Bir Node.js betiği yazıp çalıştır; kütüphane: require("{library}"), tarayıcı: chromium.launch({ channel: "{channel}", headless: {headless} }). Ekran görüntülerini çalışma klasörüne kaydet ve ne gördüğünü anlat.)', { library: br.library.replace(/\\/g, '/'), channel: br.browser, headless: String(Boolean(br.headless)) })}`;
@@ -2217,6 +2221,7 @@ function renderLinks() {
   if (links.tab === 'repo') return renderRepoTab();
   if (links.tab === 'proxy') return renderProxyTab();
   if (links.tab === 'tarayici') return renderBrowserTab();
+  if (links.tab === 'testotomasyon') return renderTestTab();
 
   const id = links.tab;
   const def = LINKS[id];
@@ -2301,6 +2306,7 @@ const HELP_PROMPTS = {
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   reportportal: () => T('ReportPortal bağlantısını kurmak istiyorum ama teknik biri değilim. ReportPortal adresimi ve proje adımı nereden bulurum, API anahtarını nasıl oluştururum? Adım adım, sade bir dille anlat.'),
+  testotomasyon: () => T('Test otomasyonu bağlantısını kurmak istiyorum ama teknik biri değilim. Test otomasyon deposunu bilgisayarıma nasıl indiririm, testleri çalıştıran komutu nereden öğrenirim ve çalıştırmak için bilgisayarımda neler kurulu olmalı? Adım adım, sade bir dille anlat.'),
   tarayici: () => T('Yapay zekânın tarayıcıda gezinmesini (Playwright) kurmak istiyorum ve teknik biri değilim. Bu ne işe yarar, hangi tarayıcıyı seçmeliyim ve kurulumda nelere dikkat etmeliyim? Adım adım, sade bir dille anlat.'),
   repo: () => T('İlk kez bir depoyu (repository) bilgisayarıma indireceğim ve teknik biri değilim. Depo nedir, adresini nereden bulurum, indirdikten sonra dosyalara nasıl bakarım ve değişiklikleri nasıl güncel tutarım? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
 };
@@ -2521,6 +2527,77 @@ async function renderProxyTab() {
   ].filter(Boolean));
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
+}
+
+// ---------- Test otomasyonu bağlantısı ----------
+// Test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir; bağlantı seçiliyken soruya eklenir ve komutu
+// yapay zekâ kendi komut aracıyla, izinle çalıştırır. Bir servise bağlanmaz (local), bu yüzden her motorda çalışır.
+LINKS.testotomasyon = { name: T('Test Otomasyonu'), custom: true, local: true };
+const testUi = { result: null, draft: null };
+function renderTestTab() {
+  const st = links.status?.services?.testotomasyon || {};
+  const d = testUi.draft || (testUi.draft = { repoUrl: st.repoUrl || '', dir: st.dir || '', command: st.command || '', notes: st.notes || '' });
+  const field = (key, input) => { input.value = d[key]; input.oninput = () => { d[key] = input.value; }; return input; };
+  const repoUrl = field('repoUrl', el('input', { type: 'url', placeholder: 'https://bitbucket.sirket.com/scm/abc/test-otomasyon.git', spellcheck: 'false', autocomplete: 'off' }));
+  const dir = field('dir', el('input', { type: 'text', placeholder: 'C:\\dev\\test-otomasyon', spellcheck: 'false', autocomplete: 'off' }));
+  const command = field('command', el('input', { type: 'text', placeholder: 'mvn test', spellcheck: 'false', autocomplete: 'off' }));
+  const notes = field('notes', el('textarea', { rows: '3', placeholder: T('ör. Etiketler: @smoke, @regresyon. Ortam -Denv=test ile seçilir. Rapor: target/cucumber-report.html'), spellcheck: 'false' }));
+  const result = el('div', { class: 'links-result' });
+  const show = (r) => { testUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : 'err'}`; result.textContent = r.text; } };
+  const busy = (btn, label, fn) => async () => {
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: label }));
+    try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+  };
+  const detect = async () => {
+    const r = await fetch(`/api/testauto/detect?dir=${encodeURIComponent(d.dir.trim())}`).then((x) => x.json()).catch(() => ({ exists: false }));
+    if (!r.exists) return show({ ok: false, text: T('Klasör bulunamadı.') });
+    if (!r.kind) return show({ ok: false, text: T('Proje türü tanınamadı; komutu elle yazın.') });
+    if (r.command && !d.command.trim()) { d.command = r.command; command.value = r.command; }
+    show({ ok: true, text: `${T('{kind} projesi algılandı.', { kind: r.kind })}${r.tagExample ? ` ${T('Belirli testler için örnek: {example}', { example: r.tagExample })}` : ''}` });
+  };
+  const detectBtn = el('button', { class: 'btn', type: 'button', text: T('Algıla') });
+  detectBtn.onclick = busy(detectBtn, T('Algıla'), detect);
+  const cloneBtn = el('button', { class: 'btn', type: 'button', text: T('Depoyu indir') });
+  cloneBtn.onclick = busy(cloneBtn, T('İndiriliyor…'), async () => {
+    const info = await fetch('/api/repo/info').then((x) => x.json()).catch(() => ({}));
+    const r = await api(`/api/repo/clone?lang=${getLang()}`, { url: d.repoUrl.trim(), parent: info.defaultParent }).catch((e) => ({ ok: false, error: e.message }));
+    // Depo daha önce indirilmişse o klasör kullanılır
+    if (!r.ok && r.code !== 'exists') return show({ ok: false, text: r.error || '?' });
+    d.dir = r.dir; dir.value = r.dir;
+    if (r.ok) addProject(r.dir);
+    await detect();
+    if (r.ok) show({ ok: true, text: `${T('Depo indirildi: {dir}', { dir: r.dir })} ${testUi.result?.ok ? testUi.result.text : ''}`.trim() });
+  });
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet') });
+  saveBtn.onclick = busy(saveBtn, T('Kaydet'), async () => {
+    const r = await api(`/api/testauto?lang=${getLang()}`, d).catch((e) => ({ ok: false, error: e.message }));
+    if (!r.ok) return show({ ok: false, text: r.error || '?' });
+    testUi.draft = null;
+    testUi.result = { ok: true, text: T('Test otomasyonu bağlantısı kaydedildi. Mesaj kutusunun altından "Test Otomasyonu" seçip kullanabilirsiniz.') };
+    await loadLinks();
+    if (links.tab === 'testotomasyon') renderLinks();
+  });
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Bağlantıyı kaldır'), onclick: async () => {
+    await fetch('/api/testauto', { method: 'DELETE' }).catch(() => {});
+    testUi.draft = null; testUi.result = null;
+    await loadLinks();
+    if (links.tab === 'testotomasyon') renderLinks();
+  } });
+  $('#linksBody').replaceChildren(...[
+    el('ol', { class: 'links-steps' }, el('li', { text: T('Bu bağlantı, test otomasyon deponuzdaki testleri yapay zekâya çalıştırtır: mesaj kutusunun altından "Test Otomasyonu" seçip ne çalıştırmak istediğinizi yazarsınız (ör. "giriş testlerini çalıştır"), yapay zekâ komutu sizin izninizle çalıştırır ve sonucu özetler.') }), el('li', { text: T('Depo bu bilgisayarda yoksa adresini yazıp "Depoyu indir" deyin; varsa klasörünün tam yolunu yazın.') }), el('li', { text: T('"Algıla" proje türüne bakıp çalıştırma komutunu önerir; komutu ekibinizin kullandığı hâle göre düzeltebilirsiniz. Notlar alanına yapay zekânın bilmesi gerekenleri yazın (hangi etiketler var, hangi ortamda koşulur, sonuç raporu nerede).') }), el('li', { text: T('Testler bu bilgisayarda çalışır ve gerçek sistemlere istek gönderebilir; hangi ortama karşı koştuğunuzdan emin olun.') })),
+    st.connected && !st.exists ? el('div', { class: 'links-result err', text: T('Kayıtlı klasör artık yok: {dir}', { dir: st.dir }) }) : null,
+    el('label', { class: 'links-field' }, el('span', { text: T('Depo adresi (isteğe bağlı)') }), el('div', { class: 'links-row' }, repoUrl, cloneBtn)),
+    el('label', { class: 'links-field' }, el('span', { text: T('Depo klasörü') }), el('div', { class: 'links-row' }, dir, detectBtn)),
+    el('label', { class: 'links-field' }, el('span', { text: T('Çalıştırma komutu') }), command, el('small', { text: T('Depo klasöründe çalıştırılır. Yapay zekâ, isteğinize göre sonuna etiket ya da test adı ekleyebilir.') })),
+    el('label', { class: 'links-field' }, el('span', { text: T('Notlar (isteğe bağlı)') }), notes),
+    el('div', { class: 'links-actions' }, saveBtn, st.connected ? removeBtn : null, helpButton('testotomasyon')),
+    result,
+    el('p', { class: 'links-intro', text: T('Örnek: "smoke testlerini çalıştır ve kalan test varsa sebebini anlat".') }),
+  ].filter(Boolean));
+  show(testUi.result);
+  $('#linksNote').textContent = st.file ? T('Ayar yalnızca bu bilgisayarda tutulur: {file}', { file: st.file }) : '';
 }
 
 // ---------- Tarayıcı bağlantısı ----------

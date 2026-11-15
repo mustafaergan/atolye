@@ -26,6 +26,7 @@ import { shortTitle } from './title.js';
 import { saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
+import * as testauto from './testauto.js';
 import { copilotQuota } from './copilot-quota.js';
 import { checkBrowser, installedMcp, installPlaywrightMcp, playwrightLibrary } from './browser-check.js';
 import { msg, normalizeLang } from './messages.js';
@@ -135,6 +136,23 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     res.json(r);
   }));
 
+  // Test otomasyonu bağlantısı (bkz. testauto.js): depo klasörü ve çalıştırma komutu
+  app.get('/api/testauto/detect', wrap(async (req, res) => res.json(testauto.detect(String(req.query.dir || '')))));
+  app.post('/api/testauto', wrap(async (req, res) => {
+    const lang = req.query.lang;
+    try {
+      const st = testauto.save(req.body || {});
+      console.log(`[test otomasyonu] kaydedildi: ${st.dir}`);
+      res.json({ ok: true, status: st });
+    } catch (err) {
+      const text = err.code === 'no-dir' ? msg(lang, 'Depo klasörünü yazın')
+        : err.code === 'bad-dir' ? msg(lang, 'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\test-otomasyon) ya da önce depoyu indirin.')
+          : err.code === 'no-command' ? msg(lang, 'Testleri çalıştıran komutu yazın (ör. mvn test)') : err.message;
+      res.json({ ok: false, error: text });
+    }
+  }));
+  app.delete('/api/testauto', wrap(async (_req, res) => { console.log('[test otomasyonu] bağlantı kaldırıldı'); res.json({ ok: true, status: testauto.remove() }); }));
+
   // Tarayıcı bağlantısı (Playwright MCP): ön koşul denetimi, onay sonrası kurulum, etkinleştirme
   app.get('/api/browser/check', wrap(async (req, res) => res.json(await checkBrowser(String(req.query.browser || 'chrome')))));
   app.get('/api/browser/installed', wrap(async (_req, res) => res.json({ version: (await installedMcp())?.version || null })));
@@ -229,6 +247,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       }
       st.services.tarayici.library = playwrightLibrary(mcp?.cli);
     }
+    st.services.testotomasyon = testauto.status();
     res.json(st);
   }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {

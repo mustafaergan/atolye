@@ -11,6 +11,9 @@ export const EN = {
   'Kullanıcı reddetti': 'Denied by the user',
   'İptal edildi': 'Cancelled',
   'Görsel': 'Image',
+  'Depo klasörünü yazın': 'Enter the repository folder',
+  'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\test-otomasyon) ya da önce depoyu indirin.': 'This folder was not found. Enter the full path (e.g. C:\\dev\\test-otomasyon) or download the repository first.',
+  'Testleri çalıştıran komutu yazın (ör. mvn test)': 'Enter the command that runs the tests (e.g. mvn test)',
   'Claude Code çalıştırılamadı: {error}': 'Could not start Claude Code: {error}',
   'Kimlik doğrulama hatası. ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY değerini kontrol edin. ({error})':
     'Authentication error. Check ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY. ({error})',
