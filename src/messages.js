@@ -11,6 +11,7 @@ export const EN = {
   'Kullanıcı reddetti': 'Denied by the user',
   'İptal edildi': 'Cancelled',
   'Görsel': 'Image',
+  'Dal adı geçersiz (ör. release/2.5.0)': 'Invalid branch name (e.g. release/2.5.0)',
   'Depo klasörünü yazın': 'Enter the repository folder',
   'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\test-otomasyon) ya da önce depoyu indirin.': 'This folder was not found. Enter the full path (e.g. C:\\dev\\test-otomasyon) or download the repository first.',
   'Testleri çalıştıran komutu yazın (ör. mvn test)': 'Enter the command that runs the tests (e.g. mvn test)',

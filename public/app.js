@@ -2186,7 +2186,7 @@ function withOneLinkHint(text, activeLink) {
   // yapay zekâ yeni bir şey kurmak yerine onu bir betikle kullanabilsin diye yeri ve seçilen tarayıcı bildirilir.
   if (activeLink === 'testotomasyon') {
     const ta = links.status?.services?.testotomasyon || {};
-    return `${text}\n\n${T('(Test otomasyonu bağlantısını kullan. Test otomasyon deposu bu bilgisayarda şu klasörde: {dir}. Testler o klasörde şu komutla çalıştırılır: {command}. {notes}Önce isteğime göre hangi testleri çalıştıracağını ve tam komutu bir cümleyle söyle, sonra komutu o klasörde çalıştır; uzun sürebilir, bitmesini bekle. Bitince sonucu sade bir dille özetle: kaç test çalıştı, kaçı geçti, kaçı kaldı ve kalanların sebebi. Ben istemedikçe test kodunu değiştirme ve sunucuya hiçbir şey gönderme (push yapma).)', { dir: ta.dir, command: ta.command, notes: ta.notes ? T('Ek bilgi: {notes} ', { notes: ta.notes.replace(/\s+/g, ' ') }) : '' })}`;
+    return `${text}\n\n${T('(Test otomasyonu bağlantısını kullan. Test otomasyon deposu bu bilgisayarda şu klasörde: {dir}. Testler o klasörde şu komutla çalıştırılır: {command}. {notes}Önce isteğime göre hangi testleri çalıştıracağını ve tam komutu bir cümleyle söyle, sonra komutu o klasörde çalıştır; uzun sürebilir, bitmesini bekle. Bitince sonucu sade bir dille özetle: kaç test çalıştı, kaçı geçti, kaçı kaldı ve kalanların sebebi. Ben istemedikçe test kodunu değiştirme ve sunucuya hiçbir şey gönderme (push yapma).)', { dir: ta.dir, command: ta.command, notes: `${ta.branch ? T('Testler şu dalda (release) çalıştırılmalı: {branch}. Önce depo o dalda mı kontrol et; değilse ya da güncel değilse sunucudan bilgileri al (git fetch), o dala geç ve güncelle; kaydedilmemiş değişiklik varsa silmeden önce bana sor. ', { branch: ta.branch }) : T('Testleri çalıştırmadan önce deponun şu an hangi dalda (release) olduğunu söyle. İsteğimde bir release belirtmediysem sunucudaki güncel release dallarını listele (git fetch) ve hangisinde çalıştıracağımı sor; dal değiştirmen gerekirse ve kaydedilmemiş değişiklik varsa silmeden önce bana sor. ')}${ta.notes ? T('Ek bilgi: {notes} ', { notes: ta.notes.replace(/\s+/g, ' ') }) : ''}` })}`;
   }
   const br = links.status?.services?.tarayici;
   if (activeLink === 'tarayici' && currentEngine() === 'copilot' && br?.library) {
@@ -2533,10 +2533,15 @@ async function renderProxyTab() {
 // Test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir; bağlantı seçiliyken soruya eklenir ve komutu
 // yapay zekâ kendi komut aracıyla, izinle çalıştırır. Bir servise bağlanmaz (local), bu yüzden her motorda çalışır.
 LINKS.testotomasyon = { name: T('Test Otomasyonu'), custom: true, local: true };
-const testUi = { result: null, draft: null };
+const testUi = { result: null, draft: null, bitbucket: undefined, repos: null, project: '', filter: '' };
 function renderTestTab() {
   const st = links.status?.services?.testotomasyon || {};
-  const d = testUi.draft || (testUi.draft = { repoUrl: st.repoUrl || '', dir: st.dir || '', command: st.command || '', notes: st.notes || '' });
+  // Bitbucket bağlıysa depo oradaki listeden seçilebilir
+  if (testUi.bitbucket === undefined) {
+    testUi.bitbucket = false;
+    fetch('/api/repo/info').then((r) => r.json()).then((i) => { testUi.bitbucket = Boolean(i.bitbucket); if (testUi.bitbucket && links.tab === 'testotomasyon') renderTestTab(); }).catch(() => {});
+  }
+  const d = testUi.draft || (testUi.draft = { repoUrl: st.repoUrl || '', dir: st.dir || '', command: st.command || '', notes: st.notes || '', branch: st.branch || '' });
   const field = (key, input) => { input.value = d[key]; input.oninput = () => { d[key] = input.value; }; return input; };
   const repoUrl = field('repoUrl', el('input', { type: 'url', placeholder: 'https://bitbucket.sirket.com/scm/abc/test-otomasyon.git', spellcheck: 'false', autocomplete: 'off' }));
   const dir = field('dir', el('input', { type: 'text', placeholder: 'C:\\dev\\test-otomasyon', spellcheck: 'false', autocomplete: 'off' }));
@@ -2557,6 +2562,47 @@ function renderTestTab() {
     if (r.command && !d.command.trim()) { d.command = r.command; command.value = r.command; }
     show({ ok: true, text: `${T('{kind} projesi algılandı.', { kind: r.kind })}${r.tagExample ? ` ${T('Belirli testler için örnek: {example}', { example: r.tagExample })}` : ''}` });
   };
+  let picker = null;
+  if (testUi.bitbucket) {
+    const project = el('input', { type: 'text', placeholder: T('proje anahtarı (isteğe bağlı), ör. ABC'), spellcheck: 'false', value: testUi.project });
+    project.oninput = () => { testUi.project = project.value; };
+    const filter = el('input', { type: 'text', placeholder: T('listede ara…'), spellcheck: 'false', value: testUi.filter });
+    const list = el('div', { class: 'repo-list' });
+    const drawList = () => {
+      const q = testUi.filter.toLowerCase();
+      list.replaceChildren(...(testUi.repos || []).filter((r) => !q || r.name.toLowerCase().includes(q)).map((r) => {
+        const box = el('input', { type: 'radio', name: 'testRepo' });
+        box.checked = d.repoUrl.trim() === r.cloneUrl;
+        box.onchange = () => { d.repoUrl = r.cloneUrl; repoUrl.value = r.cloneUrl; };
+        return el('label', { class: 'repo-item' }, box, el('span', { text: r.name }));
+      }));
+      if (!list.children.length) list.append(el('div', { class: 'repo-empty', text: testUi.repos ? T('Eşleşen depo yok.') : T('Önce "Depoları listele" deyin') }));
+    };
+    filter.oninput = () => { testUi.filter = filter.value; drawList(); };
+    const listBtn = el('button', { class: 'btn', type: 'button', text: T('Depoları listele') });
+    listBtn.onclick = busy(listBtn, T('Yükleniyor…'), async () => {
+      const r = await fetch(`/api/repo/list?project=${encodeURIComponent(testUi.project.trim())}&lang=${getLang()}`).then((x) => x.json()).catch((e) => ({ error: e.message }));
+      if (r.error) { testUi.repos = null; return show({ ok: false, text: r.error }); }
+      testUi.repos = r.repos;
+      testUi.result = null;
+      renderTestTab();
+    });
+    drawList();
+    picker = el('div', { class: 'links-field' }, el('span', { text: T("Bağlı Bitbucket'tan seçin") }),
+      el('div', { class: 'links-row' }, project, listBtn), testUi.repos ? filter : null, list,
+      el('small', { text: T('Seçtiğiniz deponun adresi aşağıya yazılır; ardından "Depoyu indir" deyin.') }));
+  }
+  // Release mantığı: testler çoğunlukla ürünün release dalıyla aynı adlı dalda çalıştırılır
+  const branchList = el('datalist', { id: 'testBranches' }, ...(testUi.branches || []).map((b) => el('option', { value: b })));
+  const branch = field('branch', el('input', { type: 'text', placeholder: 'release/2.5.0', spellcheck: 'false', autocomplete: 'off', list: 'testBranches' }));
+  const branchBtn = el('button', { class: 'btn', type: 'button', text: T('Dalları getir') });
+  branchBtn.onclick = busy(branchBtn, T('Yükleniyor…'), async () => {
+    const r = await fetch(`/api/testauto/branches?dir=${encodeURIComponent(d.dir.trim())}`).then((x) => x.json()).catch(() => ({ git: false }));
+    if (!r.git) return show({ ok: false, text: T('Bu klasör bir git deposu değil ya da git kurulu değil.') });
+    testUi.branches = r.branches;
+    branchList.replaceChildren(...r.branches.map((b) => el('option', { value: b })));
+    show({ ok: true, text: T('Depo şu an "{current}" dalında. {n} dal bulundu; alana yazarken listeden seçebilirsiniz.', { current: r.current, n: r.branches.length }) });
+  });
   const detectBtn = el('button', { class: 'btn', type: 'button', text: T('Algıla') });
   detectBtn.onclick = busy(detectBtn, T('Algıla'), detect);
   const cloneBtn = el('button', { class: 'btn', type: 'button', text: T('Depoyu indir') });
@@ -2586,10 +2632,12 @@ function renderTestTab() {
     if (links.tab === 'testotomasyon') renderLinks();
   } });
   $('#linksBody').replaceChildren(...[
-    el('ol', { class: 'links-steps' }, el('li', { text: T('Bu bağlantı, test otomasyon deponuzdaki testleri yapay zekâya çalıştırtır: mesaj kutusunun altından "Test Otomasyonu" seçip ne çalıştırmak istediğinizi yazarsınız (ör. "giriş testlerini çalıştır"), yapay zekâ komutu sizin izninizle çalıştırır ve sonucu özetler.') }), el('li', { text: T('Depo bu bilgisayarda yoksa adresini yazıp "Depoyu indir" deyin; varsa klasörünün tam yolunu yazın.') }), el('li', { text: T('"Algıla" proje türüne bakıp çalıştırma komutunu önerir; komutu ekibinizin kullandığı hâle göre düzeltebilirsiniz. Notlar alanına yapay zekânın bilmesi gerekenleri yazın (hangi etiketler var, hangi ortamda koşulur, sonuç raporu nerede).') }), el('li', { text: T('Testler bu bilgisayarda çalışır ve gerçek sistemlere istek gönderebilir; hangi ortama karşı koştuğunuzdan emin olun.') })),
+    el('ol', { class: 'links-steps' }, el('li', { text: T('Bu bağlantı, test otomasyon deponuzdaki testleri yapay zekâya çalıştırtır: mesaj kutusunun altından "Test Otomasyonu" seçip ne çalıştırmak istediğinizi yazarsınız (ör. "giriş testlerini çalıştır"), yapay zekâ komutu sizin izninizle çalıştırır ve sonucu özetler.') }), el('li', { text: T('Depo bu bilgisayarda yoksa adresini yazıp "Depoyu indir" deyin; varsa klasörünün tam yolunu yazın.') }), testUi.bitbucket ? el('li', { text: T('Bitbucket bağlantınız kurulu: depoyu aşağıdaki listeden seçebilirsiniz.') }) : null, el('li', { text: T('"Algıla" proje türüne bakıp çalıştırma komutunu önerir; komutu ekibinizin kullandığı hâle göre düzeltebilirsiniz. Notlar alanına yapay zekânın bilmesi gerekenleri yazın (hangi etiketler var, hangi ortamda koşulur, sonuç raporu nerede).') }), el('li', { text: T('Testler bu bilgisayarda çalışır ve gerçek sistemlere istek gönderebilir; hangi ortama karşı koştuğunuzdan emin olun.') })),
     st.connected && !st.exists ? el('div', { class: 'links-result err', text: T('Kayıtlı klasör artık yok: {dir}', { dir: st.dir }) }) : null,
+    picker,
     el('label', { class: 'links-field' }, el('span', { text: T('Depo adresi (isteğe bağlı)') }), el('div', { class: 'links-row' }, repoUrl, cloneBtn)),
     el('label', { class: 'links-field' }, el('span', { text: T('Depo klasörü') }), el('div', { class: 'links-row' }, dir, detectBtn)),
+    el('label', { class: 'links-field' }, el('span', { text: T('Dal / release (isteğe bağlı)') }), el('div', { class: 'links-row' }, branch, branchBtn), branchList, el('small', { text: T('Testlerin hep aynı release dalında çalışmasını istiyorsanız yazın. Boş bırakırsanız yapay zekâ çalıştırmadan önce hangi release dalında çalışacağını sorar.') })),
     el('label', { class: 'links-field' }, el('span', { text: T('Çalıştırma komutu') }), command, el('small', { text: T('Depo klasöründe çalıştırılır. Yapay zekâ, isteğinize göre sonuna etiket ya da test adı ekleyebilir.') })),
     el('label', { class: 'links-field' }, el('span', { text: T('Notlar (isteğe bağlı)') }), notes),
     el('div', { class: 'links-actions' }, saveBtn, st.connected ? removeBtn : null, helpButton('testotomasyon')),
