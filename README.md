@@ -201,6 +201,10 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
   `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`,
   `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
+- **Test Otomasyonu** (bütün modlarda): test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir (depo buradan
+  indirilebilir, komut proje türüne göre önerilir: Maven/Cucumber, Gradle, Playwright, Cypress, pytest, .NET). Mesaj
+  kutusunda bu bağlantı seçiliyken yapay zekâ testleri sizin izninizle çalıştırır ve sonucu özetler. Ayar
+  `~/.atolye/test-otomasyon.json` dosyasında tutulur.
 - **ReportPortal** (API anahtarı; bütün modlarda, yalnızca okuma): `reportportal_list_projects`, `reportportal_list_launches`,
   `reportportal_get_launch`, `reportportal_list_items` (başarısız testler), `reportportal_get_logs` (hata kayıtları).
 - Geliştirici modundaki bağlantılar:
