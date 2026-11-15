@@ -75,6 +75,19 @@ const server = http.createServer((req, res) => {
     }
     if (p === '/sonar/api/hotspots/search' && q.get('projectKey') === 'rez') return json({ paging: { total: 1 }, hotspots: [{ key: 'H1', vulnerabilityProbability: 'HIGH', securityCategory: 'sql-injection', component: 'rez:src/Dao.java', line: 70, message: 'Sorgu birleştiriliyor' }] });
   }
+  if (p.startsWith('/rp/')) {
+    if (auth !== 'Bearer rp-anahtar') return deny();
+    const q = u.searchParams;
+    if (p === '/rp/api/v1/user') return json({ userId: 'ayse', assignedProjects: { regresyon: { projectRole: 'MEMBER' }, duman: { projectRole: 'CUSTOMER' } } });
+    if (p === '/rp/api/v1/regresyon/launch' && q.get('page.sort') === 'startTime,desc') return json({ content: [{ id: 501, name: 'Gece Regresyonu', number: 88, status: 'FAILED', startTime: 1767348000000, statistics: { executions: { total: 120, passed: 115, failed: 4, skipped: 1 }, defects: { product_bug: { total: 1 }, to_investigate: { total: 3 }, system_issue: { total: 0 } } } }].filter((l) => !q.get('filter.cnt.name') || l.name.includes(q.get('filter.cnt.name'))) });
+    if (p === '/rp/api/v1/regresyon/launch/501') return json({ id: 501, name: 'Gece Regresyonu', number: 88, status: 'FAILED', owner: 'ci', startTime: '2026-01-02T10:00:00.000000Z', endTime: '2026-01-02T10:45:00.000000Z', statistics: { executions: { total: 120, passed: 115, failed: 4, skipped: 1 } }, attributes: [{ key: 'ortam', value: 'test' }, { value: 'gece' }], description: 'Otomatik koşu' });
+    if (p === '/rp/api/v1/regresyon/item' && q.get('filter.eq.launchId') === '501' && q.get('filter.eq.hasChildren') === 'false') {
+      const all = [{ id: 9001, name: 'bilet iptali', status: 'FAILED', pathNames: { itemPaths: [{ name: 'İptal Paketi' }] }, issue: { issueType: 'pb001', comment: 'Servis 500 dönüyor', externalSystemIssues: [{ ticketId: 'ABC-12' }] } }, { id: 9002, name: 'giriş', status: 'PASSED' }];
+      const rows = all.filter((i) => !q.get('filter.eq.status') || i.status === q.get('filter.eq.status'));
+      return json({ content: rows, page: { totalElements: rows.length } });
+    }
+    if (p === '/rp/api/v1/regresyon/log' && q.get('filter.eq.item') === '9001') return json({ content: q.get('filter.gte.level') === 'ERROR' ? [{ logTime: '2026-01-02T10:05:00.000000Z', level: 'ERROR', message: 'AssertionError: beklenen 200, gelen 500' }] : [] });
+  }
   res.statusCode = 404; res.end('yok');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -86,13 +99,14 @@ const env = {
   FORTIFY_URL: `${base}/ssc`, FORTIFY_TOKEN: 'fy-belirtec',
   WEBLOGIC_URL: base, WEBLOGIC_EMAIL: 'izleyici', WEBLOGIC_TOKEN: 'wl-parola',
   SONARQUBE_URL: `${base}/sonar`, SONARQUBE_TOKEN: 'sq-belirtec',
+  REPORTPORTAL_URL: `${base}/rp/ui/`, REPORTPORTAL_EMAIL: 'regresyon', REPORTPORTAL_TOKEN: 'rp-anahtar',
 };
 const text = async (name, args = {}, e = env) => (await callTool(name, args, e)).content[0].text;
 
 test('araçlar: yalnızca bağlı servisler sunulur; yazan tek geliştirici aracı derleme başlatmadır', () => {
-  assert.equal(availableTools(env).length, 16);
+  assert.equal(availableTools(env).length, 21);
   assert.deepEqual(availableTools({ FORTIFY_URL: base, FORTIFY_TOKEN: 'x' }).map((t) => t.name), ['fortify_list_versions', 'fortify_list_issues', 'fortify_get_issue']);
-  const writes = Object.entries(TOOLS).filter(([, t]) => t.write && ['jenkins', 'fortify', 'weblogic', 'sonarqube'].includes(t.service)).map(([n]) => n);
+  const writes = Object.entries(TOOLS).filter(([, t]) => t.write && ['jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal'].includes(t.service)).map(([n]) => n);
   assert.deepEqual(writes, ['jenkins_trigger_build']);
 });
 
@@ -178,5 +192,23 @@ test('SonarQube: giriş, projeler, kalite kapısı, ölçümler, bulgular ve sı
   assert.match(await text('sonarqube_list_issues', { project: 'rez', severities: 'critical' }), /gösterilen 1\)/);
   assert.equal(await text('sonarqube_list_hotspots', { project: 'rez' }), 'Toplam 1 incelenecek güvenlik sıcak noktası (gösterilen 1):\nH1 | HIGH | sql-injection | src/Dao.java:70 | Sorgu birleştiriliyor');
   const bad = await callTool('sonarqube_list_projects', {}, { ...env, SONARQUBE_TOKEN: 'yanlis' });
+  assert.equal(bad.isError, true);
+});
+
+test('ReportPortal: giriş, projeler, koşular, başarısız testler ve kayıtlar (yalnızca okuma)', async () => {
+  const { clients, configFromEnv } = await import('../src/atlassian.js');
+  // adres /ui/ ile yapıştırılsa da kök adres bulunur
+  assert.equal(await clients.reportportal.whoami(configFromEnv('reportportal', env)), 'ayse (projeler: regresyon, duman)');
+  assert.equal(await text('reportportal_list_projects'), 'regresyon — MEMBER\nduman — CUSTOMER');
+  assert.equal(await text('reportportal_list_launches', { name: 'Regres' }), '501 | Gece Regresyonu #88 | FAILED | 2026-01-02 10:00 | toplam 120, başarılı 115, başarısız 4, atlanan 1 | ürün hatası 1, incelenecek 3');
+  const launch = await text('reportportal_get_launch', { id: 501 });
+  assert.match(launch, /^Gece Regresyonu #88: FAILED\nBaşlangıç: 2026-01-02 10:00 \| Bitiş: 2026-01-02 10:45 \| Başlatan: ci\nSonuç: toplam 120, başarılı 115, başarısız 4, atlanan 1\nEtiketler: ortam:test, gece\n\nOtomatik koşu$/);
+  assert.equal(await text('reportportal_list_items', { launch: 501 }), 'Toplam 1 kayıt (gösterilen 1):\n9001 | FAILED | İptal Paketi > bilet iptali | ürün hatası | ABC-12 | not: Servis 500 dönüyor');
+  assert.match(await text('reportportal_list_items', { launch: 501, status: 'all' }), /gösterilen 2\)/);
+  assert.equal(await text('reportportal_get_logs', { item: 9001 }), '2026-01-02 10:05 ERROR: AssertionError: beklenen 200, gelen 500');
+  // varsayılan proje yoksa ve birden fazla proje varsa hangileri olduğu söylenir
+  const noProject = await callTool('reportportal_list_launches', {}, { ...env, REPORTPORTAL_EMAIL: '' });
+  assert.match(noProject.content[0].text, /Proje belirtilmedi\. Erişebildiğiniz projeler: regresyon, duman/);
+  const bad = await callTool('reportportal_list_projects', {}, { ...env, REPORTPORTAL_TOKEN: 'yanlis' });
   assert.equal(bad.isError, true);
 });

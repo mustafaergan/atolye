@@ -1980,6 +1980,20 @@ LINKS.sonarqube = {
   ],
   examples: () => T('Örnek: "SonarQube\'da proje-adi kalite kapısından geçiyor mu? Geçmiyorsa en önemli bulguları ve nasıl düzeltileceğini anlat".'),
 };
+LINKS.reportportal = {
+  name: 'ReportPortal',
+  urlHint: 'https://reportportal.sirket.com',
+  userLabel: () => T('Varsayılan proje'),
+  userHint: () => T('İsteğe bağlı: çoğunlukla baktığınız ReportPortal projesinin adı (adresteki /ui/#proje-adi kısmı). Boş bırakırsanız yapay zekâ projeyi sorar.'),
+  tokenLabel: () => T('API anahtarı'),
+  steps: () => [
+    T('ReportPortal\'ı tarayıcıda açın ve ana adresi kopyalayın (ör. https://reportportal.sirket.com).'),
+    T('Sol alttaki kullanıcı simgesi → "Profile" → "API Keys" sekmesi → "Generate API Key". Bir ad verip oluşturun ve anahtarı kopyalayın (yalnızca bir kez gösterilir).'),
+    T('Anahtarı aşağıya yapıştırın; isterseniz varsayılan proje adını da yazın. Atölye ReportPortal\'da yalnızca okuma yapar; anahtar sizin görebildiğiniz projeleri görür.'),
+    T('"Kaydet ve sına" deyin.'),
+  ],
+  examples: () => T('Örnek: "ReportPortal\'da son regresyon koşusunda hangi testler başarısız oldu? Sebeplerini kayıtlardan çıkarıp sade bir dille özetle".'),
+};
 LINKS.weblogic = {
   name: 'WebLogic',
   urlHint: 'http://weblogic.sirket.com:7001',
@@ -2017,13 +2031,13 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2096,6 +2110,7 @@ const LINK_TOOLS = {
   graylog: 'graylog_search, graylog_list_streams',
   jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
+  reportportal: 'reportportal_list_projects, reportportal_list_launches, reportportal_get_launch, reportportal_list_items, reportportal_get_logs',
   sonarqube: 'sonarqube_list_projects, sonarqube_quality_gate, sonarqube_measures, sonarqube_list_issues, sonarqube_list_hotspots',
   weblogic: 'weblogic_servers, weblogic_applications, weblogic_deployments, weblogic_datasources',
 };
@@ -2285,6 +2300,7 @@ const HELP_PROMPTS = {
   confluence: () => T('Confluence bağlantısını kurmak istiyorum ama teknik biri değilim. Confluence adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  reportportal: () => T('ReportPortal bağlantısını kurmak istiyorum ama teknik biri değilim. ReportPortal adresimi ve proje adımı nereden bulurum, API anahtarını nasıl oluştururum? Adım adım, sade bir dille anlat.'),
   tarayici: () => T('Yapay zekânın tarayıcıda gezinmesini (Playwright) kurmak istiyorum ve teknik biri değilim. Bu ne işe yarar, hangi tarayıcıyı seçmeliyim ve kurulumda nelere dikkat etmeliyim? Adım adım, sade bir dille anlat.'),
   repo: () => T('İlk kez bir depoyu (repository) bilgisayarıma indireceğim ve teknik biri değilim. Depo nedir, adresini nereden bulurum, indirdikten sonra dosyalara nasıl bakarım ve değişiklikleri nasıl güncel tutarım? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
 };
