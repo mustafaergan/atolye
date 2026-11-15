@@ -15,7 +15,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -542,4 +542,89 @@ export const sonarqube = {
   },
 };
 
-export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic, sonarqube };
+// ---------- ReportPortal ----------
+// API anahtarı Bearer ile gönderilir. "E-posta" alanı burada varsayılan proje adı olarak kullanılır (isteğe bağlı);
+// araçlara proje verilmezse o kullanılır. Yalnızca okuma yapılır.
+const rp = (cfg) => ({ url: cfg.url.replace(/\/(ui|api)(\/.*)?$/i, ''), token: cfg.token, email: '' });
+const rpTime = (t) => { if (!t) return ''; const d = new Date(typeof t === 'number' || /^\d+$/.test(t) ? Number(t) : t); return Number.isNaN(d.getTime()) ? String(t) : d.toISOString().replace('T', ' ').slice(0, 16); };
+const RP_DEFECTS = { pb: 'ürün hatası', ab: 'otomasyon hatası', si: 'sistem sorunu', ti: 'incelenecek', nd: 'hata değil' };
+const RP_DEFECT_GROUPS = { product_bug: 'ürün hatası', automation_bug: 'otomasyon hatası', system_issue: 'sistem sorunu', to_investigate: 'incelenecek', no_defect: 'hata değil' };
+const rpDefect = (type) => RP_DEFECTS[String(type || '').slice(0, 2).toLowerCase()] || type || '';
+async function rpUser(cfg) {
+  const c = rp(cfg);
+  try { return await call(c, `${c.url}/api/v1/user`); } catch (err) {
+    if (!/HTTP 404/.test(err.message)) throw err;
+    return call(c, `${c.url}/api/users/me`); // yeni sürümler
+  }
+}
+const rpProjects = (me) => Object.keys(me.assignedProjects || {}).concat((me.assigned_projects || me.projects || []).map((p) => p.project_name || p.name || p)).filter((p) => typeof p === 'string');
+async function rpProject(cfg, project) {
+  const name = String(project || cfg.email || '').trim();
+  if (name) return name;
+  const list = rpProjects(await rpUser(cfg));
+  if (list.length === 1) return list[0];
+  throw new Error(list.length ? `Proje belirtilmedi. Erişebildiğiniz projeler: ${list.join(', ')}` : 'Proje belirtilmedi (project)');
+}
+const rpStats = (st = {}) => {
+  const e = st.executions || {};
+  const defects = Object.entries(st.defects || {}).map(([k, v]) => [k, v?.total || 0]).filter(([, n]) => n).map(([k, n]) => `${RP_DEFECT_GROUPS[k] || k} ${n}`);
+  return `toplam ${e.total || 0}, başarılı ${e.passed || 0}, başarısız ${e.failed || 0}, atlanan ${e.skipped || 0}${defects.length ? ` | ${defects.join(', ')}` : ''}`;
+};
+export const reportportal = {
+  async whoami(cfg) {
+    const me = await rpUser(cfg);
+    const list = rpProjects(me);
+    return `${me.userId || me.login || me.email || 'bilinmiyor'}${list.length ? ` (projeler: ${list.slice(0, 8).join(', ')}${list.length > 8 ? '…' : ''})` : ''}`;
+  },
+  async listProjects(cfg) {
+    const me = await rpUser(cfg);
+    const roles = me.assignedProjects || {};
+    return rpProjects(me).map((p) => `${p}${roles[p]?.projectRole ? ` — ${roles[p].projectRole}` : ''}`).join('\n') || 'Atanmış proje yok.';
+  },
+  async listLaunches(cfg, { project, name, status, limit } = {}) {
+    const c = rp(cfg);
+    const p = await rpProject(cfg, project);
+    const data = await call(c, `${c.url}/api/v1/${enc(p)}/launch?page.size=${clamp(limit, 15, 100)}&page.sort=${enc('startTime,desc')}${name ? `&filter.cnt.name=${enc(name)}` : ''}${status ? `&filter.eq.status=${enc(String(status).toUpperCase())}` : ''}`);
+    const rows = data.content || [];
+    if (!rows.length) return 'Koşu (launch) bulunamadı.';
+    return rows.map((l) => `${l.id} | ${l.name} #${l.number} | ${l.status} | ${rpTime(l.startTime)} | ${rpStats(l.statistics)}`).join('\n');
+  },
+  async getLaunch(cfg, { project, id }) {
+    const c = rp(cfg);
+    const p = await rpProject(cfg, project);
+    const l = await call(c, `${c.url}/api/v1/${enc(p)}/launch/${enc(id)}`);
+    const attrs = (l.attributes || []).map((a) => (a.key ? `${a.key}:${a.value}` : a.value)).filter(Boolean);
+    return [
+      `${l.name} #${l.number}: ${l.status}`,
+      `Başlangıç: ${rpTime(l.startTime)}${l.endTime ? ` | Bitiş: ${rpTime(l.endTime)}` : ''}${l.owner ? ` | Başlatan: ${l.owner}` : ''}`,
+      `Sonuç: ${rpStats(l.statistics)}`,
+      ...(attrs.length ? [`Etiketler: ${attrs.join(', ')}`] : []),
+      ...(l.description ? ['', oneLine(l.description).slice(0, 1000)] : []),
+    ].join('\n');
+  },
+  async listItems(cfg, { project, launch, status, limit }) {
+    const c = rp(cfg);
+    const p = await rpProject(cfg, project);
+    const st = String(status || 'FAILED').toUpperCase();
+    const data = await call(c, `${c.url}/api/v1/${enc(p)}/item?filter.eq.launchId=${enc(launch)}&filter.eq.hasChildren=false${st === 'ALL' ? '' : `&filter.eq.status=${enc(st)}`}&page.size=${clamp(limit, 30, 150)}&page.sort=${enc('startTime,asc')}`);
+    const rows = data.content || [];
+    if (!rows.length) return st === 'ALL' ? 'Test adımı yok.' : `Durumu ${st} olan test yok.`;
+    const total = data.page?.totalElements ?? rows.length;
+    return cut([`Toplam ${total} kayıt (gösterilen ${rows.length}):`, ...rows.map((i) => {
+      const path = (i.pathNames?.itemPaths || []).map((x) => x.name).join(' > ');
+      const tickets = (i.issue?.externalSystemIssues || []).map((t) => t.ticketId).filter(Boolean).join(', ');
+      return `${i.id} | ${i.status} | ${path ? `${path} > ` : ''}${i.name}${i.issue?.issueType ? ` | ${rpDefect(i.issue.issueType)}` : ''}${tickets ? ` | ${tickets}` : ''}${i.issue?.comment ? ` | not: ${oneLine(i.issue.comment).slice(0, 150)}` : ''}`;
+    })].join('\n'));
+  },
+  async getLogs(cfg, { project, item, level, limit }) {
+    const c = rp(cfg);
+    const p = await rpProject(cfg, project);
+    const lv = String(level || 'ERROR').toUpperCase();
+    const data = await call(c, `${c.url}/api/v1/${enc(p)}/log?filter.eq.item=${enc(item)}${lv === 'ALL' ? '' : `&filter.gte.level=${enc(lv)}`}&page.size=${clamp(limit, 30, 200)}&page.sort=${enc('logTime,asc')}`);
+    const rows = data.content || [];
+    if (!rows.length) return lv === 'ALL' ? 'Kayıt (log) yok.' : `${lv} ve üzeri seviyede kayıt yok (level: ALL ile hepsine bakılabilir).`;
+    return cut(rows.map((r) => `${rpTime(r.time || r.logTime)} ${r.level || ''}: ${String(r.message || '').slice(0, 4000)}`).join('\n'));
+  },
+};
+
+export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic, sonarqube, reportportal };

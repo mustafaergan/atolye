@@ -156,7 +156,7 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 
 | Mod | Görünen bağlantılar | Öneriler ve anlatım |
 |---|---|---|
-| **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
+| **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; ek olarak mesaj kutusunda **birden fazla bağlantı birlikte seçilebilir** (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
 | **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
@@ -201,6 +201,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
   `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`,
   `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
+- **ReportPortal** (API anahtarı; bütün modlarda, yalnızca okuma): `reportportal_list_projects`, `reportportal_list_launches`,
+  `reportportal_get_launch`, `reportportal_list_items` (başarısız testler), `reportportal_get_logs` (hata kayıtları).
 - Geliştirici modundaki bağlantılar:
   - **Jenkins** (kullanıcı adı + API belirteci): `jenkins_list_jobs`, `jenkins_get_build`, `jenkins_get_console`,
     `jenkins_trigger_build` (derleme başlatır; diğer yazan araçlar gibi önce izin sorar).
