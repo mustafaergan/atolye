@@ -75,9 +75,17 @@ const server = http.createServer((req, res) => {
     }
     if (p === '/sonar/api/hotspots/search' && q.get('projectKey') === 'rez') return json({ paging: { total: 1 }, hotspots: [{ key: 'H1', vulnerabilityProbability: 'HIGH', securityCategory: 'sql-injection', component: 'rez:src/Dao.java', line: 70, message: 'Sorgu birleştiriliyor' }] });
   }
+  // Kullanıcı bilgisini yalnızca yöneticilere açan sürüm: bütün "ben kimim" uçları 403 döner
+  if (p.startsWith('/rp2/')) {
+    if (auth !== 'Bearer rp-anahtar') return deny();
+    if (p === '/rp2/api/v1/regresyon/launch') return json({ content: [] });
+    res.statusCode = 403; return json({ message: 'You do not have enough permissions. Access Denied' });
+  }
   if (p.startsWith('/rp/')) {
     if (auth !== 'Bearer rp-anahtar') return deny();
     const q = u.searchParams;
+    if (p === '/rp/api/users/me') { res.statusCode = 404; return res.end('yok'); }
+    if (p === '/rp/api/v1/users') return json({ content: [], page: {} }); // yönetici listesi: kullanıcı değildir
     if (p === '/rp/api/v1/user') return json({ userId: 'ayse', assignedProjects: { regresyon: { projectRole: 'MEMBER' }, duman: { projectRole: 'CUSTOMER' } } });
     if (p === '/rp/api/v1/regresyon/launch' && q.get('page.sort') === 'startTime,desc') return json({ content: [{ id: 501, name: 'Gece Regresyonu', number: 88, status: 'FAILED', startTime: 1767348000000, statistics: { executions: { total: 120, passed: 115, failed: 4, skipped: 1 }, defects: { product_bug: { total: 1 }, to_investigate: { total: 3 }, system_issue: { total: 0 } } } }].filter((l) => !q.get('filter.cnt.name') || l.name.includes(q.get('filter.cnt.name'))) });
     if (p === '/rp/api/v1/regresyon/launch/501') return json({ id: 501, name: 'Gece Regresyonu', number: 88, status: 'FAILED', owner: 'ci', startTime: '2026-01-02T10:00:00.000000Z', endTime: '2026-01-02T10:45:00.000000Z', statistics: { executions: { total: 120, passed: 115, failed: 4, skipped: 1 } }, attributes: [{ key: 'ortam', value: 'test' }, { value: 'gece' }], description: 'Otomatik koşu' });
@@ -211,4 +219,14 @@ test('ReportPortal: giriş, projeler, koşular, başarısız testler ve kayıtla
   assert.match(noProject.content[0].text, /Proje belirtilmedi\. Erişebildiğiniz projeler: regresyon, duman/);
   const bad = await callTool('reportportal_list_projects', {}, { ...env, REPORTPORTAL_TOKEN: 'yanlis' });
   assert.equal(bad.isError, true);
+});
+
+test('ReportPortal: kullanıcı bilgisi yasaksa (403) bağlantı varsayılan projeyle sınanır', async () => {
+  const { clients } = await import('../src/atlassian.js');
+  const cfg = { url: `${base}/rp2`, token: 'rp-anahtar', email: 'regresyon' };
+  assert.equal(await clients.reportportal.whoami(cfg), 'bağlandı (proje: regresyon)');
+  await assert.rejects(clients.reportportal.whoami({ ...cfg, email: '' }), /Varsayılan proje/);
+  await assert.rejects(clients.reportportal.whoami({ ...cfg, email: 'yanlis' }), /Proje adını \("yanlis"\)/);
+  await assert.rejects(clients.reportportal.whoami({ ...cfg, token: 'gecersiz' }), /HTTP 401/);
+  assert.equal(await clients.reportportal.listLaunches(cfg, {}), 'Koşu (launch) bulunamadı.');
 });

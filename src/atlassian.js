@@ -550,20 +550,29 @@ const rpTime = (t) => { if (!t) return ''; const d = new Date(typeof t === 'numb
 const RP_DEFECTS = { pb: 'ürün hatası', ab: 'otomasyon hatası', si: 'sistem sorunu', ti: 'incelenecek', nd: 'hata değil' };
 const RP_DEFECT_GROUPS = { product_bug: 'ürün hatası', automation_bug: 'otomasyon hatası', system_issue: 'sistem sorunu', to_investigate: 'incelenecek', no_defect: 'hata değil' };
 const rpDefect = (type) => RP_DEFECTS[String(type || '').slice(0, 2).toLowerCase()] || type || '';
+// "Ben kimim" ucu sürümden sürüme değişti; bazı sürümlerde eski adres yalnızca yöneticilere açıktır (403).
+// Sırayla denenir; 401 (anahtar geçersiz) dışındaki hatalarda sıradakine geçilir.
 async function rpUser(cfg) {
   const c = rp(cfg);
-  try { return await call(c, `${c.url}/api/v1/user`); } catch (err) {
-    if (!/HTTP 404/.test(err.message)) throw err;
-    return call(c, `${c.url}/api/users/me`); // yeni sürümler
+  let last;
+  for (const p of ['/api/users/me', '/api/v1/users', '/api/v1/user']) {
+    try {
+      const me = await call(c, `${c.url}${p}`);
+      if (me && !Array.isArray(me) && !Array.isArray(me.content)) return me; // sayfalı liste, kullanıcı değildir
+    } catch (err) {
+      if (/HTTP 401/.test(err.message)) throw err;
+      last = err;
+    }
   }
+  throw last || new Error('Kullanıcı bilgisi okunamadı');
 }
 const rpProjects = (me) => Object.keys(me.assignedProjects || {}).concat((me.assigned_projects || me.projects || []).map((p) => p.project_name || p.name || p)).filter((p) => typeof p === 'string');
 async function rpProject(cfg, project) {
   const name = String(project || cfg.email || '').trim();
   if (name) return name;
-  const list = rpProjects(await rpUser(cfg));
+  const list = rpProjects(await rpUser(cfg).catch(() => ({})));
   if (list.length === 1) return list[0];
-  throw new Error(list.length ? `Proje belirtilmedi. Erişebildiğiniz projeler: ${list.join(', ')}` : 'Proje belirtilmedi (project)');
+  throw new Error(list.length ? `Proje belirtilmedi. Erişebildiğiniz projeler: ${list.join(', ')}` : 'Proje belirtilmedi: project değerini verin ya da Bağlantılar > ReportPortal sekmesinde "Varsayılan proje" alanını doldurun');
 }
 const rpStats = (st = {}) => {
   const e = st.executions || {};
@@ -572,9 +581,20 @@ const rpStats = (st = {}) => {
 };
 export const reportportal = {
   async whoami(cfg) {
-    const me = await rpUser(cfg);
+    let me;
+    try { me = await rpUser(cfg); } catch (err) {
+      if (/HTTP 401/.test(err.message)) throw err;
+      // Kullanıcı bilgisi okunamıyorsa bağlantı, varsayılan projenin koşuları okunarak sınanır
+      const c = rp(cfg);
+      const project = String(cfg.email || '').trim();
+      if (!project) throw new Error(`${err.message}. Bu ReportPortal sürümünde kullanıcı bilgisi bu anahtarla okunamıyor; "Varsayılan proje" alanına proje adını yazıp yeniden deneyin`);
+      try { await call(c, `${c.url}/api/v1/${enc(project)}/launch?page.size=1`); } catch (e2) {
+        throw new Error(`${e2.message}. Proje adını ("${project}") ve bu projeye erişiminizi kontrol edin; ad, ReportPortal adresindeki /ui/#proje-adi kısmıdır`);
+      }
+      return `bağlandı (proje: ${project})`;
+    }
     const list = rpProjects(me);
-    return `${me.userId || me.login || me.email || 'bilinmiyor'}${list.length ? ` (projeler: ${list.slice(0, 8).join(', ')}${list.length > 8 ? '…' : ''})` : ''}`;
+    return `${me.userId || me.login || me.email || me.full_name || 'bilinmiyor'}${list.length ? ` (projeler: ${list.slice(0, 8).join(', ')}${list.length > 8 ? '…' : ''})` : ''}`;
   },
   async listProjects(cfg) {
     const me = await rpUser(cfg);
