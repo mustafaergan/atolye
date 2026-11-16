@@ -201,6 +201,9 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
   `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_get_file`,
   `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
+- **Outlook** (bütün modlarda, yalnızca okuma): bilgisayardaki klasik Outlook'tan e-posta arama ve okuma, klasörler ve
+  takvim (`outlook_search_mail`, `outlook_get_mail`, `outlook_list_folders`, `outlook_list_events`). Hesap ya da parola
+  gerekmez; Outlook'ta açık hesap kullanılır. Yeni Outlook ve Outlook web desteklenmez.
 - **Test Otomasyonu** (bütün modlarda): test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir (depo buradan
   indirilebilir, komut proje türüne göre önerilir: Maven/Cucumber, Gradle, Playwright, Cypress, pytest, .NET). Bitbucket bağlıysa
   depo oradaki listeden seçilir. İsteğe bağlı bir release dalı kaydedilebilir; kaydedilmezse yapay zekâ çalıştırmadan
