@@ -3,6 +3,7 @@
 //   - E-posta verilmişse: Basic (e-posta + API anahtarı) — Cloud
 //   - Verilmemişse: Bearer (kişisel erişim anahtarı) — şirket içi
 import tls from 'node:tls';
+import { outlook } from './outlook.js';
 
 let systemCaAdded = false;
 /** Kurumsal ağların TLS sertifikaları genelde yalnızca işletim sisteminin deposundadır */
@@ -15,11 +16,13 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
 export function configFromEnv(service, env = process.env) {
+  // Outlook bilgisayardaki Outlook'u kullanır: adres ya da anahtar yoktur, yalnızca açık/kapalı
+  if (service === 'outlook') return env.OUTLOOK_ENABLED === '1' ? { url: 'outlook', token: '', email: '' } : null;
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
   if (!url || !token) return null;
@@ -647,4 +650,4 @@ export const reportportal = {
   },
 };
 
-export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic, sonarqube, reportportal };
+export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook };

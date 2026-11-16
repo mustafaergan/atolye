@@ -171,10 +171,19 @@ export function save(service, { url, email, token }) {
   return status();
 }
 
+/** Outlook: adres ya da anahtar yok; araçlar açılır ya da kapatılır */
+export function setOutlook(enabled) {
+  const env = readEnv();
+  if (enabled) env.OUTLOOK_ENABLED = '1';
+  else delete env.OUTLOOK_ENABLED;
+  writeEnv(env);
+  return status();
+}
+
 export function remove(service) {
   check(service);
   const env = readEnv();
-  for (const f of ['url', 'email', 'token']) delete env[envKey(service, f)];
+  for (const f of ['url', 'email', 'token', 'enabled']) delete env[envKey(service, f)];
   writeEnv(env);
   return status();
 }

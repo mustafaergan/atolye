@@ -252,6 +252,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     st.services.testotomasyon = testauto.status();
     res.json(st);
   }));
+  // Outlook: bilgisayardaki Outlook'un araçları açılır/kapatılır (adres ya da anahtar gerekmez)
+  app.post('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook etkinleştirildi'); res.json(integrations.setOutlook(true)); }));
+  app.delete('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook kapatıldı'); res.json(integrations.setOutlook(false)); }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
     try {
       const st = integrations.save(req.params.service, req.body || {});

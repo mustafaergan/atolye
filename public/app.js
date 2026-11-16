@@ -2031,13 +2031,13 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'outlook', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'outlook', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2110,6 +2110,7 @@ const LINK_TOOLS = {
   graylog: 'graylog_search, graylog_list_streams',
   jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
+  outlook: 'outlook_search_mail, outlook_get_mail, outlook_list_folders, outlook_list_events',
   reportportal: 'reportportal_list_projects, reportportal_list_launches, reportportal_get_launch, reportportal_list_items, reportportal_get_logs',
   sonarqube: 'sonarqube_list_projects, sonarqube_quality_gate, sonarqube_measures, sonarqube_list_issues, sonarqube_list_hotspots',
   weblogic: 'weblogic_servers, weblogic_applications, weblogic_deployments, weblogic_datasources',
@@ -2222,6 +2223,7 @@ function renderLinks() {
   if (links.tab === 'proxy') return renderProxyTab();
   if (links.tab === 'tarayici') return renderBrowserTab();
   if (links.tab === 'testotomasyon') return renderTestTab();
+  if (links.tab === 'outlook') return renderOutlookTab();
 
   const id = links.tab;
   const def = LINKS[id];
@@ -2306,6 +2308,7 @@ const HELP_PROMPTS = {
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   reportportal: () => T('ReportPortal bağlantısını kurmak istiyorum ama teknik biri değilim. ReportPortal adresimi ve proje adımı nereden bulurum, API anahtarını nasıl oluştururum? Adım adım, sade bir dille anlat.'),
+  outlook: () => T('Outlook bağlantısını kurmak istiyorum ama teknik biri değilim. Klasik Outlook ile Yeni Outlook arasındaki farkı nasıl anlarım, hangisini kullandığımı nereden görürüm ve klasik Outlook\'a nasıl geçerim? Adım adım, sade bir dille anlat.'),
   testotomasyon: () => T('Test otomasyonu bağlantısını kurmak istiyorum ama teknik biri değilim. Test otomasyon deposunu bilgisayarıma nasıl indiririm, testleri çalıştıran komutu nereden öğrenirim ve çalıştırmak için bilgisayarımda neler kurulu olmalı? Adım adım, sade bir dille anlat.'),
   tarayici: () => T('Yapay zekânın tarayıcıda gezinmesini (Playwright) kurmak istiyorum ve teknik biri değilim. Bu ne işe yarar, hangi tarayıcıyı seçmeliyim ve kurulumda nelere dikkat etmeliyim? Adım adım, sade bir dille anlat.'),
   repo: () => T('İlk kez bir depoyu (repository) bilgisayarıma indireceğim ve teknik biri değilim. Depo nedir, adresini nereden bulurum, indirdikten sonra dosyalara nasıl bakarım ve değişiklikleri nasıl güncel tutarım? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
@@ -2527,6 +2530,44 @@ async function renderProxyTab() {
   ].filter(Boolean));
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
+}
+
+// ---------- Outlook bağlantısı ----------
+// Bilgisayardaki klasik Outlook'tan okuma; adres ya da anahtar yok, yalnızca etkinleştirilir ve sınanır.
+LINKS.outlook = { name: 'Outlook' };
+const outlookUi = { result: null };
+function renderOutlookTab() {
+  const st = links.status?.services?.outlook || {};
+  const result = el('div', { class: 'links-result' });
+  const show = (r) => { outlookUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(el('span', { text: r.text }), r.ok === false ? askErrorButton('Outlook', r.text) : null); } };
+  const testNow = async () => {
+    show({ text: T('Outlook\'a bağlanılıyor… Outlook kapalıysa açılması biraz sürebilir.') });
+    const r = await fetch(`/api/integrations/outlook/test?lang=${getLang()}`, { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    show(r.ok ? { ok: true, text: T('Outlook bağlantısı çalışıyor: {user}', { user: r.user }) } : { ok: false, text: r.error || '?' });
+  };
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: st.connected ? T('Sına') : T('Etkinleştir ve sına') });
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    try {
+      if (!st.connected) { await fetch('/api/outlook', { method: 'POST' }); await loadLinks(); }
+      await testNow();
+    } finally { saveBtn.disabled = false; }
+    if (links.tab === 'outlook' && !st.connected) { const keep = outlookUi.result; renderLinks(); show(keep); }
+  };
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Bağlantıyı kaldır'), onclick: async () => {
+    await fetch('/api/outlook', { method: 'DELETE' }).catch(() => {});
+    outlookUi.result = null;
+    await loadLinks();
+    if (links.tab === 'outlook') renderLinks();
+  } });
+  $('#linksBody').replaceChildren(
+    el('ol', { class: 'links-steps' }, el('li', { text: T('Bu bağlantı, bilgisayarınızdaki Outlook\'tan e-postaları ve takvimi yapay zekâya okutur: e-posta arama, bir e-postayı okuma, klasörleri ve toplantıları listeleme. Hesap, parola ya da adres gerekmez; Outlook\'ta açık olan hesabınız kullanılır.') }), el('li', { text: T('Yalnızca klasik (masaüstü) Outlook ile çalışır. "Yeni Outlook" ya da Outlook web kullanıyorsanız çalışmaz; klasik Outlook\'ta sağ üstteki "Yeni Outlook" anahtarı kapalı olmalıdır.') }), el('li', { text: T('Yalnızca okuma yapılır: e-posta gönderilmez, taşınmaz, silinmez ve okundu işareti değişmez. İlk erişimde Outlook bir onay penceresi gösterebilir; bu, kuruluşunuzun ayarına bağlıdır.') }), el('li', { text: T('E-postalar müşteri, kişisel ya da gizli bilgi içerebilir ve okunan içerik yapay zekâ hizmetine gönderilir. Kuruluşunuzun bu konudaki kurallarına uyun.') })),
+    el('div', { class: 'links-actions' }, saveBtn, st.connected ? removeBtn : null, helpButton('outlook')),
+    result,
+    el('p', { class: 'links-intro', text: T('Örnek: "Outlook\'ta son 3 günde jira klasörüne gelen e-postaları özetle" ya da "bugünkü toplantılarım neler?".') }));
+  show(outlookUi.result);
+  const f = links.status?.files;
+  $('#linksNote').textContent = f ? T('Ayar, Claude Code ve Copilot CLI ayar dosyalarına yazılır: {claude} ve {copilot}. E-postalar bu bilgisayardan okunur, hiçbir yere kaydedilmez.', f) : '';
 }
 
 // ---------- Test otomasyonu bağlantısı ----------
