@@ -30,6 +30,7 @@ const sleep = (ms, signal) => new Promise((r, j) => {
 const MODELS = [
   { modelId: 'sahte-hizli', name: 'Sahte Hızlı', description: 'Hızlı model', _meta: { copilotUsage: '0.33x' } },
   { modelId: 'sahte-guclu', name: 'Sahte Güçlü', description: 'Güçlü model' },
+  ...JSON.parse(process.env.FAKE_EXTRA_MODELS || '[]'), // testlerde ek modeller (ör. GPT)
 ];
 
 const initResult = {

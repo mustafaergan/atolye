@@ -342,9 +342,12 @@ export class CopilotSession {
     this.booted = true;
     // Teşhis satırı (atolye.log): açılış süreleri ve Copilot'un bildirdiği alanlar. Gizli bilgi içermez.
     console.log(`[copilot] ${init?.agentInfo?.version || '?'} başlatma ${((tInit - t0) / 1000).toFixed(1)} sn, oturum ${((Date.now() - tInit) / 1000).toFixed(1)} sn; ${describeSession(opened)}; model sayısı ${this.models.length}`);
-    // Arayüzde Copilot için daha önce seçilen model bu oturuma da uygulanır
-    if (this.wantModel && this.wantModel !== this.model && this.models.some((m) => m.value === this.wantModel)) {
-      await this.setModel(this.wantModel).catch(() => {});
+    // Arayüzde Copilot için daha önce seçilen model bu oturuma da uygulanır. Yeni oturumda seçim yoksa Copilot'un
+    // listesindeki en güncel GPT modeli seçilir (ATOLYE_COPILOT_MODEL ile başka bir model ya da "copilot" verilebilir).
+    const want = this.wantModel || (loaded ? null : defaultModel(this.models));
+    if (want && want !== this.model && this.models.some((m) => m.value === want)) {
+      await this.setModel(want).catch((err) => console.warn(`[copilot] model seçilemedi (${want}): ${String(err?.message || err).slice(0, 120)}`));
+      if (!this.wantModel && this.model === want) console.log(`[copilot] varsayılan model: ${want}`);
     }
     if (this.wantEffort && this.wantEffort !== this.effort.current) await this.setEffort(this.wantEffort).catch(() => {});
     this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.#modelName() } });
@@ -702,6 +705,31 @@ export class CopilotSession {
     if (this.sessionId) this.conn?.notify('session/cancel', { sessionId: this.sessionId });
     this.conn?.close();
   }
+}
+
+/**
+ * Yeni Copilot oturumunun varsayılan modeli: listedeki en güncel GPT modeli (mini/nano ve kodlamaya özel "codex"
+ * sürümleri yalnızca başka GPT yoksa). ATOLYE_COPILOT_MODEL: belirli bir model kimliği ya da "copilot" (Copilot'un
+ * kendi varsayılanı). GPT yoksa null döner ve Copilot'un seçtiği model kalır.
+ */
+export function defaultModel(models, env = process.env) {
+  const ids = (models || []).map((m) => m.value).filter(Boolean);
+  const want = String(env.ATOLYE_COPILOT_MODEL || '').trim();
+  if (/^(copilot|default|varsayılan)$/i.test(want)) return null;
+  if (want) return ids.find((id) => id.toLowerCase() === want.toLowerCase()) || null;
+  const gpt = ids.filter((id) => /^gpt[-_]?\d/i.test(id));
+  if (!gpt.length) return null;
+  const version = (id) => (id.match(/^gpt[-_]?(\d+(?:\.\d+)*)/i)?.[1] || '0').split('.').map(Number);
+  const minor = (id) => /mini|nano/i.test(id);
+  const codex = (id) => /codex/i.test(id);
+  const cmp = (a, b) => {
+    if (minor(a) !== minor(b)) return minor(a) ? 1 : -1;
+    if (codex(a) !== codex(b)) return codex(a) ? 1 : -1;
+    const va = version(a); const vb = version(b);
+    for (let i = 0; i < Math.max(va.length, vb.length); i++) if ((va[i] || 0) !== (vb[i] || 0)) return (vb[i] || 0) - (va[i] || 0);
+    return a.length - b.length; // ek eki olmayan sürüm önce (gpt-5 > gpt-5-preview)
+  };
+  return gpt.sort(cmp)[0];
 }
 
 const strip = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => k !== 'sessionUpdate' && v !== null && v !== undefined));

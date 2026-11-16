@@ -297,3 +297,39 @@ test('arayüzden kurulum: komut bitince Copilot yeniden aranır; bulunduysa done
   // Testte kurulum komutu zararsız bir komuttur; Copilot olarak sahte ajan (COPILOT_CLI_PATH) bulunur
   assert.equal(installStatus().status, 'done', JSON.stringify(installStatus()));
 });
+
+test('varsayılan model: en güncel GPT seçilir; mini/codex yalnızca başka GPT yoksa; ayarla değiştirilebilir', () => {
+  return import('../src/copilot.js').then(({ defaultModel }) => {
+    const m = (...ids) => ids.map((value) => ({ value }));
+    assert.equal(defaultModel(m('claude-sonnet-5.5', 'gpt-4.1', 'gpt-5-mini', 'gpt-5.2', 'gpt-5.2-codex', 'gpt-5'), {}), 'gpt-5.2');
+    assert.equal(defaultModel(m('claude-sonnet-5.5', 'gpt-5-mini', 'gpt-5.1-codex'), {}), 'gpt-5.1-codex');
+    assert.equal(defaultModel(m('gpt-4.1', 'gpt-4o'), {}), 'gpt-4.1');
+    assert.equal(defaultModel(m('claude-sonnet-5.5', 'gemini-3-pro'), {}), null, 'GPT yoksa Copilot\'un seçimi kalır');
+    assert.equal(defaultModel(m('claude-sonnet-5.5', 'gpt-5'), { ATOLYE_COPILOT_MODEL: 'copilot' }), null);
+    assert.equal(defaultModel(m('claude-sonnet-5.5', 'gpt-5'), { ATOLYE_COPILOT_MODEL: 'Claude-Sonnet-5.5' }), 'claude-sonnet-5.5');
+    assert.equal(defaultModel(m('gpt-5'), { ATOLYE_COPILOT_MODEL: 'olmayan' }), null);
+    assert.equal(defaultModel([], {}), null);
+  });
+});
+
+test('yeni Copilot oturumu GPT ile açılır; kullanıcının seçtiği model ve yüklenen oturum değişmez', async () => {
+  process.env.FAKE_EXTRA_MODELS = JSON.stringify([{ modelId: 'gpt-5-mini', name: 'GPT-5 mini' }, { modelId: 'gpt-5', name: 'GPT-5', _meta: { copilotUsage: '1x' } }]);
+  try {
+    const events = [];
+    const s = new CopilotSession({ cwd, emit: (e) => events.push(e) });
+    s.start();
+    await until(() => sdk(events, 'system').some((m) => m.subtype === 'init'));
+    assert.equal(s.model, 'gpt-5');
+    assert.equal(sdk(events, 'system').find((m) => m.subtype === 'init').model, 'GPT-5 · 1x');
+    s.close();
+
+    const events2 = [];
+    const s2 = new CopilotSession({ cwd, model: 'sahte-guclu', emit: (e) => events2.push(e) });
+    s2.start();
+    await until(() => sdk(events2, 'system').some((m) => m.subtype === 'init'));
+    assert.equal(s2.model, 'sahte-guclu', 'kullanıcının seçimi korunur');
+    s2.close();
+  } finally {
+    delete process.env.FAKE_EXTRA_MODELS;
+  }
+});
