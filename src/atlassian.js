@@ -126,8 +126,15 @@ export const jira = {
     }).join('\n');
   },
   async getIssue(cfg, { key }) {
-    const i = await call(cfg, `${cfg.url}/rest/api/2/issue/${enc(key)}?fields=summary,status,assignee,reporter,priority,issuetype,description,comment,labels,created,updated`);
+    const i = await call(cfg, `${cfg.url}/rest/api/2/issue/${enc(key)}?fields=summary,status,assignee,reporter,priority,issuetype,description,comment,labels,created,updated,parent,subtasks,issuelinks,fixVersions`);
     const f = i.fields || {};
+    // İlişkili kayıtlar: üst kayıt (alt görevse ya da epik altındaysa), alt görevler ve bağlantılar
+    const brief = (x) => `${x.key} [${x.fields?.status?.name || '?'}] ${x.fields?.summary || ''}${x.fields?.issuetype?.name ? ` — ${x.fields.issuetype.name}` : ''}`;
+    const related = [
+      ...(f.parent ? [`Üst kayıt: ${brief(f.parent)}`] : []),
+      ...((f.subtasks || []).length ? [`Alt görevler (${f.subtasks.length}):`, ...f.subtasks.map((x) => `- ${brief(x)}`)] : []),
+      ...((f.issuelinks || []).length ? ['Bağlantılı kayıtlar:', ...f.issuelinks.map((l) => (l.outwardIssue ? `- ${l.type?.outward || 'bağlı'}: ${brief(l.outwardIssue)}` : l.inwardIssue ? `- ${l.type?.inward || 'bağlı'}: ${brief(l.inwardIssue)}` : '')).filter(Boolean)] : []),
+    ];
     const comments = (f.comment?.comments || []).slice(-10)
       .map((c) => `- ${c.author?.displayName || '?'} (${String(c.created || '').slice(0, 10)}): ${typeof c.body === 'string' ? c.body : JSON.stringify(c.body)}`);
     return cut([
@@ -135,7 +142,8 @@ export const jira = {
       `Adres: ${cfg.url}/browse/${i.key}`,
       `Durum: ${f.status?.name || '?'} | Tür: ${f.issuetype?.name || '?'} | Öncelik: ${f.priority?.name || '?'}`,
       `Atanan: ${f.assignee?.displayName || 'atanmamış'} | Bildiren: ${f.reporter?.displayName || '?'}`,
-      `Oluşturma: ${String(f.created || '').slice(0, 10)} | Güncelleme: ${String(f.updated || '').slice(0, 10)}${f.labels?.length ? ` | Etiketler: ${f.labels.join(', ')}` : ''}`,
+      `Oluşturma: ${String(f.created || '').slice(0, 10)} | Güncelleme: ${String(f.updated || '').slice(0, 10)}${f.labels?.length ? ` | Etiketler: ${f.labels.join(', ')}` : ''}${f.fixVersions?.length ? ` | Sürüm: ${f.fixVersions.map((v) => v.name).join(', ')}` : ''}`,
+      ...(related.length ? ['', ...related] : []),
       '',
       'Açıklama:',
       typeof f.description === 'string' ? f.description : f.description ? JSON.stringify(f.description) : '(yok)',
@@ -252,6 +260,30 @@ export const bitbucket = {
     const diff = await call(cfg, `${base}.diff`, { text: true });
     const reviewers = (p.reviewers || []).map((r) => `${r.user?.displayName}${r.approved ? ' ✓' : ''}`).join(', ');
     return cut(`#${p.id} [${p.state}] ${p.title}\nYazar: ${p.author?.user?.displayName || '?'} | ${p.fromRef?.displayId} → ${p.toRef?.displayId}${reviewers ? `\nGözden geçirenler: ${reviewers}` : ''}\nAdres: ${p.links?.self?.[0]?.href || ''}\n\n${p.description || ''}\n\n--- Değişiklikler ---\n${diff}`);
+  },
+  /** Çekme isteğinin son commit'i için derleme (CI) sonuçları */
+  async prBuildStatus(cfg, { project, repo, id }) {
+    need(repo, 'repo'); need(id, 'id');
+    const STATE = { SUCCESSFUL: 'BAŞARILI', FAILED: 'BAŞARISIZ', INPROGRESS: 'SÜRÜYOR', STOPPED: 'DURDURULDU', CANCELLED: 'İPTAL', UNKNOWN: 'BİLİNMİYOR' };
+    let hash; let builds;
+    if (isCloud(cfg.url)) {
+      const base = `${bbCloudApi}/repositories/${enc(need(bbWorkspace(cfg, project), 'project (çalışma alanı)'))}/${enc(repo)}`;
+      const p = await call(cfg, `${base}/pullrequests/${enc(id)}`);
+      hash = p.source?.commit?.hash;
+      if (!hash) throw new Error('Çekme isteğinin son commit\'i okunamadı');
+      builds = ((await call(cfg, `${base}/commit/${enc(hash)}/statuses?pagelen=50`)).values || []).map((b) => ({ state: b.state, name: b.name || b.key, url: b.url, date: b.updated_on || b.created_on }));
+    } else {
+      const p = await call(cfg, `${cfg.url}/rest/api/1.0/projects/${enc(need(project, 'project'))}/repos/${enc(repo)}/pull-requests/${enc(id)}`);
+      hash = p.fromRef?.latestCommit;
+      if (!hash) throw new Error('Çekme isteğinin son commit\'i okunamadı');
+      builds = ((await call(cfg, `${cfg.url}/rest/build-status/1.0/commits/${enc(hash)}?limit=50`)).values || []).map((b) => ({ state: b.state, name: b.name || b.key, url: b.url, date: b.dateAdded }));
+    }
+    const short = String(hash).slice(0, 10);
+    if (!builds.length) return `#${id} (commit ${short}): derleme sonucu yok — bu commit için çalışmış bir CI derlemesi bildirilmemiş.`;
+    const states = builds.map((b) => b.state);
+    const overall = states.includes('FAILED') ? 'BAŞARISIZ' : states.includes('INPROGRESS') ? 'SÜRÜYOR' : states.every((x) => x === 'SUCCESSFUL') ? 'BAŞARILI' : 'KARIŞIK';
+    const when = (d) => (d ? new Date(typeof d === 'number' ? d : d).toISOString().replace('T', ' ').slice(0, 16) : '');
+    return [`#${id} (commit ${short}): ${overall}`, ...builds.map((b) => `- ${STATE[b.state] || b.state} | ${b.name || '?'}${b.date ? ` | ${when(b.date)}` : ''}${b.url ? ` | ${b.url}` : ''}`)].join('\n');
   },
   async getFile(cfg, { project, repo, path, ref }) {
     need(repo, 'repo'); need(path, 'path');

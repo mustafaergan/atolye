@@ -1717,11 +1717,15 @@ function selectProject(dir, { render = true } = {}) {
 }
 // Boş ekran: proje oturumunda kod önerileri, klasörsüz sohbette genel öneriler.
 // "doldur" önerileri gönderilmez, kullanıcı devamını yazsın diye mesaj kutusuna yazılır.
+// PR değerlendirmesinin kullandığı bağlantılar
+const PR_LINKS = ['bitbucket', 'jira', 'confluence'];
 const EMPTY = {
   project: {
     title: 'Ne üzerinde çalışalım?',
     text: 'Kodunuzu okuyabilir, düzenleyebilir ve komut çalıştırabilirim. Değişiklik yapmadan önce izninizi isterim.',
     tips: [
+      // Bitbucket, Jira ve Confluence birlikte kullanılır (Copilot'ta Atölye veriyi bu üç bağlantıdan getirir)
+      ['PR değerlendir (önerilir)', 'Bu klasördeki depo(lar) için Bitbucket\'taki açık çekme isteklerini (PR) değerlendir. Adımlar:\n1. Deponun Bitbucket proje anahtarını ve depo adını git remote adresinden bul. Klasörde birden fazla depo varsa her biri için yap.\n2. Açık PR\'ları listele. 5\'ten fazlaysa listeyi göster ve hangilerini değerlendireceğimi sor; değilse hepsini değerlendir.\n3. Her PR için derleme (build) durumuna bak: başarılı mı, başarısız mı, sürüyor mu.\n4. PR başlığından, dal adından ya da açıklamasından Jira numarasını bul ve Jira kaydını oku. Üst kayıt, alt görevler ya da bağlantılı kayıtlar varsa onları da oku.\n5. Confluence\'ta Jira numarası ve konuyla ilgili doküman ara; varsa oku.\n6. PR\'ın kod değişikliklerini incele; gerekirse yerel depodaki ilgili dosyalara bak. Jira\'daki istek ve kabul kriterleri kodda karşılanmış mı, eksik ya da riskli nokta var mı, test eklenmiş mi kontrol et.\n7. Sonucu her PR için kısa bir bölüm olarak yaz: PR, derleme durumu, Jira (üst ve alt kayıtlarla), ilgili doküman, kod değerlendirmesi ve önerin (onaylanabilir / düzeltme gerekli / beklemeli). En başa tüm PR\'ların tek satırlık özet tablosunu koy.\nBen istemedikçe hiçbir yere yazma: PR\'ı onaylama ya da birleştirme, Jira\'ya yorum ekleme, kodu değiştirme ya da push yapma. Değerlendirmeyi Jira\'ya yorum olarak eklemek istersem önce metni göster ve onayımı bekle.', false, true, PR_LINKS],
       ['Projeyi özetle', 'Bu projenin yapısını incele ve kısaca özetle.'],
       ['Testleri çalıştır', 'Projedeki testleri çalıştır ve hata varsa düzelt.'],
       ['Kodu incele', 'Son değişiklikleri incele ve olası hataları bul.'],
@@ -1763,8 +1767,15 @@ function updateEmptyState(cwd) {
   const e = isGeneral(cwd) ? (EMPTY[r.emptyGeneral] || EMPTY.general) : (EMPTY[r.emptyProject] || EMPTY.project);
   $('h1', dom.empty).textContent = T(e.title);
   $('p', dom.empty).textContent = T(e.text);
-  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly, recommended]) =>
-    el('button', { type: 'button', class: recommended ? 'recommended' : '', text: T(label), onclick: () => {
+  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly, recommended, useLinks]) =>
+    el('button', { type: 'button', class: recommended ? 'recommended' : '', text: T(label), onclick: async () => {
+      // Önerinin ihtiyaç duyduğu bağlantılardan kurulu olanlar bu soru için seçilir. Copilot'ta veriyi Atölye getirdiği
+      // için bağlantıların işlem listesi gönderimden önce yüklenir.
+      if (useLinks) {
+        const ids = useLinks.filter((id) => links.status?.services?.[id]?.connected);
+        setActiveLinks(ids);
+        await Promise.all(ids.map((id) => loadFetchTools(id)));
+      }
       const prompt = T(key);
       dom.input.value = prompt;
       autoGrow();
@@ -2106,7 +2117,7 @@ function updateFetchButton() {
 const LINK_TOOLS = {
   jira: 'jira_search, jira_get_issue, jira_add_comment',
   confluence: 'confluence_search, confluence_get_page',
-  bitbucket: 'bitbucket_list_repos, bitbucket_list_pull_requests, bitbucket_get_pull_request, bitbucket_get_file',
+  bitbucket: 'bitbucket_list_repos, bitbucket_list_pull_requests, bitbucket_get_pull_request, bitbucket_pr_build_status, bitbucket_get_file',
   graylog: 'graylog_search, graylog_list_streams',
   jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',

@@ -39,12 +39,16 @@ ikinci satır`]],
   if (req.headers.authorization !== 'Bearer gizli-anahtar') { res.statusCode = 401; return res.end('Unauthorized'); }
   if (u.pathname === '/rest/api/2/myself') return json({ displayName: 'Deneme Kullanıcı' });
   if (u.pathname === '/rest/api/2/search') return json({ issues: [{ key: 'ABC-1', fields: { summary: `jql=${u.searchParams.get('jql')}`, status: { name: 'Açık' }, issuetype: { name: 'Hata' } } }] });
-  if (u.pathname === '/rest/api/2/issue/ABC-1') return json({ key: 'ABC-1', fields: { summary: 'Port hatası', status: { name: 'Açık' }, description: 'Port dolu', comment: { comments: [{ author: { displayName: 'Ali' }, created: '2026-01-02T10:00', body: 'bakıyorum' }] } } });
+  if (u.pathname === '/rest/api/2/issue/ABC-1') return json({ key: 'ABC-1', fields: { summary: 'Port hatası', status: { name: 'Açık' }, parent: { key: 'ABC-0', fields: { summary: 'Ana iş', status: { name: 'Sürüyor' }, issuetype: { name: 'Hikâye' } } }, subtasks: [{ key: 'ABC-2', fields: { summary: 'Test yaz', status: { name: 'Yapılacak' } } }], issuelinks: [{ type: { outward: 'engeller', inward: 'engellenir' }, outwardIssue: { key: 'XYZ-5', fields: { summary: 'Sürüm', status: { name: 'Açık' } } } }], fixVersions: [{ name: '2.5.0' }], description: 'Port dolu', comment: { comments: [{ author: { displayName: 'Ali' }, created: '2026-01-02T10:00', body: 'bakıyorum' }] } } });
   if (u.pathname === '/rest/api/content/search') return json({ results: [{ id: '42', title: 'Kurulum', space: { key: 'DOC' }, _links: { webui: '/x/42' } }] });
   if (u.pathname === '/rest/api/content/42') return json({ title: 'Kurulum', version: { number: 3 }, body: { storage: { value: '<h1>Adımlar</h1><p>Önce <b>Node</b> kurun &amp; açın</p>' } } });
   if (u.pathname === '/plugins/servlet/applinks/whoami') return res.end(whoamiName);
   if (u.pathname === '/rest/api/1.0/repos') return json({ values: reposVisible ? [{ slug: 'depo', project: { key: 'ABC' } }] : [] });
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests') return json({ values: [{ id: 7, state: 'OPEN', title: 'Düzeltme', author: { user: { displayName: 'Ayşe' } }, fromRef: { displayId: 'fix' }, toRef: { displayId: 'main' } }] });
+  if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/7') return json({ id: 7, fromRef: { latestCommit: 'abcdef1234567890' } });
+  if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/8') return json({ id: 8, fromRef: { latestCommit: '1111111111aaaa' } });
+  if (u.pathname === '/rest/build-status/1.0/commits/abcdef1234567890') return json({ values: [{ state: 'SUCCESSFUL', name: 'derleme', url: 'https://ci/1', dateAdded: 1767348000000 }, { state: 'FAILED', key: 'testler' }] });
+  if (u.pathname === '/rest/build-status/1.0/commits/1111111111aaaa') return json({ values: [] });
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/raw/src/a.js') return res.end(`at=${u.searchParams.get('at')}`);
   res.statusCode = 404; res.end('yok');
 });
@@ -119,7 +123,7 @@ test('bağlantı sınama: doğru anahtarla kullanıcı adı, yanlış anahtarla 
 test('araçlar yalnızca bağlı servisler için sunulur ve doğru adreslere gider', async () => {
   const env = read(process.env.ATOLYE_CLAUDE_JSON).mcpServers.atolye.env;
   assert.deepEqual(availableTools({ JIRA_URL: base, JIRA_TOKEN: 'x' }).map((t) => t.name), ['jira_search', 'jira_get_issue', 'jira_add_comment']);
-  assert.equal(availableTools(env).length, 9);
+  assert.equal(availableTools(env).length, 10);
   assert.equal(availableTools(env).find((t) => t.name === 'jira_add_comment').annotations.readOnlyHint, false);
 
   const text = async (name, args) => (await callTool(name, args, env)).content[0].text;
@@ -127,6 +131,10 @@ test('araçlar yalnızca bağlı servisler için sunulur ve doğru adreslere gid
   const issue = await text('jira_get_issue', { key: 'ABC-1' });
   assert.match(issue, /Port hatası/);
   assert.match(issue, /Ali \(2026-01-02\): bakıyorum/);
+  assert.match(issue, /Sürüm: 2\.5\.0/);
+  assert.match(issue, /Üst kayıt: ABC-0 \[Sürüyor\] Ana iş — Hikâye\nAlt görevler \(1\):\n- ABC-2 \[Yapılacak\] Test yaz\nBağlantılı kayıtlar:\n- engeller: XYZ-5 \[Açık\] Sürüm/);
+  assert.equal(await text('bitbucket_pr_build_status', { project: 'ABC', repo: 'depo', id: 7 }), '#7 (commit abcdef1234): BAŞARISIZ\n- BAŞARILI | derleme | 2026-01-02 10:00 | https://ci/1\n- BAŞARISIZ | testler');
+  assert.match(await text('bitbucket_pr_build_status', { project: 'ABC', repo: 'depo', id: 8 }), /derleme sonucu yok/);
   assert.match(await text('confluence_search', { query: 'kurulum' }), /^42 \| Kurulum \| alan: DOC/);
   assert.ok(seen.some((s) => decodeURIComponent(s).includes('cql=text ~ "kurulum" and type = page')));
   assert.match(await text('confluence_get_page', { id: '42' }), /Kurulum \(sürüm 3\)[\s\S]*Adımlar\nÖnce Node kurun & açın/);
@@ -164,7 +172,7 @@ test('MCP sunucusu gerçek bir alt süreç olarak konuşur', async () => {
   child.stdin.end();
   assert.equal(replies[0].result.protocolVersion, '2025-06-18');
   assert.equal(replies[0].result.serverInfo.name, 'atolye');
-  assert.equal(replies[1].result.tools.length, 9);
+  assert.equal(replies[1].result.tools.length, 10);
   assert.match(replies[2].result.content[0].text, /ABC-1: Port hatası/);
   assert.deepEqual(await handleMessage({ method: 'notifications/initialized' }), null);
 });
