@@ -2042,13 +2042,13 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'outlook', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'outlook', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2545,6 +2545,7 @@ async function renderProxyTab() {
 
 // ---------- Outlook bağlantısı ----------
 // Bilgisayardaki klasik Outlook'tan okuma; adres ya da anahtar yok, yalnızca etkinleştirilir ve sınanır.
+// Şimdilik pasif: hiçbir modun sekmelerinde yok (ekranda görünmez); kod ileride açmak için duruyor
 LINKS.outlook = { name: 'Outlook' };
 const outlookUi = { result: null };
 function renderOutlookTab() {

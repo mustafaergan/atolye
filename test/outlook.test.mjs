@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { setRunner, friendly } from '../src/outlook.js';
 import { availableTools, callTool } from '../src/mcp-server.js';
 
-const env = { OUTLOOK_ENABLED: '1' };
+const env = { OUTLOOK_ENABLED: '1', ATOLYE_OUTLOOK: '1' };
 const calls = [];
 setRunner(async (op, args) => {
   calls.push([op, args]);
@@ -25,6 +25,7 @@ test('Outlook araçları yalnızca etkinleştirilince sunulur; hepsi okuma yapar
   assert.deepEqual(names, ['outlook_list_folders', 'outlook_search_mail', 'outlook_get_mail', 'outlook_list_events']);
   assert.ok(availableTools(env).every((t) => t.annotations.readOnlyHint));
   assert.equal(availableTools({}).length, 0);
+  assert.equal(availableTools({ OUTLOOK_ENABLED: '1' }).length, 0, 'pasif: ATOLYE_OUTLOOK=1 olmadan sunulmaz');
 });
 
 test('Outlook: klasörler, arama, e-posta ve takvim çıktısı', async () => {

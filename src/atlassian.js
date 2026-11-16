@@ -21,8 +21,9 @@ export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUp
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
 export function configFromEnv(service, env = process.env) {
-  // Outlook bilgisayardaki Outlook'u kullanır: adres ya da anahtar yoktur, yalnızca açık/kapalı
-  if (service === 'outlook') return env.OUTLOOK_ENABLED === '1' ? { url: 'outlook', token: '', email: '' } : null;
+  // Outlook bilgisayardaki Outlook'u kullanır: adres ya da anahtar yoktur, yalnızca açık/kapalı.
+  // Şimdilik pasif: ATOLYE_OUTLOOK=1 verilmedikçe araçları sunulmaz (arayüzde de sekmesi yok).
+  if (service === 'outlook') return env.ATOLYE_OUTLOOK === '1' && env.OUTLOOK_ENABLED === '1' ? { url: 'outlook', token: '', email: '' } : null;
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
   if (!url || !token) return null;
