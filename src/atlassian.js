@@ -192,6 +192,33 @@ export const confluence = {
 const bbCloudApi = 'https://api.bitbucket.org/2.0';
 const bbWorkspace = (cfg, project) => project || new URL(cfg.url).pathname.split('/').filter(Boolean)[0] || '';
 const need = (v, name) => { if (!v) throw new Error(`"${name}" gerekli`); return v; };
+
+/** Birleşik diff metninden değişiklik boyutu: dosya sayısı, eklenen/silinen satır ve dosya başına sayılar */
+export function diffStats(diff) {
+  const files = [];
+  let cur = null;
+  for (const line of String(diff || '').split(/\r?\n/)) {
+    const head = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+    if (head) { cur = { path: head[2], added: 0, removed: 0 }; files.push(cur); continue; }
+    if (line.startsWith('+++ ') || line.startsWith('--- ')) {
+      // Başlığı "diff --git" olmayan biçimlerde dosya adı +++ satırından alınır
+      if (!cur && line.startsWith('+++ ')) { cur = { path: line.slice(4).replace(/^b\//, ''), added: 0, removed: 0 }; files.push(cur); }
+      continue;
+    }
+    if (!cur) continue;
+    if (line.startsWith('+')) cur.added++;
+    else if (line.startsWith('-')) cur.removed++;
+  }
+  const added = files.reduce((n, f) => n + f.added, 0);
+  const removed = files.reduce((n, f) => n + f.removed, 0);
+  return { files, added, removed };
+}
+const sizeLine = ({ files, added, removed }) => {
+  const top = [...files].sort((a, b) => (b.added + b.removed) - (a.added + a.removed)).slice(0, 30);
+  return [`Değişiklik boyutu: ${files.length} dosya, +${added} / -${removed} satır (toplam ${added + removed})`,
+    ...top.map((f) => `  ${f.path} +${f.added} -${f.removed}`),
+    ...(files.length > top.length ? [`  … ve ${files.length - top.length} dosya daha`] : [])].join('\n');
+};
 export const bitbucket = {
   async whoami(cfg) {
     if (isCloud(cfg.url)) {
@@ -254,13 +281,13 @@ export const bitbucket = {
       const base = `${bbCloudApi}/repositories/${enc(need(bbWorkspace(cfg, project), 'project (çalışma alanı)'))}/${enc(repo)}/pullrequests/${enc(id)}`;
       const p = await call(cfg, base);
       const diff = await call(cfg, `${base}/diff`, { text: true });
-      return cut(`#${p.id} [${p.state}] ${p.title}\nYazar: ${p.author?.display_name || '?'} | ${p.source?.branch?.name} → ${p.destination?.branch?.name}\nAdres: ${p.links?.html?.href || ''}\n\n${p.description || ''}\n\n--- Değişiklikler ---\n${diff}`);
+      return cut(`#${p.id} [${p.state}] ${p.title}\nYazar: ${p.author?.display_name || '?'} | ${p.source?.branch?.name} → ${p.destination?.branch?.name}\nAdres: ${p.links?.html?.href || ''}\n${sizeLine(diffStats(diff))}\n\n${p.description || ''}\n\n--- Değişiklikler ---\n${diff}`);
     }
     const base = `${cfg.url}/rest/api/1.0/projects/${enc(need(project, 'project'))}/repos/${enc(repo)}/pull-requests/${enc(id)}`;
     const p = await call(cfg, base);
     const diff = await call(cfg, `${base}.diff`, { text: true });
     const reviewers = (p.reviewers || []).map((r) => `${r.user?.displayName}${r.approved ? ' ✓' : ''}`).join(', ');
-    return cut(`#${p.id} [${p.state}] ${p.title}\nYazar: ${p.author?.user?.displayName || '?'} | ${p.fromRef?.displayId} → ${p.toRef?.displayId}${reviewers ? `\nGözden geçirenler: ${reviewers}` : ''}\nAdres: ${p.links?.self?.[0]?.href || ''}\n\n${p.description || ''}\n\n--- Değişiklikler ---\n${diff}`);
+    return cut(`#${p.id} [${p.state}] ${p.title}\nYazar: ${p.author?.user?.displayName || '?'} | ${p.fromRef?.displayId} → ${p.toRef?.displayId}${reviewers ? `\nGözden geçirenler: ${reviewers}` : ''}\nAdres: ${p.links?.self?.[0]?.href || ''}\n${sizeLine(diffStats(diff))}\n\n${p.description || ''}\n\n--- Değişiklikler ---\n${diff}`);
   },
   /**
    * Kullanıcının gözden geçiren (reviewer) olarak atandığı AÇIK çekme istekleri. Şirket içi Bitbucket'ta bütün

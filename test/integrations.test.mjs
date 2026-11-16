@@ -53,7 +53,8 @@ ikinci satır`]],
       { id: 3, title: 'Başka depo', author: { user: { displayName: 'Can' } }, fromRef: { displayId: 'yeni', ...repo('XYZ', 'servis') }, toRef: { displayId: 'main', ...repo('XYZ', 'servis') }, updatedDate: 1767348000000, reviewers: [{ user: { name: 'deneme' }, status: 'UNAPPROVED' }] },
     ] });
   }
-  if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/7') return json({ id: 7, fromRef: { latestCommit: 'abcdef1234567890' } });
+  if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/7') return json({ id: 7, state: 'OPEN', title: 'ABC-1 Port düzeltmesi', author: { user: { displayName: 'Ayşe' } }, fromRef: { displayId: 'fix', latestCommit: 'abcdef1234567890' }, toRef: { displayId: 'main' }, description: 'XYZ-9 ile ilgili' });
+  if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/7.diff') return res.end('diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,2 +1,3 @@\n-eski\n+yeni\n+ek\n satır\ndiff --git a/test/a.test.js b/test/a.test.js\n--- /dev/null\n+++ b/test/a.test.js\n@@ -0,0 +1 @@\n+test\n');
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/8') return json({ id: 8, fromRef: { latestCommit: '1111111111aaaa' } });
   if (u.pathname === '/rest/build-status/1.0/commits/abcdef1234567890') return json({ values: [{ state: 'SUCCESSFUL', name: 'derleme', url: 'https://ci/1', dateAdded: 1767348000000 }, { state: 'FAILED', key: 'testler' }] });
   if (u.pathname === '/rest/build-status/1.0/commits/1111111111aaaa') return json({ values: [] });
@@ -143,6 +144,8 @@ test('araçlar yalnızca bağlı servisler için sunulur ve doğru adreslere gid
   assert.match(issue, /Üst kayıt: ABC-0 \[Sürüyor\] Ana iş — Hikâye\nAlt görevler \(1\):\n- ABC-2 \[Yapılacak\] Test yaz\nBağlantılı kayıtlar:\n- engeller: XYZ-5 \[Açık\] Sürüm/);
   assert.equal(await text('bitbucket_pr_build_status', { project: 'ABC', repo: 'depo', id: 7 }), '#7 (commit abcdef1234): BAŞARISIZ\n- BAŞARILI | derleme | 2026-01-02 10:00 | https://ci/1\n- BAŞARISIZ | testler');
   assert.match(await text('bitbucket_pr_build_status', { project: 'ABC', repo: 'depo', id: 8 }), /derleme sonucu yok/);
+  const pr = await text('bitbucket_get_pull_request', { project: 'ABC', repo: 'depo', id: 7 });
+  assert.match(pr, /^#7 \[OPEN\] ABC-1 Port düzeltmesi\n[\s\S]*Değişiklik boyutu: 2 dosya, \+3 \/ -1 satır \(toplam 4\)\n  src\/a\.js \+2 -1\n  test\/a\.test\.js \+1 -0/);
   // Yalnızca gözden geçiren olduğum açık PR'lar; kendi onay durumum gösterilir, depo ile süzülebilir
   assert.equal(await text('bitbucket_my_review_prs', {}), 'Gözden geçiren olarak atandığınız açık çekme istekleri (2):\n#7 | ABC/depo | Düzeltme | Ayşe | fix → main | değişiklik istedim | güncelleme 2026-01-02\n#3 | XYZ/servis | Başka depo | Can | yeni → main | henüz bakmadım | güncelleme 2026-01-02');
   assert.match(await text('bitbucket_my_review_prs', { project: 'abc', repo: 'depo' }), /\(1\):\n#7 \| ABC\/depo/);
