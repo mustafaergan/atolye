@@ -199,7 +199,7 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
 - Her sekmede **Yapay zekâdan yardım al** düğmesi, hazır bir soruyla klasörsüz sohbet açar; bir hata çıktığında
   **Bu hatayı yapay zekâya sor** düğmesi hatayı soruya ekler.
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
-  `bitbucket_list_repos`, `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_pr_build_status`, `bitbucket_get_file`,
+  `bitbucket_list_repos`, `bitbucket_my_review_prs` (reviewer olduğunuz açık PR'lar), `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_pr_build_status`, `bitbucket_get_file`,
   `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
 - **Test Otomasyonu** (bütün modlarda): test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir (depo buradan
   indirilebilir, komut proje türüne göre önerilir: Maven/Cucumber, Gradle, Playwright, Cypress, pytest, .NET). Bitbucket bağlıysa

@@ -262,6 +262,46 @@ export const bitbucket = {
     const reviewers = (p.reviewers || []).map((r) => `${r.user?.displayName}${r.approved ? ' ✓' : ''}`).join(', ');
     return cut(`#${p.id} [${p.state}] ${p.title}\nYazar: ${p.author?.user?.displayName || '?'} | ${p.fromRef?.displayId} → ${p.toRef?.displayId}${reviewers ? `\nGözden geçirenler: ${reviewers}` : ''}\nAdres: ${p.links?.self?.[0]?.href || ''}\n\n${p.description || ''}\n\n--- Değişiklikler ---\n${diff}`);
   },
+  /**
+   * Kullanıcının gözden geçiren (reviewer) olarak atandığı AÇIK çekme istekleri. Şirket içi Bitbucket'ta bütün
+   * depolardan gelir (proje/depo verilirse onlarla sınırlanır); Bitbucket Cloud'da depo adı gerekir.
+   */
+  async myReviewPrs(cfg, { project, repo, limit } = {}) {
+    const n = clamp(limit, 50, 100);
+    const MY = { APPROVED: 'onayladım', NEEDS_WORK: 'değişiklik istedim', UNAPPROVED: 'henüz bakmadım', approved: 'onayladım', changes_requested: 'değişiklik istedim' };
+    const when = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+    if (isCloud(cfg.url)) {
+      const ws = need(bbWorkspace(cfg, project), 'project (çalışma alanı)');
+      need(repo, 'repo');
+      const me = await call(cfg, `${bbCloudApi}/user`);
+      const q = `state="OPEN" AND reviewers.uuid="${me.uuid}"`;
+      const data = await call(cfg, `${bbCloudApi}/repositories/${enc(ws)}/${enc(repo)}/pullrequests?pagelen=${Math.min(n, 50)}&q=${enc(q)}&fields=${enc('+values.participants')}`);
+      const rows = data.values || [];
+      if (!rows.length) return 'Gözden geçiren olarak atandığınız açık çekme isteği yok.';
+      return rows.map((p) => {
+        const mine = (p.participants || []).find((x) => x.user?.uuid === me.uuid);
+        return `#${p.id} | ${ws}/${repo} | ${p.title} | ${p.author?.display_name || '?'} | ${p.source?.branch?.name} → ${p.destination?.branch?.name} | ${MY[mine?.state] || (mine?.approved ? 'onayladım' : 'henüz bakmadım')} | güncelleme ${when(p.updated_on)}`;
+      }).join('\n');
+    }
+    let data;
+    try {
+      data = await call(cfg, `${cfg.url}/rest/api/1.0/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=${n}`);
+    } catch (err) {
+      if (/HTTP 40[13]/.test(err.message)) throw new Error(`${err.message}. Bu liste kişisel erişim belirteci ister; proje ya da depo belirteci bir kullanıcıya bağlı olmadığı için "benim PR'larım" bilinemez. Bitbucket'ta profil resmi → Hesabı yönet → HTTP erişim belirteçleri'nden kişisel bir belirteç oluşturun`);
+      throw err;
+    }
+    const me = (await call(cfg, `${cfg.url}/plugins/servlet/applinks/whoami`, { text: true }).catch(() => '')).trim().toLowerCase();
+    const rows = (data.values || []).filter((p) => {
+      const r = p.toRef?.repository || {};
+      return (!project || String(r.project?.key || '').toLowerCase() === String(project).toLowerCase()) && (!repo || String(r.slug || '').toLowerCase() === String(repo).toLowerCase());
+    });
+    if (!rows.length) return `Gözden geçiren olarak atandığınız açık çekme isteği yok${project || repo ? ` (${[project, repo].filter(Boolean).join('/')})` : ''}.`;
+    return [`Gözden geçiren olarak atandığınız açık çekme istekleri (${rows.length}):`, ...rows.map((p) => {
+      const r = p.toRef?.repository || {};
+      const mine = (p.reviewers || []).find((x) => [x.user?.name, x.user?.slug].some((v) => v && String(v).toLowerCase() === me));
+      return `#${p.id} | ${r.project?.key || '?'}/${r.slug || '?'} | ${p.title} | ${p.author?.user?.displayName || '?'} | ${p.fromRef?.displayId} → ${p.toRef?.displayId} | ${MY[mine?.status] || 'henüz bakmadım'} | güncelleme ${when(p.updatedDate)}`;
+    })].join('\n');
+  },
   /** Çekme isteğinin son commit'i için derleme (CI) sonuçları */
   async prBuildStatus(cfg, { project, repo, id }) {
     need(repo, 'repo'); need(id, 'id');

@@ -45,6 +45,14 @@ ikinci satır`]],
   if (u.pathname === '/plugins/servlet/applinks/whoami') return res.end(whoamiName);
   if (u.pathname === '/rest/api/1.0/repos') return json({ values: reposVisible ? [{ slug: 'depo', project: { key: 'ABC' } }] : [] });
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests') return json({ values: [{ id: 7, state: 'OPEN', title: 'Düzeltme', author: { user: { displayName: 'Ayşe' } }, fromRef: { displayId: 'fix' }, toRef: { displayId: 'main' } }] });
+  if (u.pathname === '/rest/api/1.0/dashboard/pull-requests') {
+    if (u.searchParams.get('role') !== 'REVIEWER' || u.searchParams.get('state') !== 'OPEN') return json({ values: [] });
+    const repo = (key, slug) => ({ repository: { slug, project: { key } } });
+    return json({ values: [
+      { id: 7, title: 'Düzeltme', author: { user: { displayName: 'Ayşe' } }, fromRef: { displayId: 'fix', ...repo('ABC', 'depo') }, toRef: { displayId: 'main', ...repo('ABC', 'depo') }, updatedDate: 1767348000000, reviewers: [{ user: { name: 'deneme' }, status: 'NEEDS_WORK' }, { user: { name: 'ali' }, status: 'APPROVED' }] },
+      { id: 3, title: 'Başka depo', author: { user: { displayName: 'Can' } }, fromRef: { displayId: 'yeni', ...repo('XYZ', 'servis') }, toRef: { displayId: 'main', ...repo('XYZ', 'servis') }, updatedDate: 1767348000000, reviewers: [{ user: { name: 'deneme' }, status: 'UNAPPROVED' }] },
+    ] });
+  }
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/7') return json({ id: 7, fromRef: { latestCommit: 'abcdef1234567890' } });
   if (u.pathname === '/rest/api/1.0/projects/ABC/repos/depo/pull-requests/8') return json({ id: 8, fromRef: { latestCommit: '1111111111aaaa' } });
   if (u.pathname === '/rest/build-status/1.0/commits/abcdef1234567890') return json({ values: [{ state: 'SUCCESSFUL', name: 'derleme', url: 'https://ci/1', dateAdded: 1767348000000 }, { state: 'FAILED', key: 'testler' }] });
@@ -123,7 +131,7 @@ test('bağlantı sınama: doğru anahtarla kullanıcı adı, yanlış anahtarla 
 test('araçlar yalnızca bağlı servisler için sunulur ve doğru adreslere gider', async () => {
   const env = read(process.env.ATOLYE_CLAUDE_JSON).mcpServers.atolye.env;
   assert.deepEqual(availableTools({ JIRA_URL: base, JIRA_TOKEN: 'x' }).map((t) => t.name), ['jira_search', 'jira_get_issue', 'jira_add_comment']);
-  assert.equal(availableTools(env).length, 10);
+  assert.equal(availableTools(env).length, 11);
   assert.equal(availableTools(env).find((t) => t.name === 'jira_add_comment').annotations.readOnlyHint, false);
 
   const text = async (name, args) => (await callTool(name, args, env)).content[0].text;
@@ -135,6 +143,10 @@ test('araçlar yalnızca bağlı servisler için sunulur ve doğru adreslere gid
   assert.match(issue, /Üst kayıt: ABC-0 \[Sürüyor\] Ana iş — Hikâye\nAlt görevler \(1\):\n- ABC-2 \[Yapılacak\] Test yaz\nBağlantılı kayıtlar:\n- engeller: XYZ-5 \[Açık\] Sürüm/);
   assert.equal(await text('bitbucket_pr_build_status', { project: 'ABC', repo: 'depo', id: 7 }), '#7 (commit abcdef1234): BAŞARISIZ\n- BAŞARILI | derleme | 2026-01-02 10:00 | https://ci/1\n- BAŞARISIZ | testler');
   assert.match(await text('bitbucket_pr_build_status', { project: 'ABC', repo: 'depo', id: 8 }), /derleme sonucu yok/);
+  // Yalnızca gözden geçiren olduğum açık PR'lar; kendi onay durumum gösterilir, depo ile süzülebilir
+  assert.equal(await text('bitbucket_my_review_prs', {}), 'Gözden geçiren olarak atandığınız açık çekme istekleri (2):\n#7 | ABC/depo | Düzeltme | Ayşe | fix → main | değişiklik istedim | güncelleme 2026-01-02\n#3 | XYZ/servis | Başka depo | Can | yeni → main | henüz bakmadım | güncelleme 2026-01-02');
+  assert.match(await text('bitbucket_my_review_prs', { project: 'abc', repo: 'depo' }), /\(1\):\n#7 \| ABC\/depo/);
+  assert.match(await text('bitbucket_my_review_prs', { repo: 'yok' }), /açık çekme isteği yok \(yok\)/);
   assert.match(await text('confluence_search', { query: 'kurulum' }), /^42 \| Kurulum \| alan: DOC/);
   assert.ok(seen.some((s) => decodeURIComponent(s).includes('cql=text ~ "kurulum" and type = page')));
   assert.match(await text('confluence_get_page', { id: '42' }), /Kurulum \(sürüm 3\)[\s\S]*Adımlar\nÖnce Node kurun & açın/);
@@ -172,7 +184,7 @@ test('MCP sunucusu gerçek bir alt süreç olarak konuşur', async () => {
   child.stdin.end();
   assert.equal(replies[0].result.protocolVersion, '2025-06-18');
   assert.equal(replies[0].result.serverInfo.name, 'atolye');
-  assert.equal(replies[1].result.tools.length, 10);
+  assert.equal(replies[1].result.tools.length, 11);
   assert.match(replies[2].result.content[0].text, /ABC-1: Port hatası/);
   assert.deepEqual(await handleMessage({ method: 'notifications/initialized' }), null);
 });
