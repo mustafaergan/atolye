@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { createServer } from './server.js';
 import fs from 'node:fs';
 import { installLogCapture, recordUpdateLog } from './log.js';
+import { startDailyCheck } from './update.js';
 
 installLogCapture(); // arayüzdeki "Kayıtlar" sayfası için
 
@@ -33,6 +34,7 @@ const noOpen = args.includes('--no-open') || process.env.ATOLYE_NO_OPEN === '1';
 
 try {
   await createServer({ port, defaultCwd });
+  startDailyCheck(); // açılışta ve her sabah 9'da güncelleme denetimi
 } catch (err) {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${port} kullanımda. Başka bir port deneyin: atolye --port 3211`);

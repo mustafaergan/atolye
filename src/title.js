@@ -8,7 +8,8 @@ const MAX = 60;
 
 /** Kullanıcının mesajından başlık: yalnızca ilk paragraf (Atölye'nin eklediği notlar ve getirilen veriler hariç) */
 export function shortTitle(text) {
-  const first = String(text || '').split(/\r?\n\s*\r?\n/)[0].replace(/\s+/g, ' ').trim();
+  // Atölye'nin mesaja eklediği gizli yönergeler (çalışma kipi vb.) başlığa girmez
+  const first = String(text || '').replace(/<system-reminder>[^]*?(<\/system-reminder>|$)/g, '').split(/\r?\n\s*\r?\n/)[0].replace(/\s+/g, ' ').trim();
   if (first.length <= MAX) return first;
   const cut = first.slice(0, MAX);
   const at = cut.lastIndexOf(' ');
