@@ -160,7 +160,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   // Öğretilen komutlar (bkz. commands.js): kullanıcının tarif ettiği, yapay zekânın derlediği hazır komutlar
   const commandsFile = process.env.ATOLYE_COMMANDS_FILE || undefined;
-  const commandList = () => ({ ok: true, commands: commands.list(commandsFile), linkIds: commands.LINK_IDS, maxLinks: commands.MAX_LINKS });
+  const commandList = () => ({ ok: true, commands: commands.list(commandsFile), builtins: commands.builtins(commandsFile), linkIds: commands.LINK_IDS, maxLinks: commands.MAX_LINKS, colors: commands.COLORS });
   const commandError = (lang, err) => (err.code === 'no-name' ? msg(lang, 'Komuta bir ad verin')
     : err.code === 'no-prompt' ? msg(lang, 'Komutun ne yapacağını yazın')
       : err.code === 'no-description' ? msg(lang, 'Ne yapılmasını istediğinizi anlatın')
@@ -174,6 +174,11 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       res.json(commandList());
     } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err) }); }
   }));
+  // Hazır komutlar: değiştirme, gizleme (POST) ve Atölye'nin kendi hâline döndürme (DELETE)
+  app.post('/api/commands/builtin', wrap(async (req, res) => {
+    try { commands.saveBuiltin(req.body?.key, req.body || {}, commandsFile); res.json(commandList()); } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err) }); }
+  }));
+  app.delete('/api/commands/builtin', wrap(async (req, res) => { commands.resetBuiltin(String(req.query.key || ''), commandsFile); res.json(commandList()); }));
   app.delete('/api/commands/:id', wrap(async (req, res) => { commands.remove(req.params.id, commandsFile); console.log('[komut] silindi'); res.json(commandList()); }));
   app.post('/api/commands/compile', wrap(async (req, res) => {
     const { description, engine, cwd, model } = req.body || {};

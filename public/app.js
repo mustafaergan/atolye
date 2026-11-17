@@ -1792,34 +1792,27 @@ function updateEmptyState(cwd) {
   const e = isGeneral(cwd) ? (EMPTY[r.emptyGeneral] || EMPTY.general) : (EMPTY[r.emptyProject] || EMPTY.project);
   $('h1', dom.empty).textContent = T(e.title);
   $('p', dom.empty).textContent = T(e.text);
-  $('.suggestions', dom.empty).replaceChildren(...e.tips.map(([label, key, fillOnly, recommended, useLinks]) =>
-    el('button', { type: 'button', class: recommended ? 'recommended' : '', text: T(label), onclick: async () => {
-      // Önerinin ihtiyaç duyduğu bağlantılardan kurulu olanlar bu soru için seçilir. Copilot'ta veriyi Atölye getirdiği
-      // için bağlantıların işlem listesi gönderimden önce yüklenir.
-      if (useLinks) {
-        const ids = useLinks.filter((id) => links.status?.services?.[id]?.connected);
-        setActiveLinks(ids);
-        await Promise.all(ids.map((id) => loadFetchTools(id)));
-      }
-      const prompt = T(key);
-      dom.input.value = prompt;
-      autoGrow();
-      if (fillOnly) { dom.input.focus(); dom.input.setSelectionRange(prompt.length, prompt.length); } else send();
-    } })), ...learnedButtons());
+  $('.suggestions', dom.empty).replaceChildren(...suggestionButtons(cwd));
   const logo = $('.empty-logo', dom.empty);
   logo.classList.toggle('general', isGeneral(cwd));
 }
 
-// ---------- Öğretilen komutlar ----------
-// Kullanıcı ne yapılmasını istediğini anlatır; yapay zekâ bunu adı, yönergesi ve bağlantılarıyla bir komuta derler.
-// Komutlar sunucuda ~/.atolye/komutlar.json dosyasında durur (bkz. src/commands.js).
-const learned = { list: [], linkIds: [], maxLinks: 4 };
+// ---------- Komutlar ----------
+// Boş oturum ekranındaki düğmeler: Atölye ile gelen hazır komutlar ve kullanıcının öğrettikleri. Öğretirken kullanıcı
+// ne yapılmasını istediğini anlatır; yapay zekâ bunu adı, yönergesi ve bağlantılarıyla bir komuta derler. Hazır
+// komutlar da düzenlenebilir, renklendirilebilir ya da gizlenebilir. Hepsi sunucuda ~/.atolye/komutlar.json
+// dosyasında durur (bkz. src/commands.js).
+const learned = { list: [], builtins: {}, linkIds: [], maxLinks: 4, colors: [] };
+const COLOR_HEX = { blue: '#3b7de0', green: '#2e9e5b', purple: '#8a5cd6', orange: '#d97a1f', red: '#d14d4d', pink: '#d1529b', gray: '#7a7f87' };
+const COLOR_NAMES = { blue: 'Mavi', green: 'Yeşil', purple: 'Mor', orange: 'Turuncu', red: 'Kırmızı', pink: 'Pembe', gray: 'Gri' };
 const commandsDlg = $('#commandsDialog');
 function applyCommands(r) {
   if (!r || !Array.isArray(r.commands)) return;
   learned.list = r.commands;
+  learned.builtins = r.builtins || {};
   learned.linkIds = (r.linkIds || []).filter((id) => LINKS[id]);
   learned.maxLinks = r.maxLinks || 4;
+  learned.colors = (r.colors || []).filter((c) => COLOR_HEX[c]);
   const count = $('#commandsCount');
   count.textContent = String(learned.list.length);
   count.hidden = !learned.list.length;
@@ -1827,17 +1820,44 @@ function applyCommands(r) {
 }
 const loadCommands = () => fetch('/api/commands').then((r) => r.json()).then(applyCommands).catch(() => {});
 const linkOn = (id) => Boolean(links.status?.services?.[id]?.connected);
+// Hazır komutların, kullanıcının değişiklikleri uygulanmış hâli
+function builtinCommands(sets) {
+  const seen = new Set();
+  return sets.flatMap((e) => e.tips).filter(([label]) => !seen.has(label) && seen.add(label)).map(([label, key, fillOnly, recommended, useLinks]) => {
+    const o = learned.builtins[label] || {};
+    return {
+      builtin: label, changed: Boolean(learned.builtins[label]), hidden: Boolean(o.hidden),
+      defName: T(label), defPrompt: T(key), name: o.name || T(label), prompt: o.prompt || T(key),
+      links: o.links || useLinks || [], fill: typeof o.fill === 'boolean' ? o.fill : Boolean(fillOnly),
+      color: o.color || '', recommended: Boolean(recommended),
+    };
+  });
+}
+const emptySet = (cwd) => {
+  const r = currentRole();
+  return isGeneral(cwd) ? (EMPTY[r.emptyGeneral] || EMPTY.general) : (EMPTY[r.emptyProject] || EMPTY.project);
+};
+const commandColor = (c) => c.color || (c.builtin ? '' : 'blue');
 async function runCommand(c) {
   // Komutun bağlantılarından kurulu olanlar bu soru için seçilir (Copilot'ta işlem listeleri gönderimden önce yüklenir)
-  const ids = (c.links || []).filter((id) => LINKS[id] && linkOn(id));
-  setActiveLinks(ids);
-  await Promise.all(ids.map((id) => loadFetchTools(id)));
-  dom.input.value = c.fill ? `${c.prompt} ` : c.prompt;
+  if ((c.links || []).length) {
+    const ids = c.links.filter((id) => LINKS[id] && linkOn(id));
+    setActiveLinks(ids);
+    await Promise.all(ids.map((id) => loadFetchTools(id)));
+  }
+  dom.input.value = c.fill && !/\s$/.test(c.prompt) ? `${c.prompt} ` : c.prompt;
   autoGrow();
   if (c.fill) { dom.input.focus(); dom.input.setSelectionRange(dom.input.value.length, dom.input.value.length); } else send();
 }
-const learnedButtons = () => [
-  ...learned.list.map((c) => el('button', { type: 'button', class: 'learned', text: c.name, title: c.prompt.slice(0, 300), onclick: () => runCommand(c) })),
+function commandButton(c) {
+  const color = commandColor(c);
+  const b = el('button', { type: 'button', class: color ? 'colored' : c.recommended ? 'recommended' : '', text: c.name, title: c.builtin ? null : c.prompt.slice(0, 300), onclick: () => runCommand(c) });
+  if (color) b.style.setProperty('--c', COLOR_HEX[color]);
+  return b;
+}
+const suggestionButtons = (cwd) => [
+  ...builtinCommands([emptySet(cwd)]).filter((c) => !c.hidden).map(commandButton),
+  ...learned.list.map(commandButton),
   el('button', { type: 'button', class: 'teach', text: T('+ Komut öğret'), title: T('Ne yapılmasını istediğinizi anlatın; Atölye bunu hazır bir komuta çevirsin'), onclick: () => openCommands('teach') }),
 ];
 function commandsView(title, ...children) {
@@ -1850,8 +1870,20 @@ function openCommands(view = 'list', data) {
   else renderCommandList();
   if (!commandsDlg.open) commandsDlg.showModal();
 }
-function renderCommandList() {
-  const rows = learned.list.map((c) => {
+const saveBuiltin = (c, patch) => api(`/api/commands/builtin?lang=${getLang()}`, {
+  key: c.builtin, hidden: c.hidden, color: c.color,
+  name: c.name === c.defName ? '' : c.name, prompt: c.prompt === c.defPrompt ? '' : c.prompt,
+  ...(c.changed ? { links: c.links, fill: c.fill } : {}), ...patch,
+}).catch((e) => ({ ok: false, error: e.message }));
+function commandRow(c) {
+  const actions = [el('button', { type: 'button', class: 'btn ghost', text: T('Düzenle'), onclick: () => openCommands('edit', c) })];
+  if (c.builtin) {
+    actions.push(el('button', { type: 'button', class: 'btn ghost', text: c.hidden ? T('Göster') : T('Gizle'), onclick: async () => { applyCommands(await saveBuiltin(c, { hidden: !c.hidden })); renderCommandList(); } }));
+    if (c.changed) actions.push(el('button', { type: 'button', class: 'btn ghost', text: T('Sıfırla'), title: T('Atölye ile gelen hâline döndürür'), onclick: async () => {
+      applyCommands(await fetch(`/api/commands/builtin?key=${encodeURIComponent(c.builtin)}`, { method: 'DELETE' }).then((r) => r.json()).catch(() => null));
+      renderCommandList();
+    } }));
+  } else {
     const del = el('button', { type: 'button', class: 'btn ghost', text: T('Sil') });
     del.onclick = async () => {
       // İlk tıklama sorar, ikincisi siler
@@ -1859,17 +1891,29 @@ function renderCommandList() {
       applyCommands(await fetch(`/api/commands/${encodeURIComponent(c.id)}`, { method: 'DELETE' }).then((r) => r.json()).catch(() => null));
       renderCommandList();
     };
-    const names = (c.links || []).filter((id) => LINKS[id]).map((id) => (linkOn(id) ? LINKS[id].name : T('{name} (bağlı değil)', { name: LINKS[id].name })));
-    return el('div', { class: 'command-row' },
-      el('div', { class: 'c-main' },
-        el('div', { class: 'c-name', text: c.name }),
-        el('div', { class: 'c-links', text: names.length ? names.join(' + ') : T('Bağlantı kullanmıyor') }),
-        el('div', { class: 'c-prompt', text: c.prompt })),
-      el('div', { class: 'c-actions' }, el('button', { type: 'button', class: 'btn ghost', text: T('Düzenle'), onclick: () => openCommands('edit', c) }), del));
-  });
-  commandsView(T('Komutlarım'),
-    el('p', { class: 'links-intro', text: T('Öğrettiğiniz komutlar boş oturum ekranında mavi düğme olarak görünür. Buradan içeriklerini ve bağlantılarını değiştirebilir ya da silebilirsiniz.') }),
-    rows.length ? el('div', { class: 'command-list' }, rows) : el('div', { class: 'links-result', text: T('Henüz komut öğretmediniz.') }),
+    actions.push(del);
+  }
+  const names = (c.links || []).filter((id) => LINKS[id]).map((id) => (linkOn(id) ? LINKS[id].name : T('{name} (bağlı değil)', { name: LINKS[id].name })));
+  const color = commandColor(c);
+  const row = el('div', { class: `command-row${c.hidden ? ' hidden-command' : ''}` },
+    el('div', { class: 'c-main' },
+      el('div', { class: `c-name${color ? '' : ' plain'}` }, c.name, c.hidden && el('span', { class: 'c-badge', text: T('gizli') }), c.changed && !c.hidden && el('span', { class: 'c-badge', text: T('değiştirildi') })),
+      el('div', { class: 'c-links', text: names.length ? names.join(' + ') : T('Bağlantı kullanmıyor') }),
+      el('div', { class: 'c-prompt', text: c.prompt })),
+    el('div', { class: 'c-actions' }, actions));
+  if (color) row.style.setProperty('--c', COLOR_HEX[color]);
+  return row;
+}
+function renderCommandList() {
+  const r = currentRole();
+  const ready = builtinCommands([EMPTY[r.emptyProject] || EMPTY.project, EMPTY[r.emptyGeneral] || EMPTY.general]);
+  commandsView(T('Komutlar'),
+    el('p', { class: 'links-intro', text: T('Boş oturum ekranındaki düğmeler buradan yönetilir: içeriklerini, bağlantılarını ve renklerini değiştirebilir, hazır komutları gizleyebilir, öğrettiklerinizi silebilirsiniz.') }),
+    el('div', { class: 'command-list' },
+      el('div', { class: 'command-head', text: T('Öğrettiğim komutlar') }),
+      learned.list.length ? learned.list.map(commandRow) : el('div', { class: 'links-result', text: T('Henüz komut öğretmediniz.') }),
+      el('div', { class: 'command-head', text: T('Hazır komutlar ({role})', { role: r.name() }) }),
+      ready.map(commandRow)),
     el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn learn', text: T('+ Komut öğret'), onclick: () => openCommands('teach') })));
 }
 function renderTeach(text = '') {
@@ -1891,14 +1935,14 @@ function renderTeach(text = '') {
     el('p', { class: 'links-intro', text: T('Ne yapmasını istiyorsunuz? Kendi cümlelerinizle anlatın: önce şunu yapsın, sonra Jira\'ya gitsin, Bitbucket\'a baksın… Atölye anlattıklarınızı derleyip toparlar; kaydetmeden önce görür ve düzeltirsiniz.') }),
     el('label', { class: 'links-field' }, el('span', { text: T('Ne yapmasını istiyorsunuz?') }), desc),
     result,
-    el('div', { class: 'links-actions' }, go, el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => (learned.list.length ? openCommands('list') : commandsDlg.close()) })));
+    el('div', { class: 'links-actions' }, go, el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => openCommands('list') })));
   setTimeout(() => desc.focus(), 0);
 }
 function renderCommandEdit(c) {
-  const isNew = !c.id;
+  const isNew = !c.id && !c.builtin;
   const name = el('input', { type: 'text', maxlength: '40' });
   name.value = c.name || '';
-  const prompt = el('textarea', { rows: '11' });
+  const prompt = el('textarea', { rows: '10' });
   prompt.value = c.prompt || '';
   const chosen = new Set((c.links || []).filter((id) => learned.linkIds.includes(id)));
   const boxes = [];
@@ -1907,9 +1951,18 @@ function renderCommandEdit(c) {
     const box = el('input', { type: 'checkbox' });
     box.onchange = () => { if (box.checked) chosen.add(id); else chosen.delete(id); sync(); };
     boxes.push([id, box]);
-    return el('label', { class: `links-check${linkOn(id) ? '' : ' off'}`, title: linkOn(id) ? '' : T('Bu bağlantı henüz kurulu değil; kurulunca komut onu da kullanır') }, box, el('span', { text: LINKS[id].name }));
+    return el('label', { class: `links-check${linkOn(id) ? '' : ' off'}`, title: linkOn(id) ? null : T('Bu bağlantı henüz kurulu değil; kurulunca komut onu da kullanır') }, box, el('span', { text: LINKS[id].name }));
   }));
   sync();
+  // Renk: hazır komutlarda "varsayılan" (Atölye'nin kendi görünümü) seçeneği de vardır
+  let color = c.builtin ? (c.color || '') : commandColor(c);
+  const swatches = el('div', { class: 'swatches' });
+  const drawSwatches = () => swatches.replaceChildren(...[...(c.builtin ? [''] : []), ...learned.colors].map((id) => {
+    const b = el('button', { type: 'button', class: `swatch${id ? '' : ' none'}${id === color ? ' on' : ''}`, title: id ? T(COLOR_NAMES[id]) : T('Varsayılan görünüm'), 'aria-label': id ? T(COLOR_NAMES[id]) : T('Varsayılan görünüm'), onclick: () => { color = id; drawSwatches(); } });
+    if (id) b.style.setProperty('--c', COLOR_HEX[id]);
+    return b;
+  }));
+  drawSwatches();
   const fill = el('input', { type: 'checkbox' });
   fill.checked = Boolean(c.fill);
   const result = el('div', { class: 'links-result', hidden: true });
@@ -1917,7 +1970,10 @@ function renderCommandEdit(c) {
   const save = el('button', { type: 'button', class: 'btn learn', text: T('Kaydet') });
   save.onclick = async () => {
     save.disabled = true;
-    const r = await api(`/api/commands?lang=${getLang()}`, { id: c.id, name: name.value, prompt: prompt.value, links: [...chosen], fill: fill.checked }).catch((e) => ({ ok: false, error: e.message }));
+    const body = { name: name.value, prompt: prompt.value, links: [...chosen], fill: fill.checked, color };
+    const r = c.builtin
+      ? await saveBuiltin(c, { ...body, name: name.value.trim() === c.defName ? '' : name.value, prompt: prompt.value.trim() === c.defPrompt.trim() ? '' : prompt.value })
+      : await api(`/api/commands?lang=${getLang()}`, { id: c.id, ...body }).catch((e) => ({ ok: false, error: e.message }));
     save.disabled = false;
     if (!r.ok) { result.hidden = false; result.className = 'links-result err'; result.textContent = r.error || T('Kaydedilemedi'); return; }
     applyCommands(r);
@@ -1927,11 +1983,12 @@ function renderCommandEdit(c) {
     el('label', { class: 'links-field' }, el('span', { text: T('Düğmede görünecek ad') }), name),
     el('label', { class: 'links-field' }, el('span', { text: T('Yapay zekâya gidecek yönerge') }), prompt),
     el('div', { class: 'links-field' }, el('span', { text: T('Kullanacağı bağlantılar (en fazla {n})', { n: learned.maxLinks }) }), linkRow),
+    el('div', { class: 'links-field' }, el('span', { text: T('Düğmenin rengi') }), swatches),
     el('label', { class: 'links-check' }, fill, el('span', { text: T('Göndermeden önce mesaj kutusuna yaz (sonuna Jira numarası gibi bir bilgi ekleyeceğim)') })),
     result,
     el('div', { class: 'links-actions' }, save,
       isNew && el('button', { type: 'button', class: 'btn ghost', text: T('Yeniden anlat'), onclick: () => openCommands('teach', c.description || '') }),
-      el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => (learned.list.length ? openCommands('list') : commandsDlg.close()) })));
+      el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => openCommands('list') })));
 }
 $('#commandsBtn').onclick = async () => { await loadCommands(); openCommands('list'); };
 $('#commandsClose').onclick = () => commandsDlg.close();

@@ -29,6 +29,7 @@ const LINK_WORDS = {
 export const LINK_IDS = Object.keys(LINK_WORDS);
 export const MAX_LINKS = 4;
 export const MAX_COMMANDS = 30;
+export const COLORS = ['blue', 'green', 'purple', 'orange', 'red', 'pink', 'gray'];
 const MAX_NAME = 40;
 const MAX_PROMPT = 8000;
 
@@ -42,13 +43,15 @@ export function guessLinks(text) {
 
 const cleanLinks = (links) => [...new Set((Array.isArray(links) ? links : []).filter((id) => LINK_IDS.includes(id)))].slice(0, MAX_LINKS);
 
+const cleanColor = (c) => (COLORS.includes(c) ? c : '');
+
 /** Kaydedilecek komutu denetler ve sadeleştirir */
 export function clean(input = {}) {
   const name = String(input.name || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
   const prompt = String(input.prompt || '').replace(/\r\n/g, '\n').trim().slice(0, MAX_PROMPT);
   if (!name) throw fail('no-name');
   if (!prompt) throw fail('no-prompt');
-  return { name, prompt, links: cleanLinks(input.links), fill: Boolean(input.fill) };
+  return { name, prompt, links: cleanLinks(input.links), fill: Boolean(input.fill), color: cleanColor(input.color) };
 }
 
 export function list(file = defaultFile()) {
@@ -60,10 +63,50 @@ export function list(file = defaultFile()) {
   }
 }
 
-function write(commands, file) {
+/** Hazır (Atölye ile gelen) komutlara kullanıcının yaptığı değişiklikler: { "<hazır komutun adı>": { hidden, name, prompt, links, fill, color } } */
+export function builtins(file = defaultFile()) {
+  try {
+    const b = JSON.parse(fs.readFileSync(file, 'utf8'))?.builtins;
+    return b && typeof b === 'object' && !Array.isArray(b) ? b : {};
+  } catch {
+    return {};
+  }
+}
+
+function write(commands, file, builtinMap = builtins(file)) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify({ commands }, null, 2)}\n`);
+  fs.writeFileSync(file, `${JSON.stringify({ commands, builtins: builtinMap }, null, 2)}\n`);
   return commands;
+}
+
+/**
+ * Hazır bir komutu değiştirir ya da gizler. Yalnızca verilen alanlar saklanır; ad ve yönerge verilmediyse
+ * Atölye'nin kendi metni kullanılmaya devam eder (dil değişince çevirisi de değişir).
+ */
+export function saveBuiltin(key, input = {}, file = defaultFile()) {
+  const k = String(key || '').trim().slice(0, 200);
+  if (!k) throw fail('not-found');
+  const o = {};
+  if (input.hidden) o.hidden = true;
+  const name = String(input.name || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+  const prompt = String(input.prompt || '').replace(/\r\n/g, '\n').trim().slice(0, MAX_PROMPT);
+  if (name) o.name = name;
+  if (prompt) o.prompt = prompt;
+  if (Array.isArray(input.links)) o.links = cleanLinks(input.links);
+  if (typeof input.fill === 'boolean') o.fill = input.fill;
+  if (cleanColor(input.color)) o.color = input.color;
+  const map = builtins(file);
+  if (Object.keys(o).length) map[k] = o; else delete map[k];
+  write(list(file), file, map);
+  return map;
+}
+
+/** Hazır komutu Atölye'nin kendi hâline döndürür */
+export function resetBuiltin(key, file = defaultFile()) {
+  const map = builtins(file);
+  delete map[String(key || '')];
+  write(list(file), file, map);
+  return map;
 }
 
 /** Yeni komut ekler ya da (id verilmişse) var olanı günceller; güncel listeyi döndürür */
