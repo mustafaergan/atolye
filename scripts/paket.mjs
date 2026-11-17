@@ -61,14 +61,24 @@ fs.writeFileSync(path.join(stage, '.paket'), JSON.stringify({
 }, null, 2));
 
 // Çift tıklanarak çalıştırılan kurulum dosyası (Windows satır sonları, sadece ASCII)
-fs.writeFileSync(path.join(stage, 'Kur.bat'), [
-  '@echo off',
+// Kur.bat kurulum sihirbazını (pencere) açar; komut penceresi hemen kapanır. Sihirbaz dosyası yoksa konsol
+// kurulumuna düşülür. Kur-konsol.bat eski, komut penceresinden kurulumdur.
+const konsol = [
   'chcp 65001 >nul',
   'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0atolye.ps1" kur',
   'echo.',
   'pause',
+];
+fs.writeFileSync(path.join(stage, 'Kur.bat'), [
+  '@echo off',
+  'if not exist "%~dp0src\\masaustu\\sihirbaz.ps1" goto konsol',
+  'start "" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0src\\masaustu\\sihirbaz.ps1"',
+  'exit /b',
+  ':konsol',
+  ...konsol,
   '',
 ].join('\r\n'));
+fs.writeFileSync(path.join(stage, 'Kur-konsol.bat'), ['@echo off', ...konsol, ''].join('\r\n'));
 
 // Kald\u0131rma: kurulum klas\u00F6r\u00FCnden de \u00E7al\u0131\u015Ft\u0131r\u0131labilir, yani .bat kendi klas\u00F6r\u00FCn\u00FC siler.
 // \u00D6nce ge\u00E7ici klas\u00F6re ge\u00E7ilir (silinecek klas\u00F6r kilitlenmesin); komut ve "exit" ayn\u0131 sat\u0131rdad\u0131r,
@@ -90,15 +100,22 @@ fs.writeFileSync(path.join(stage, 'KURULUM.txt'), BOM + [
     ? '  1. Node.js kurmanız gerekmez: bu paket kendi Node.js\'ini içinde getirir.'
     : '  1. Node.js kurulu değilse https://nodejs.org adresinden LTS sürümünü kurun (ya da Node.js içeren tam paketi kullanın).',
   '  2. Bu zip dosyasını herhangi bir klasöre çıkarın.',
-  '  3. Kur.bat dosyasına çift tıklayın.',
+  '  3. Kur.bat dosyasına çift tıklayın; kurulum sihirbazı açılır (İleri > İleri > Kur).',
+  '     Sihirbazda Atölye\'nin masaüstü uygulaması olarak mı (kendi penceresi, görev çubuğuna',
+  '     sabitlenebilir) yoksa tarayıcıda mı açılacağını, masaüstü kısayolunu ve Windows açılışında',
+  '     başlatmayı seçersiniz. Komut penceresinden kurmak isterseniz Kur-konsol.bat kullanın.',
   '     (Windows "bilinmeyen yayımcı" uyarısı verirse "Ek bilgi" > "Yine de çalıştır".)',
   '',
   'Kurulum başında kullanım koşulları gösterilir: şirketinizin Claude Code, GitHub Copilot ve',
-  '(bağlanacaksa) Atlassian ürünleri için lisansı olduğunu "evet" yazarak kabul etmeniz istenir.',
+  '(bağlanacaksa) Atlassian ürünleri için lisansı olduğunu kabul etmeniz istenir.',
   'Kurulumdan ve kullanımdan doğacak tüm sorumluluk (veri paylaşımı, lisans ve şirket kurallarına',
   'uygunluk dahil) kurulumu yapan ve kullanan kişiye aittir.',
   '',
-  'Kur.bat şunları da denetler ve eksik olanı adım adım anlatır (kurulum yarıda kalmaz):',
+  'Depoda daha yeni bir sürüm varsa kurulum sırasında güncellenir; güncelleme yapılamazsa',
+  '(ağ engeli vb.) paketteki sürüm kurulur. Claude Code ya da Copilot hazır olmasa da kurulum',
+  'tamamlanır; eksikler sonradan Atölye içinden tamamlanabilir.',
+  '',
+  'Kurulum şunları da denetler ve eksik olanı bildirir (kurulum yarıda kalmaz):',
   '  - Claude Code CLI kurulu mu, bağlantı ayarı (gateway adresi ve token) var mı',
   '  - GitHub Copilot CLI kurulu mu (isteğe bağlı; istenirse kurar), giriş yapılmış mı',
   '    (giriş için: copilot login)',

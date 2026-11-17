@@ -13,6 +13,9 @@
     durum           Kurulum ve çalışma durumunu gösterir.
     otomatik-ac     Windows açılışında otomatik başlatmayı açar.
     otomatik-kapat  Windows açılışında otomatik başlatmayı kapatır.
+    kisayol-ac      Masaüstü kısayolunu ekler.            kisayol-kapat   Masaüstü kısayolunu kaldırır.
+    masaustu-ac     Atölye'yi kendi penceresinde açan masaüstü uygulamasını hazırlar (görev çubuğuna sabitlenebilir).
+    masaustu-kapat  Masaüstü uygulamasını kaldırır; Atölye tarayıcıda açılır.
     kaldir          Atölye'yi kaldırır: durdurur, kısayolları ve otomatik başlatmayı siler, paketle
                     kurulmuşsa kurulum klasörünü de siler (onay ister; -Evet ile sormaz). Git ile
                     indirilmiş klasörlere ve ~/.claude içindeki sohbet geçmişine dokunmaz.
@@ -27,7 +30,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('kur', 'baslat', 'durdur', 'guncelle', 'durum', 'otomatik-ac', 'otomatik-kapat', 'kaldir')]
+  [ValidateSet('kur', 'baslat', 'durdur', 'guncelle', 'durum', 'otomatik-ac', 'otomatik-kapat', 'kisayol-ac', 'kisayol-kapat', 'masaustu-ac', 'masaustu-kapat', 'ayarlar', 'kosullar', 'kaldir')]
   [string]$Komut = 'kur',
 
   # Kurulum klasörü. Script zaten bir Atölye klasörünün içindeyse o klasör kullanılır.
@@ -113,6 +116,13 @@ $StartupDir = Resolve-SpecialDir $env:ATOLYE_STARTUP_DIR 'Startup' $(if ($env:AP
 $DesktopLink = if ($DesktopDir) { [IO.Path]::Combine($DesktopDir, "$AppName.lnk") } else { $null }
 $StartupLink = if ($StartupDir) { [IO.Path]::Combine($StartupDir, "$AppName.lnk") } else { $null }
 function Test-Link($p) { try { return [bool]($p -and (Test-Path $p)) } catch { return $false } }
+# Masaüstü uygulaması (isteğe bağlı): Atölye'yi kendi penceresinde açan küçük program. Kaynağı src\masaustu içindedir,
+# bu bilgisayarda derlenir ve kurulum klasöründeki masaustu-app altına konur (güncellemede değişen klasörlerin dışında).
+$ProgramsDir = Resolve-SpecialDir $env:ATOLYE_PROGRAMS_DIR 'Programs' $null
+$StartMenuLink = if ($ProgramsDir) { [IO.Path]::Combine($ProgramsDir, "$AppName.lnk") } else { $null }
+$AppDir = Join-Path $InstallDir 'masaustu-app'
+$AppExe = Join-Path $AppDir 'Atolye.exe'
+function Test-DesktopApp { return (Test-Path $AppExe) }
 
 function Get-Port {
   $envFile = Join-Path $InstallDir '.env'
@@ -275,15 +285,8 @@ function Stop-NodeMissing([string]$reason) {
 
 # Kullanım koşulları: Atölye yalnızca bir arayüzdür; Claude Code, GitHub Copilot ve Atlassian ürünlerinin
 # lisansı kullanıcının şirketinden gelir. Kurulum, kullanıcı bunu açıkça kabul etmeden devam etmez.
-function Confirm-Terms {
-  # Koşullar değiştiğinde sürüm artırılır; eski sürümü kabul etmiş olanlara yeniden sorulur
-  $termsVersion = '2'
-  $marker = Join-Path (Join-Path $HOME '.atolye') 'kullanim-kosullari-kabul.txt'
-  if ((Test-Path $marker) -and ((Get-Content $marker -Raw -Encoding UTF8) -match "Koşul sürümü: $termsVersion\b")) {
-    Write-Ok "Kullanım koşulları daha önce kabul edilmiş ($((Get-Item $marker).LastWriteTime.ToString('yyyy-MM-dd')))"
-    return
-  }
-  Write-Box Yellow @(
+function Get-TermsLines {
+  return @(
     'KULLANIM KOŞULLARI',
     '',
     "Atölye yalnızca bir arayüzdür; kendi başına hiçbir yapay zekâ ya da servis",
@@ -305,6 +308,17 @@ function Confirm-Terms {
     '   kurulumu yapan ve kullanan kişiye aittir; yazılımı geliştirenler sorumlu',
     '   tutulamaz.'
   )
+}
+
+function Confirm-Terms {
+  # Koşullar değiştiğinde sürüm artırılır; eski sürümü kabul etmiş olanlara yeniden sorulur
+  $termsVersion = '2'
+  $marker = Join-Path (Join-Path $HOME '.atolye') 'kullanim-kosullari-kabul.txt'
+  if ((Test-Path $marker) -and ((Get-Content $marker -Raw -Encoding UTF8) -match "Koşul sürümü: $termsVersion\b")) {
+    Write-Ok "Kullanım koşulları daha önce kabul edilmiş ($((Get-Item $marker).LastWriteTime.ToString('yyyy-MM-dd')))"
+    return
+  }
+  Write-Box Yellow (Get-TermsLines)
   $accepted = ($Kabul -or $env:ATOLYE_KABUL -eq '1')
   if (-not $accepted) {
     if (-not (Test-Interactive)) { Stop-WithError "Kullanım koşulları kabul edilmeden kurulum yapılamaz. Etkileşimsiz kurulumda -Kabul parametresini (ya da ATOLYE_KABUL=1) kullanın." }
@@ -338,13 +352,20 @@ function Test-Requirements {
   Write-Ok "Git $(((git --version) -replace 'git version ', ''))"
 }
 
-function New-Shortcut($path, $arguments, $description) {
+function New-Shortcut($path, $arguments, $description, [switch]$App) {
   $shell = New-Object -ComObject WScript.Shell
   $lnk = $shell.CreateShortcut($path)
-  $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" $arguments"
+  if ($App) {
+    # Masaüstü uygulaması: kısayol doğrudan programa gider (görev çubuğuna sabitlenebilir)
+    $lnk.TargetPath = $AppExe
+    $lnk.Arguments = ''
+    $lnk.WindowStyle = 1
+  } else {
+    $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" $arguments"
+    $lnk.WindowStyle = 7 # simge durumunda
+  }
   $lnk.WorkingDirectory = $InstallDir
-  $lnk.WindowStyle = 7 # simge durumunda
   $lnk.Description = $description
   $icon = Join-Path $InstallDir 'public\atolye.ico'
   $lnk.IconLocation = if (Test-Path $icon) { "$icon,0" } else { "$env:SystemRoot\System32\shell32.dll,13" }
@@ -666,7 +687,8 @@ function Test-CopilotCli {
       '  npm install -g @github/copilot',
       'Ardından giriş yapmak için:  copilot login'
     )
-    if (-not ((Test-Interactive) -and (Confirm-Yes 'GitHub Copilot CLI şimdi kurulsun mu?' $true))) { return $false }
+    # ATOLYE_COPILOT_KUR=1: sihirbazdan gelen seçim (sormadan kur)
+    if (-not (($env:ATOLYE_COPILOT_KUR -eq '1') -or ((Test-Interactive) -and (Confirm-Yes 'GitHub Copilot CLI şimdi kurulsun mu?' $true)))) { return $false }
     if (-not (Install-NpmGlobal '@github/copilot' 'GitHub Copilot CLI')) { return $false }
     $exe = Find-Cli 'copilot'
     $ver = if ($exe) { Get-CliVersion $exe } else { $null }
@@ -715,7 +737,7 @@ function Start-Atolye {
     }
     Write-Ok "Çalışıyor: $(Get-Url)"
   }
-  if (-not $TarayiciAcma) { Start-Process (Get-Url) }
+  if (-not $TarayiciAcma) { if (Test-DesktopApp) { Start-Process $AppExe } else { Start-Process (Get-Url) } }
 }
 
 function Stop-Atolye {
@@ -769,13 +791,98 @@ function Disable-Autostart {
 function Install-DesktopShortcut {
   if (-not $DesktopLink) { Write-Warn "Masaüstü klasörü bulunamadı; kısayol atlandı. Atölye'yi '$ScriptPath baslat' ile açabilirsiniz."; return $false }
   try {
-    New-Shortcut $DesktopLink '-Komut baslat' "$AppName'yi aç"
+    if (Test-DesktopApp) { New-Shortcut $DesktopLink '' "$AppName'yi aç" -App } else { New-Shortcut $DesktopLink '-Komut baslat' "$AppName'yi aç" }
     Write-Ok "Masaüstü kısayolu: $DesktopLink"
     return $true
   } catch {
     Write-Warn "Masaüstü kısayolu oluşturulamadı: $($_.Exception.Message)"
     return $false
   }
+}
+
+function Remove-DesktopShortcut {
+  if (Test-Link $DesktopLink) { Remove-Item $DesktopLink -Force }
+  Write-Ok 'Masaüstü kısayolu kapalı'
+}
+
+# Masaüstü uygulamasını bu bilgisayarda derler. Windows'la gelen .NET Framework derleyicisi kullanılır; ek bir şey
+# indirilmez. Kaynak değişmediyse yeniden derlenmez. Başarısız olursa $false döner (Atölye tarayıcıda açılmaya devam eder).
+function Build-DesktopApp {
+  $src = Join-Path $InstallDir 'src\masaustu'
+  $code = Join-Path $src 'Atolye.cs'
+  $libs = Join-Path $src 'webview2'
+  if (-not (Test-Path $code) -or -not (Test-Path (Join-Path $libs 'WebView2Loader.dll'))) { Write-Warn 'Masaüstü uygulamasının dosyaları bu kurulumda yok (src\masaustu).'; return $false }
+  $csc = @("$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe", "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $csc) { Write-Warn 'Masaüstü uygulaması hazırlanamadı: .NET Framework derleyicisi (csc.exe) bu bilgisayarda bulunamadı.'; return $false }
+  $hash = (Get-FileHash $code -Algorithm SHA256).Hash
+  $mark = Join-Path $AppDir '.kaynak'
+  if ((Test-Path $AppExe) -and (Test-Path $mark) -and ((Get-Content $mark -Raw).Trim() -eq $hash)) { return $true }
+  $tmp = Join-Path $InstallDir '.masaustu-derleme'
+  try {
+    if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+    New-Item -ItemType Directory -Force $tmp | Out-Null
+    Copy-Item (Join-Path $libs '*') -Destination $tmp -Force
+    $icon = Join-Path $InstallDir 'public\atolye.ico'
+    $cscArgs = @('-nologo', '-target:winexe', '-platform:x64', '-optimize+', '-codepage:65001', '-nowarn:1701,1702',
+      "-win32manifest:$(Join-Path $src 'Atolye.manifest')",
+      "-r:$(Join-Path $libs 'Microsoft.Web.WebView2.Core.dll')", "-r:$(Join-Path $libs 'Microsoft.Web.WebView2.WinForms.dll')",
+      '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll', "-out:$(Join-Path $tmp 'Atolye.exe')")
+    if (Test-Path $icon) { $cscArgs += "-win32icon:$icon" }
+    $out = (& $csc @cscArgs $code | Out-String)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $tmp 'Atolye.exe'))) { throw "derleme başarısız: $($out.Trim())" }
+    Set-Content (Join-Path $tmp '.kaynak') $hash -Encoding ASCII
+    if (Test-Path $AppDir) {
+      try { Remove-Item $AppDir -Recurse -Force -ErrorAction Stop } catch {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $AppExe) { Write-Warn 'Atölye penceresi açık olduğu için masaüstü uygulaması yenilenemedi; pencere kapalıyken yeniden denenecek.'; return $true }
+        throw
+      }
+    }
+    Rename-Item -LiteralPath $tmp -NewName 'masaustu-app'
+    return $true
+  } catch {
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Warn "Masaüstü uygulaması hazırlanamadı: $($_.Exception.Message)"
+    return $false
+  }
+}
+
+function Enable-DesktopApp {
+  if (-not (Build-DesktopApp)) { Write-Warn 'Atölye tarayıcıda açılmaya devam edecek.'; return $false }
+  if ($StartMenuLink) { try { New-Shortcut $StartMenuLink '' $AppName -App } catch { } }
+  if (Test-Link $DesktopLink) { [void](Install-DesktopShortcut) }
+  Write-Ok 'Masaüstü uygulaması hazır: Atölye kendi penceresinde açılır'
+  Write-Host '    Görev çubuğuna sabitlemek için: Atölye penceresi açıkken görev çubuğundaki simgesine sağ tıklayıp "Görev çubuğuna sabitle"yi seçin.' -ForegroundColor Gray
+  return $true
+}
+
+function Stop-DesktopApp {
+  $open = @(Get-Process -Name Atolye -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -ieq $AppExe })
+  foreach ($p in $open) { try { [void]$p.CloseMainWindow() } catch { } }
+  if ($open) { Start-Sleep -Seconds 2 }
+  foreach ($p in $open) { try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch { } }
+  return [bool]$open
+}
+
+function Disable-DesktopApp {
+  $wasOpen = Stop-DesktopApp
+  if (Test-Link $StartMenuLink) { Remove-Item $StartMenuLink -Force }
+  if (Test-Path $AppDir) { [void](Remove-DirWithRetry $AppDir) }
+  if (Test-Link $DesktopLink) { [void](Install-DesktopShortcut) }
+  Write-Ok 'Masaüstü uygulaması kapalı: Atölye tarayıcıda açılır'
+  if ($wasOpen -and (Test-Running)) { Start-Process (Get-Url) }
+}
+
+# Atölye'nin Ayarlar penceresi bu çıktıyı okur
+function Show-Settings {
+  $csc = @("$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe", "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+  $state = [ordered]@{
+    desktopApp          = [bool](Test-DesktopApp)
+    desktopAppAvailable = [bool]($csc -and (Test-Path (Join-Path $InstallDir 'src\masaustu\Atolye.cs')))
+    desktopShortcut     = [bool](Test-Link $DesktopLink)
+    autostart           = [bool](Test-Link $StartupLink)
+  }
+  Write-Output ($state | ConvertTo-Json -Compress)
 }
 
 function Install-Atolye {
@@ -797,8 +904,17 @@ function Install-Atolye {
   $copilotReady = Test-CopilotCli
   Write-Host ''
   Resolve-PortConflict
-  $hasDesktop = Install-DesktopShortcut
-  Enable-Autostart
+  # Seçenekler: sihirbaz ortam değişkeniyle bildirir (ATOLYE_MASAUSTU / ATOLYE_KISAYOL / ATOLYE_OTOMATIK = 1 ya da 0);
+  # konsoldan kurulumda masaüstü uygulaması sorulur, kısayol ve otomatik başlatma eklenir.
+  $wantApp = if ($env:ATOLYE_MASAUSTU) { $env:ATOLYE_MASAUSTU -eq '1' } elseif (Test-DesktopApp) { $true }
+    else { (Test-Interactive) -and (Confirm-Yes 'Atölye kendi penceresinde (masaüstü uygulaması; görev çubuğuna sabitlenebilir) açılsın mı? Hayır derseniz tarayıcıda açılır.' $true) }
+  if ($wantApp) {
+    Write-Step 'Masaüstü uygulaması hazırlanıyor…'
+    [void](Enable-DesktopApp)
+  } elseif (Test-DesktopApp) { Disable-DesktopApp }
+  $hasDesktop = $false
+  if ($env:ATOLYE_KISAYOL -eq '0') { if (Test-Link $DesktopLink) { Remove-DesktopShortcut } } else { $hasDesktop = Install-DesktopShortcut }
+  if ($env:ATOLYE_OTOMATIK -eq '0') { if (Test-Link $StartupLink) { Disable-Autostart } } else { Enable-Autostart }
   Start-Atolye
   Write-Host ''
   if (-not $connected) {
@@ -958,6 +1074,7 @@ function Update-PackageInstall {
     Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike '*\node_modules\*' } | Unblock-File -ErrorAction SilentlyContinue
     Write-Ok "Güncellendi: $($current.version) → $($new.version)"
     Install-EnvFile
+    if (Test-DesktopApp) { [void](Build-DesktopApp) }
     if ($wasRunning) {
       $script:TarayiciAcma = $true
       Start-Atolye
@@ -1006,6 +1123,7 @@ function Update-Atolye {
   } finally { Pop-Location }
   Write-Ok "Güncellendi: $($before.Substring(0, 7)) → $($target.Substring(0, 7))"
   Install-EnvFile
+  if (Test-DesktopApp) { [void](Build-DesktopApp) }
   if (-not (Test-ClaudeConnection -Quiet)) { Write-Warn "Claude bağlantı ayarı bulunamadı; '$ScriptPath durum' ile kontrol edin." }
   # Atölye yalnızca en sonda, her şey hazır olduktan sonra yeniden başlatılır
   $wasRunning = Test-Running
@@ -1022,7 +1140,7 @@ function Update-Atolye {
 # asla durdurmaz: sürüm okunamaz, indirilemez ya da kütüphaneler kurulamazsa kurulan sürümle devam edilir.
 #   ATOLYE_UPDATE_CHECK=0 : bu adımı atlar      ATOLYE_UPDATE_URL : farklı bir depo/ayna için package.json adresi
 function Update-DuringInstall {
-  if ($env:ATOLYE_UPDATE_CHECK -eq '0') { return }
+  if ($env:ATOLYE_UPDATE_CHECK -eq '0' -or $env:ATOLYE_KURULUMDA_GUNCELLE -eq '0') { return }
   $current = $null
   try {
     $current = [string](Get-Content (Join-Path $InstallDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
@@ -1107,7 +1225,7 @@ function Uninstall-Atolye {
     Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
   $canDelete = $installed -and -not $isRepo -and $markers -and ($unsafe -notcontains $full)
   $generalDir = Join-Path $HOME '.atolye'
-  $hasShortcuts = (Test-Link $DesktopLink) -or (Test-Link $StartupLink)
+  $hasShortcuts = (Test-Link $DesktopLink) -or (Test-Link $StartupLink) -or (Test-Link $StartMenuLink)
 
   if (-not $installed -and -not $hasShortcuts) {
     Write-Ok "Kaldırılacak bir Atölye kurulumu bulunamadı ($InstallDir)"
@@ -1126,8 +1244,10 @@ function Uninstall-Atolye {
     return
   }
 
+  [void](Stop-DesktopApp)
   Stop-Atolye
   if (Test-Link $DesktopLink) { Remove-Item $DesktopLink -Force; Write-Ok 'Masaüstü kısayolu kaldırıldı' }
+  if (Test-Link $StartMenuLink) { Remove-Item $StartMenuLink -Force }
   Disable-Autostart
 
   if ($canDelete) {
@@ -1156,6 +1276,12 @@ try {
     'durum' { Show-Status }
     'otomatik-ac' { Enable-Autostart }
     'otomatik-kapat' { Disable-Autostart }
+    'kisayol-ac' { [void](Install-DesktopShortcut) }
+    'kisayol-kapat' { Remove-DesktopShortcut }
+    'masaustu-ac' { if (-not (Enable-DesktopApp)) { exit 1 } }
+    'masaustu-kapat' { Disable-DesktopApp }
+    'ayarlar' { Show-Settings }
+    'kosullar' { Get-TermsLines | ForEach-Object { Write-Output $_ } }
     'kaldir' { Uninstall-Atolye }
   }
 } finally {
