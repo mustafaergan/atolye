@@ -78,6 +78,20 @@ kısayolu ve Windows açılışında başlatma eklenir (Node.js kurulu olmalıd�
 paket aynı şekilde kurulur; `.env` ayarları korunur. Kaldırmak için **`Kaldir.bat`** (paket klasöründe ya da
 kurulum klasöründe) çalıştırılır. Paketin içindeki `KURULUM.txt` adımları anlatır.
 
+`Kur.bat` bir **kurulum sihirbazı** açar (İleri > İleri > Kur; komut penceresi görünmez): kullanım koşulları, açılış
+biçimi, masaüstü kısayolu, Windows açılışında başlatma, kurulum sırasında güncelleme ve Copilot CLI kurulumu
+seçilir. Komut penceresinden kurmak için `Kur-konsol.bat` (ya da `atolye.ps1 kur`) kullanılır. Claude Code ya da
+Copilot hazır olmasa da kurulum tamamlanır.
+
+**Masaüstü uygulaması (isteğe bağlı):** Atölye tarayıcı sekmesi yerine kendi penceresinde açılabilir. Pencere,
+Windows'un kendi WebView2 bileşenini (Microsoft Edge altyapısı) kullanan küçük bir programdır (`src/masaustu/Atolye.cs`,
+yaklaşık 20 KB + WebView2 SDK dosyaları); ayrı bir tarayıcı ya da çalışma ortamı taşımaz. Kurulum sırasında o
+bilgisayarda Windows'la gelen .NET Framework derleyicisiyle derlenir, `masaustu-app` klasörüne konur ve Başlat
+menüsüne eklenir. Kendi simgesi olduğu için **görev çubuğuna sabitlenebilir** (pencere açıkken simgesine sağ tıklayıp
+"Görev çubuğuna sabitle"); sabitlenen simge Atölye çalışmıyorsa önce onu başlatır. Derlenemezse ya da WebView2 yoksa
+Atölye tarayıcıda açılır. Sonradan açıp kapatmak için: `atolye.ps1 masaustu-ac` / `masaustu-kapat`
+(kısayol için `kisayol-ac` / `kisayol-kapat`).
+
 ### Elle
 
 ```bash
