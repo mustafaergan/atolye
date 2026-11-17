@@ -158,7 +158,7 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 |---|---|---|
 | **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog Test, Graylog Prod, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; birden fazla bağlantıyı birlikte ele alma yönergesiyle (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
-| **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
+| **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic, Oracle, PostgreSQL | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
 Bütün modlarda mesaj kutusunun altındaki bağlantı seçicisinden aynı soru için **en fazla 4 bağlantı** birlikte seçilebilir
 (ör. Jira + Bitbucket + Confluence); yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır.
@@ -219,6 +219,10 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   - **OpenText Fortify SSC** (erişim belirteci, ya da kullanıcı adı + parola; ikincisinde her oturumda geçici belirteç alınır): `fortify_list_versions`, `fortify_list_issues`, `fortify_get_issue`.
   - **SonarQube** (kullanıcı belirteci; yalnızca okuma): `sonarqube_list_projects`, `sonarqube_quality_gate`,
     `sonarqube_measures`, `sonarqube_list_issues`, `sonarqube_list_hotspots`.
+  - **Oracle** ve **PostgreSQL** (adres + kullanıcı adı + parola; yalnızca okuma): `oracle_query`, `oracle_list_tables`,
+    `oracle_describe_table`, `postgres_query`, `postgres_list_tables`, `postgres_describe_table`. Yalnızca tek bir
+    SELECT / WITH sorgusu kabul edilir, salt okunur işlem içinde çalışır (en çok 1000 satır, 30 sn). Oracle "thin"
+    kipte çalışır, Oracle istemcisi gerekmez (12.1+). Yalnızca okuma yetkisi olan bir veritabanı kullanıcısı önerilir.
   - **WebLogic** (REST yönetim arayüzü; kullanıcı adı + parola, yalnızca okuma): `weblogic_servers`,
     `weblogic_applications`, `weblogic_deployments`, `weblogic_datasources`. Parola düz metin saklandığı için
     yönetici hesabı yerine "Monitor" rolünde bir kullanıcı kullanın.

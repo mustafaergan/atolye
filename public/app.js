@@ -1959,6 +1959,25 @@ LINKS.graylogprod = {
   steps: () => [T('Bu, CANLI (prod) ortamın Graylog bağlantısıdır; test ortamı için "Graylog Test" sekmesini kullanın. Yapay zekâ canlı kayıtlara yalnızca okumak için ve siz canlı ortamı sorduğunuzda bakar.'), T('Canlı ortam kayıtları müşteri ya da kişisel bilgi içerebilir ve okunan kayıtlar yapay zekâ hizmetine gönderilir. Kuruluşunuzun bu konudaki kurallarına uyun; mümkünse yalnızca okuma yetkisi olan bir kullanıcının belirtecini kullanın.'), ...LINKS.graylog.steps()],
   examples: () => T('Örnek: "Graylog prod\'da son 15 dakikada uygulama-adi için hata var mı? Varsa test ortamındakiyle karşılaştır".'),
 };
+// Veritabanları (Geliştirici modu): yalnızca okuma; kullanıcı adı ve parola ayrı alanlarda
+LINKS.postgres = {
+  name: 'PostgreSQL',
+  urlHint: 'postgresql://db.sirket.com:5432/veritabani',
+  userLabel: () => T('Kullanıcı adı'),
+  userHint: () => T('Mümkünse yalnızca okuma (SELECT) yetkisi olan bir veritabanı kullanıcısı kullanın.'),
+  tokenLabel: () => T('Parola'),
+  steps: () => [T('PostgreSQL sunucusunun adresini postgresql://sunucu:5432/veritabani biçiminde yazın. SSL gerekiyorsa sonuna ?sslmode=require ekleyin.'), T('Atölye yalnızca okuma yapar: yalnızca SELECT sorguları kabul edilir, sorgular salt okunur işlem içinde çalışır, en çok 1000 satır ve 30 saniye. Yine de en güvenlisi yalnızca okuma yetkisi olan bir kullanıcıdır; yönetici hesabı kullanmayın.'), T('Parola bilgisayarınızda, Claude Code ve Copilot CLI ayar dosyalarında düz metin olarak saklanır. Sorgu sonuçları yapay zekâ hizmetine gönderilir; canlı veritabanında kişisel veri olabileceğini unutmayın.'), T('"Kaydet ve sına" deyin.')],
+  examples: () => T('Örnek: "PostgreSQL\'de siparis tablosunun kolonlarını göster ve son 1 günde oluşan kayıt sayısını bul".'),
+};
+LINKS.oracle = {
+  name: 'Oracle',
+  urlHint: 'db.sirket.com:1521/ORCLPDB1',
+  userLabel: () => T('Kullanıcı adı'),
+  userHint: () => T('Mümkünse yalnızca okuma (SELECT) yetkisi olan bir veritabanı kullanıcısı kullanın.'),
+  tokenLabel: () => T('Parola'),
+  steps: () => [T('Oracle veritabanının adresini sunucu:port/servis-adı biçiminde yazın (ör. db.sirket.com:1521/ORCLPDB1). Uzun TNS tanımı, (DESCRIPTION=...) olarak da yapıştırılabilir. Oracle istemcisi kurmak gerekmez; Oracle 12.1 ve üstü desteklenir.'), T('Atölye yalnızca okuma yapar: yalnızca SELECT sorguları kabul edilir, sorgular salt okunur işlem içinde çalışır, en çok 1000 satır ve 30 saniye. Yine de en güvenlisi yalnızca okuma yetkisi olan bir kullanıcıdır; yönetici hesabı kullanmayın.'), T('Parola bilgisayarınızda, Claude Code ve Copilot CLI ayar dosyalarında düz metin olarak saklanır. Sorgu sonuçları yapay zekâ hizmetine gönderilir; canlı veritabanında kişisel veri olabileceğini unutmayın.'), T('"Kaydet ve sına" deyin.')],
+  examples: () => T('Örnek: "Oracle\'da REZERVASYON tablosunu açıkla ve durumu İPTAL olan son 10 kaydı getir".'),
+};
 LINKS.jenkins = {
   name: 'Jenkins',
   urlHint: 'https://jenkins.sirket.com',
@@ -2056,7 +2075,7 @@ const ROLES = {
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2130,6 +2149,8 @@ const LINK_TOOLS = {
   graylogprod: 'graylog_prod_search, graylog_prod_list_streams',
   jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
+  oracle: 'oracle_list_tables, oracle_describe_table, oracle_query',
+  postgres: 'postgres_list_tables, postgres_describe_table, postgres_query',
   outlook: 'outlook_search_mail, outlook_get_mail, outlook_list_folders, outlook_list_events',
   reportportal: 'reportportal_list_projects, reportportal_list_launches, reportportal_get_launch, reportportal_list_items, reportportal_get_logs',
   sonarqube: 'sonarqube_list_projects, sonarqube_quality_gate, sonarqube_measures, sonarqube_list_issues, sonarqube_list_hotspots',
@@ -2332,6 +2353,8 @@ const HELP_PROMPTS = {
   jira: () => T('Jira bağlantısını kurmak istiyorum ama teknik biri değilim. Jira adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   confluence: () => T('Confluence bağlantısını kurmak istiyorum ama teknik biri değilim. Confluence adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  oracle: () => T('Veritabanı bağlantısını (Oracle / PostgreSQL) kurmak istiyorum. Bağlantı adresini (sunucu, port, servis ya da veritabanı adı) nereden öğrenirim, yalnızca okuma yetkisi olan bir kullanıcıyı nasıl isterim ve bağlanamazsam neleri kontrol etmeliyim? Adım adım anlat.'),
+  postgres: () => T('Veritabanı bağlantısını (Oracle / PostgreSQL) kurmak istiyorum. Bağlantı adresini (sunucu, port, servis ya da veritabanı adı) nereden öğrenirim, yalnızca okuma yetkisi olan bir kullanıcıyı nasıl isterim ve bağlanamazsam neleri kontrol etmeliyim? Adım adım anlat.'),
   graylogprod: () => T('Graylog canlı (prod) ortam bağlantısını kurmak istiyorum ama teknik biri değilim. Canlı Graylog adresini nereden bulurum, erişim belirtecini (API token) nasıl oluştururum ve yalnızca okuma yetkisi olan bir belirteç nasıl alırım? Adım adım, sade bir dille anlat.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   reportportal: () => T('ReportPortal bağlantısını kurmak istiyorum ama teknik biri değilim. ReportPortal adresimi ve proje adımı nereden bulurum, API anahtarını nasıl oluştururum? Adım adım, sade bir dille anlat.'),
