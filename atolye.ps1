@@ -56,6 +56,8 @@ function Write-Step($text) { Write-Host "  > $text" -ForegroundColor Cyan }
 function Write-Ok($text) { Write-Host "  ✓ $text" -ForegroundColor Green }
 function Write-Warn($text) { Write-Host "  ! $text" -ForegroundColor Yellow }
 function Stop-WithError($text) {
+  # Kurulum sırasındaki güncelleme denemesinde hata kurulumu durdurmaz; çağıran yakalar ve devam eder
+  if ($script:HataFirlat) { throw [System.InvalidOperationException]::new([string]$text) }
   Write-Host "  ✗ $text" -ForegroundColor Red
   exit 1
 }
@@ -708,6 +710,7 @@ function Start-Atolye {
     if (-not $ok) {
       Write-Warn 'Atölye başlatılamadı. Son kayıtlar:'
       if (Test-Path $LogFile) { Get-Content $LogFile -Tail 15 | ForEach-Object { Write-Host "    $_" } }
+      if ($script:HataFirlat) { throw "Atölye başlatılamadı" }
       exit 1
     }
     Write-Ok "Çalışıyor: $(Get-Url)"
@@ -783,6 +786,7 @@ function Install-Atolye {
   Test-Requirements
   Install-Files
   Install-Packages
+  Update-DuringInstall
   Install-EnvFile
   Write-Host ''
   Write-Host '  Claude Code' -ForegroundColor White
@@ -1011,6 +1015,38 @@ function Update-Atolye {
     $script:TarayiciAcma = $true
     Start-Atolye
     Write-Host '  Tarayıcıda sayfayı yenileyin.' -ForegroundColor Gray
+  }
+}
+
+# Kurulum sırasında: depoda daha yeni bir sürüm varsa Atölye başlatılmadan önce güncellenir. Bu adım kurulumu
+# asla durdurmaz: sürüm okunamaz, indirilemez ya da kütüphaneler kurulamazsa kurulan sürümle devam edilir.
+#   ATOLYE_UPDATE_CHECK=0 : bu adımı atlar      ATOLYE_UPDATE_URL : farklı bir depo/ayna için package.json adresi
+function Update-DuringInstall {
+  if ($env:ATOLYE_UPDATE_CHECK -eq '0') { return }
+  $current = $null
+  try {
+    $current = [string](Get-Content (Join-Path $InstallDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    $url = if ($env:ATOLYE_UPDATE_URL) { $env:ATOLYE_UPDATE_URL } else { 'https://raw.githubusercontent.com/mustafaergan/atolye/main/package.json' }
+    Write-Step 'Güncelleme denetleniyor…'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $oldProgress = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+    try { $res = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 8 } finally { $ProgressPreference = $oldProgress }
+    $body = if ($res.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($res.Content) } else { [string]$res.Content }
+    $latest = [string]($body | ConvertFrom-Json).version
+    if ([version]$latest -le [version]$current) { Write-Ok "Sürüm güncel ($current)"; return }
+  } catch {
+    Write-Warn "Güncelleme denetlenemedi (ağ bu adrese izin vermiyor olabilir); kurulan sürümle devam ediliyor$(if ($current) { " ($current)" })."
+    return
+  }
+  Write-Step "Daha yeni bir sürüm var: $current → $latest. Güncelleniyor…"
+  $script:HataFirlat = $true
+  try {
+    Update-Atolye
+  } catch {
+    Write-Warn "Güncelleme yapılamadı: $($_.Exception.Message)"
+    Write-Warn "Kurulum, kurulan sürümle ($current) devam ediyor. Atölye açıldıktan sonra sağ üstteki 'Güncelleme var' düğmesiyle yeniden deneyebilirsiniz."
+  } finally {
+    $script:HataFirlat = $false
   }
 }
 
