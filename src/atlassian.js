@@ -16,7 +16,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'graylogprod'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -750,4 +750,5 @@ export const reportportal = {
   },
 };
 
-export const clients = { jira, confluence, bitbucket, graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook };
+// Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook };

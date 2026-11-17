@@ -1940,8 +1940,8 @@ const LINKS = {
   },
 };
 LINKS.graylog = {
-  name: 'Graylog',
-  urlHint: 'https://graylog.sirket.com',
+  name: 'Graylog Test',
+  urlHint: 'https://graylog-test.sirket.com',
   noEmail: true,
   steps: () => [
     T("Graylog'u tarayıcıda açın ve ana adresi kopyalayın (ör. https://graylog.sirket.com)."),
@@ -1950,6 +1950,14 @@ LINKS.graylog = {
     SAVE_STEP(),
   ],
   examples: () => T('Örnek: "Graylog\'da son 30 dakikada uygulama-adi için hata kayıtlarını bul ve sebebini özetle".'),
+};
+// Canlı (prod) ortam: aynı adımlar, ayrı adres ve belirteç; araçları graylog_prod_*
+LINKS.graylogprod = {
+  ...LINKS.graylog,
+  name: 'Graylog Prod',
+  urlHint: 'https://graylog.sirket.com',
+  steps: () => [T('Bu, CANLI (prod) ortamın Graylog bağlantısıdır; test ortamı için "Graylog Test" sekmesini kullanın. Yapay zekâ canlı kayıtlara yalnızca okumak için ve siz canlı ortamı sorduğunuzda bakar.'), T('Canlı ortam kayıtları müşteri ya da kişisel bilgi içerebilir ve okunan kayıtlar yapay zekâ hizmetine gönderilir. Kuruluşunuzun bu konudaki kurallarına uyun; mümkünse yalnızca okuma yetkisi olan bir kullanıcının belirtecini kullanın.'), ...LINKS.graylog.steps()],
+  examples: () => T('Örnek: "Graylog prod\'da son 15 dakikada uygulama-adi için hata var mı? Varsa test ortamındakiyle karşılaştır".'),
 };
 LINKS.jenkins = {
   name: 'Jenkins',
@@ -2042,13 +2050,13 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -2119,6 +2127,7 @@ const LINK_TOOLS = {
   confluence: 'confluence_search, confluence_get_page',
   bitbucket: 'bitbucket_list_repos, bitbucket_my_review_prs, bitbucket_list_pull_requests, bitbucket_get_pull_request, bitbucket_pr_build_status, bitbucket_get_file',
   graylog: 'graylog_search, graylog_list_streams',
+  graylogprod: 'graylog_prod_search, graylog_prod_list_streams',
   jenkins: 'jenkins_list_jobs, jenkins_get_build, jenkins_get_console, jenkins_trigger_build',
   fortify: 'fortify_list_versions, fortify_list_issues, fortify_get_issue',
   outlook: 'outlook_search_mail, outlook_get_mail, outlook_list_folders, outlook_list_events',
@@ -2317,6 +2326,7 @@ const HELP_PROMPTS = {
   jira: () => T('Jira bağlantısını kurmak istiyorum ama teknik biri değilim. Jira adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   confluence: () => T('Confluence bağlantısını kurmak istiyorum ama teknik biri değilim. Confluence adresimi nereden bulurum ve kişisel erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   bitbucket: () => T('Bitbucket bağlantısını kurmak istiyorum ama teknik biri değilim. Bitbucket adresimi nereden bulurum ve HTTP erişim belirtecini (API anahtarı) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
+  graylogprod: () => T('Graylog canlı (prod) ortam bağlantısını kurmak istiyorum ama teknik biri değilim. Canlı Graylog adresini nereden bulurum, erişim belirtecini (API token) nasıl oluştururum ve yalnızca okuma yetkisi olan bir belirteç nasıl alırım? Adım adım, sade bir dille anlat.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   reportportal: () => T('ReportPortal bağlantısını kurmak istiyorum ama teknik biri değilim. ReportPortal adresimi ve proje adımı nereden bulurum, API anahtarını nasıl oluştururum? Adım adım, sade bir dille anlat.'),
   outlook: () => T('Outlook bağlantısını kurmak istiyorum ama teknik biri değilim. Klasik Outlook ile Yeni Outlook arasındaki farkı nasıl anlarım, hangisini kullandığımı nereden görürüm ve klasik Outlook\'a nasıl geçerim? Adım adım, sade bir dille anlat.'),
