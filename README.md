@@ -185,8 +185,9 @@ Bütün modlarda mesaj kutusunun altındaki bağlantı seçicisinden aynı soru 
 **Komut öğretme:** boş oturum ekranındaki mavi **+ Komut öğret** düğmesine basıp ne yapılmasını istediğinizi kendi
 cümlelerinizle anlatın ("önce Jira kaydını okusun, sonra Bitbucket'a baksın…"). Seçili yapay zekâ anlattıklarınızı adı,
 adım adım yönergesi ve kullanacağı bağlantılarla bir komuta derler; kaydetmeden önce görür ve düzeltirsiniz. Öğretilen
-komutlar boş oturum ekranında mavi düğme olarak görünür. Sol üstteki **Komutlarım** düğmesinden içerikleri ve
-bağlantıları değiştirilebilir ya da komut silinebilir. Komutlar `~/.atolye/komutlar.json` dosyasında saklanır (en fazla
+komutlar boş oturum ekranında renkli düğme olarak görünür. Üst çubuktaki **Komutlar** düğmesinden içerikleri,
+bağlantıları ve renkleri değiştirilebilir ya da komut silinebilir; Atölye ile gelen hazır komutlar da aynı yerden
+düzenlenebilir, renklendirilebilir, gizlenebilir ve istenince ilk hâline döndürülebilir. Komutlar `~/.atolye/komutlar.json` dosyasında saklanır (en fazla
 30 komut, komut başına en fazla 4 bağlantı). Yapay zekâya ulaşılamazsa anlattığınız metin olduğu gibi alınır.
 
 Seçim saklanır. Mod değişince yeni bir oturum açılır (anlatım biçimi oturum açılırken belirlenir; Copilot'ta sistem

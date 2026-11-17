@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { list, save, remove, clean, guessLinks, parseCompiled, compile, compileRequest, MAX_COMMANDS } from '../src/commands.js';
+import { list, save, remove, clean, guessLinks, parseCompiled, compile, compileRequest, builtins, saveBuiltin, resetBuiltin, MAX_COMMANDS } from '../src/commands.js';
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-komut-')), 'alt', 'komutlar.json');
 
@@ -44,7 +44,7 @@ test('tarifte adı geçen bağlantılar bulunur', () => {
 
 test('yapay zekâ yanıtı komuta çevrilir; çevrilemezse tarif olduğu gibi kullanılır', async () => {
   const raw = 'İşte komut:\n```json\n{"name": "Jira PR kontrolü", "prompt": "1. Jira kaydını oku.\\n2. PR ara:", "links": ["jira", "bitbucket", "uydurma"], "fill": true}\n```';
-  assert.deepEqual(parseCompiled(raw, 'tarif'), { name: 'Jira PR kontrolü', prompt: '1. Jira kaydını oku.\n2. PR ara:', links: ['jira', 'bitbucket'], fill: true, ai: true });
+  assert.deepEqual(parseCompiled(raw, 'tarif'), { name: 'Jira PR kontrolü', prompt: '1. Jira kaydını oku.\n2. PR ara:', links: ['jira', 'bitbucket'], fill: true, color: '', ai: true });
   // Bağlantı vermediyse tariften çıkarılır
   assert.deepEqual(parseCompiled('{"name": "A", "prompt": "B"}', 'jira kaydına bak').links, ['jira']);
   const fb = parseCompiled('üzgünüm, yapamadım', 'Jira kaydını oku ve özetle');
@@ -59,4 +59,23 @@ test('yapay zekâ yanıtı komuta çevrilir; çevrilemezse tarif olduğu gibi ku
   assert.match(compileRequest('en', 'x'), /The user's description:\nx$/);
   assert.equal((await compile({ description: 'Sonar bak', ask: async () => { throw new Error('ağ yok'); } })).ai, false, 'istek başarısızsa yedek');
   await assert.rejects(compile({ description: '  ' }), { code: 'no-description' });
+});
+
+test('hazır komutlar değiştirilir, gizlenir, renklendirilir ve sıfırlanır; öğretilen komutlar etkilenmez', () => {
+  const file = tmp();
+  save({ name: 'Benim', prompt: 'p', color: 'green' }, file);
+  assert.equal(list(file)[0].color, 'green');
+  assert.equal(clean({ name: 'x', prompt: 'y', color: 'uydurma' }).color, '', 'bilinmeyen renk alınmaz');
+  assert.deepEqual(builtins(file), {});
+  saveBuiltin('Projeyi özetle', { hidden: true }, file);
+  saveBuiltin('Kodu incele', { name: ' İnceleme ', prompt: 'Yeni yönerge', links: ['jira', 'yok'], fill: true, color: 'purple' }, file);
+  assert.deepEqual(builtins(file), { 'Projeyi özetle': { hidden: true }, 'Kodu incele': { name: 'İnceleme', prompt: 'Yeni yönerge', links: ['jira'], fill: true, color: 'purple' } });
+  assert.deepEqual(list(file).map((c) => c.name), ['Benim'], 'öğretilen komutlar yerinde');
+  save({ name: 'İkinci', prompt: 'p' }, file);
+  assert.equal(Object.keys(builtins(file)).length, 2, 'komut kaydı hazır komut değişikliklerini silmez');
+  // Hiçbir değişiklik kalmadıysa kayıt da kalmaz
+  saveBuiltin('Projeyi özetle', { hidden: false }, file);
+  resetBuiltin('Kodu incele', file);
+  assert.deepEqual(builtins(file), {});
+  assert.throws(() => saveBuiltin('', { hidden: true }, file), { code: 'not-found' });
 });
