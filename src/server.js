@@ -233,6 +233,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Jira / Confluence / Bitbucket bağlantıları (bkz. integrations.js). API anahtarı arayüze geri gönderilmez.
   const integrationError = (lang, err) => {
     if (err.code === 'bad-url') return msg(lang, 'Geçerli bir adres girin (https://… ile başlamalı)');
+    if (err.code === 'bad-db-url') return err.service === 'oracle'
+      ? msg(lang, 'Oracle adresini sunucu:port/servis-adı biçiminde yazın (ör. db.sirket.com:1521/ORCLPDB1); kullanıcı adı ve parola ayrı alanlara yazılır')
+      : msg(lang, 'PostgreSQL adresini postgresql://sunucu:5432/veritabani biçiminde yazın; kullanıcı adı ve parola adrese değil ayrı alanlara yazılır');
     if (err.code === 'no-token') return msg(lang, 'API anahtarı gerekli');
     return err.message;
   };

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clients, configFromEnv, envKey, SERVICES } from './atlassian.js';
 import { availableTools, callTool, TOOLS } from './mcp-server.js';
+import { validDbUrl } from './database.js';
 
 export const SERVER_NAME = 'atolye';
 const MCP_SCRIPT = fileURLToPath(new URL('./mcp-server.js', import.meta.url));
@@ -157,9 +158,14 @@ export function save(service, { url, email, token }) {
   check(service);
   const env = readEnv();
   const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
-  let parsed;
-  try { parsed = new URL(cleanUrl); } catch { /* aşağıda */ }
-  if (!parsed || !/^https?:$/.test(parsed.protocol)) throw Object.assign(new Error('bad-url'), { code: 'bad-url' });
+  if (['oracle', 'postgres'].includes(service)) {
+    // Veritabanı: bağlantı adresi (kullanıcı adı ve parola ayrı alanlarda)
+    if (!validDbUrl(service, cleanUrl)) throw Object.assign(new Error('bad-db-url'), { code: 'bad-db-url', service });
+  } else {
+    let parsed;
+    try { parsed = new URL(cleanUrl); } catch { /* aşağıda */ }
+    if (!parsed || !/^https?:$/.test(parsed.protocol)) throw Object.assign(new Error('bad-url'), { code: 'bad-url' });
+  }
   const newToken = String(token || '').trim() || env[envKey(service, 'token')]; // boş bırakılırsa eski anahtar korunur
   if (!newToken) throw Object.assign(new Error('no-token'), { code: 'no-token' });
   env[envKey(service, 'url')] = cleanUrl;

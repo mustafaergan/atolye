@@ -1,6 +1,6 @@
 {
   "name": "atolye",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "description": "Claude Agent SDK üzerinde çalışan, kurumsal gateway uyumlu yerel kodlama arayüzü",
   "main": "src/server.js",
   "type": "module",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/cli.js",
     "dev": "node --watch src/cli.js",
-    "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs test/spend.test.mjs test/i18n.test.mjs test/store.test.mjs test/copilot.test.mjs test/server.test.mjs test/integrations.test.mjs test/update.test.mjs test/repo.test.mjs test/proxy.test.mjs test/copilot-quota.test.mjs test/devtools.test.mjs test/session.test.mjs test/browser.test.mjs test/attachments.test.mjs test/testauto.test.mjs test/outlook.test.mjs",
+    "test": "node --experimental-test-module-mocks --test --test-force-exit test/permissions.test.mjs test/manager.test.mjs test/spend.test.mjs test/i18n.test.mjs test/store.test.mjs test/copilot.test.mjs test/server.test.mjs test/integrations.test.mjs test/update.test.mjs test/repo.test.mjs test/proxy.test.mjs test/copilot-quota.test.mjs test/devtools.test.mjs test/session.test.mjs test/browser.test.mjs test/attachments.test.mjs test/testauto.test.mjs test/outlook.test.mjs test/database.test.mjs",
     "paket": "node scripts/paket.mjs",
     "paket:tam": "node scripts/paket.mjs --tam"
   },
@@ -31,6 +31,8 @@
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "marked": "^18.2.0",
+    "oracledb": "^26.0.0",
+    "pg": "^8.23.1",
     "ws": "^8.22.2"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@
 //   - Verilmemişse: Bearer (kişisel erişim anahtarı) — şirket içi
 import tls from 'node:tls';
 import { outlook } from './outlook.js';
+import { oracle, postgres } from './database.js';
 
 let systemCaAdded = false;
 /** Kurumsal ağların TLS sertifikaları genelde yalnızca işletim sisteminin deposundadır */
@@ -16,7 +17,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'graylogprod'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'graylogprod', 'oracle', 'postgres'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -751,4 +752,4 @@ export const reportportal = {
 };
 
 // Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
-export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook };
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, oracle, postgres };

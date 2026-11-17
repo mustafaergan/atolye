@@ -11,6 +11,8 @@ export const EN = {
   'Kullanıcı reddetti': 'Denied by the user',
   'İptal edildi': 'Cancelled',
   'Görsel': 'Image',
+  'Oracle adresini sunucu:port/servis-adı biçiminde yazın (ör. db.sirket.com:1521/ORCLPDB1); kullanıcı adı ve parola ayrı alanlara yazılır': 'Enter the Oracle address as host:port/service-name (e.g. db.sirket.com:1521/ORCLPDB1); the user name and password go in separate fields',
+  'PostgreSQL adresini postgresql://sunucu:5432/veritabani biçiminde yazın; kullanıcı adı ve parola adrese değil ayrı alanlara yazılır': 'Enter the PostgreSQL address as postgresql://host:5432/database; the user name and password go in separate fields, not in the address',
   'Dal adı geçersiz (ör. release/2.5.0)': 'Invalid branch name (e.g. release/2.5.0)',
   'Depo klasörünü yazın': 'Enter the repository folder',
   'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\test-otomasyon) ya da önce depoyu indirin.': 'This folder was not found. Enter the full path (e.g. C:\\dev\\test-otomasyon) or download the repository first.',
