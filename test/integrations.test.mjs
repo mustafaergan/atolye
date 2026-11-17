@@ -214,6 +214,22 @@ test('Graylog: belirteçle giriş, log arama ve akış listesi', async () => {
   integrations.remove('graylog');
 });
 
+test('Graylog test ve prod ayrı bağlantılardır: ayrı adres, belirteç ve araçlar', async () => {
+  integrations.save('graylog', { url: base, token: 'gl-belirtec' });
+  integrations.save('graylogprod', { url: `${base}/`, token: 'gl-belirtec' });
+  assert.deepEqual(await integrations.test('graylogprod'), { ok: true, user: 'Graylog 7.0.5' });
+  const env = read(process.env.ATOLYE_CLAUDE_JSON).mcpServers.atolye.env;
+  assert.equal(env.GRAYLOGPROD_URL, base);
+  assert.deepEqual(availableTools(env).map((t) => t.name), ['graylog_search', 'graylog_list_streams', 'graylog_prod_search', 'graylog_prod_list_streams']);
+  assert.match((await callTool('graylog_prod_search', { query: 'level:3' }, env)).content[0].text, /sorgu=level:3/);
+  // Yalnızca test kuruluysa canlı araçlar sunulmaz
+  integrations.remove('graylogprod');
+  const onlyTest = read(process.env.ATOLYE_CLAUDE_JSON).mcpServers.atolye.env;
+  assert.deepEqual(availableTools(onlyTest).map((t) => t.name), ['graylog_search', 'graylog_list_streams']);
+  assert.deepEqual(integrations.readTools('graylogprod'), []);
+  integrations.remove('graylog');
+});
+
 test('veri getirme (REST): yalnızca okuma işlemleri sunulur ve Atölye tarafından çalıştırılır', async () => {
   integrations.save('jira', { url: base, token: 'gizli-anahtar' });
   const tools = integrations.readTools('jira');

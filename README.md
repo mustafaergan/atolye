@@ -156,7 +156,7 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 
 | Mod | Görünen bağlantılar | Öneriler ve anlatım |
 |---|---|---|
-| **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
+| **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog Test, Graylog Prod, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; ek olarak mesaj kutusunda **birden fazla bağlantı birlikte seçilebilir** (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
 | **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
@@ -200,7 +200,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   **Bu hatayı yapay zekâya sor** düğmesi hatayı soruya ekler.
 - Araçlar: `jira_search`, `jira_get_issue`, `jira_add_comment`, `confluence_search`, `confluence_get_page`,
   `bitbucket_list_repos`, `bitbucket_my_review_prs` (reviewer olduğunuz açık PR'lar), `bitbucket_list_pull_requests`, `bitbucket_get_pull_request`, `bitbucket_pr_build_status`, `bitbucket_get_file`,
-  `graylog_search`, `graylog_list_streams` (Graylog erişim belirteciyle; log arama).
+  `graylog_search`, `graylog_list_streams` (Graylog Test; erişim belirteciyle log arama), `graylog_prod_search`,
+  `graylog_prod_list_streams` (Graylog Prod: canlı ortam, ayrı adres ve belirteçle; yalnızca okuma).
 - **Test Otomasyonu** (bütün modlarda): test otomasyon deposunun klasörü ve çalıştırma komutu kaydedilir (depo buradan
   indirilebilir, komut proje türüne göre önerilir: Maven/Cucumber, Gradle, Playwright, Cypress, pytest, .NET). Bitbucket bağlıysa
   depo oradaki listeden seçilir. İsteğe bağlı bir release dalı kaydedilebilir; kaydedilmezse yapay zekâ çalıştırmadan
