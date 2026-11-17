@@ -777,3 +777,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .link-multi-foot .btn { font-size: 12px; padding: 3px 8px; }
 .link-multi-item.off { opacity: .45; cursor: not-allowed; }
 .link-multi-note { font-size: 11.5px; color: var(--text-3); padding: 4px 8px 0; }
+
+/* ---------- Çalışma kipi (Agent / Ask / Plan) ---------- */
+.work-wrap select { font-weight: 600; }
+.work-wrap[data-work="ask"] select { color: var(--accent); }
+.work-wrap[data-work="plan"] select { color: #8a6d1d; }
+#modeWrap[hidden] { display: none; }

@@ -13,6 +13,7 @@ import { exec, spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { msg } from './messages.js';
 import { copilotEnv } from './proxy.js';
+import { validWork } from './workmode.js';
 import { npmEnv } from './browser-check.js';
 
 const PROTOCOL_VERSION = 1;
@@ -235,8 +236,9 @@ export function describeSession(res) {
 
 // ---------- Oturum ----------
 export class CopilotSession {
-  constructor({ cwd, resume, permissionMode, model, effort, emit, lang = 'tr', skipReplay = false }) {
+  constructor({ cwd, resume, permissionMode, model, effort, emit, lang = 'tr', skipReplay = false, work = 'agent' }) {
     this.engine = 'copilot';
+    this.work = validWork(work); // Agent / Ask / Plan (bkz. workmode.js)
     this.cwd = cwd;
     this.resume = resume;
     this.lang = lang;
@@ -536,6 +538,12 @@ export class CopilotSession {
     const options = params.options || [];
     const pick = (...kinds) => options.find((o) => kinds.includes(o.kind))?.optionId;
     const group = allowanceGroup(tc.kind);
+    // Ask / Plan kipinde dosya değiştiren işlemler sorulmadan reddedilir
+    if (this.work !== 'agent' && group === 'edits') {
+      const reject = pick('reject_once', 'reject_always');
+      if (reject) return { outcome: { outcome: 'selected', optionId: reject } };
+      return { outcome: { outcome: 'cancelled' } };
+    }
     const auto = this.allowed.has(group)
       || this.permissionMode === 'bypassPermissions'
       || (this.permissionMode === 'acceptEdits' && group === 'edits');

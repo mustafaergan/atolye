@@ -27,6 +27,7 @@ import { saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
+import { validWork } from './workmode.js';
 import { copilotQuota } from './copilot-quota.js';
 import { checkBrowser, installedMcp, installPlaywrightMcp, playwrightLibrary } from './browser-check.js';
 import { msg, normalizeLang } from './messages.js';
@@ -426,6 +427,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
         effort: typeof m.effort === 'string' && m.effort ? m.effort : undefined,
         general: samePath(cwd, GENERAL_DIR),
         role: typeof m.role === 'string' ? m.role : undefined,
+        work: validWork(m.work),
         lang,
       });
       const history = next.historyCount
@@ -455,7 +457,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
           {
             const files = saveAttachments(m.files);
             if (files.length) console.log(`[ek] ${files.length} dosya kaydedildi (${files.map((f) => `${f.kind}${f.note ? `:${f.note.split(':')[0]}` : ''}`).join(', ')})`);
-            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files);
+            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files, m.work ? validWork(m.work) : undefined);
           }
           return;
         case 'interrupt':
@@ -472,6 +474,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
           return;
         case 'answer':
           current?.agent.answer(m.id, m.decision || { behavior: 'deny' });
+          return;
+        case 'set_work':
+          if (current) current.agent.work = validWork(m.work);
           return;
         case 'set_mode':
           if (current && MODES.has(m.mode)) await timed(current.agent.setPermissionMode(m.mode), 'mod');

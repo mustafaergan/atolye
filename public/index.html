@@ -155,7 +155,14 @@
                 <svg viewBox="0 0 24 24"><path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
               </button>
               <input type="file" id="fileInput" multiple hidden>
-              <div class="select-wrap" title="İzin modu (Shift+Tab)" data-i18n-attr="title">
+              <div class="select-wrap work-wrap" title="Çalışma kipi (Shift+Tab ile değişir)" data-i18n-attr="title">
+                <select id="workSelect" aria-label="Çalışma kipi" data-i18n-attr="aria-label">
+                  <option value="agent" title="Agent: yapay zekâ dosyaları değiştirebilir ve komut çalıştırabilir (yanındaki izin ayarına göre)" data-i18n-attr="title">Agent</option>
+                  <option value="ask" title="Ask: yalnızca soruları yanıtlar; dosya değiştirmez" data-i18n-attr="title">Ask</option>
+                  <option value="plan" title="Plan: hiçbir şeyi değiştirmeden adım adım plan çıkarır; uygulamak için Agent kipine geçersiniz" data-i18n-attr="title">Plan</option>
+                </select>
+              </div>
+              <div class="select-wrap" id="modeWrap" title="İzin modu" data-i18n-attr="title">
                 <select id="modeSelect" aria-label="İzin modu" data-i18n-attr="aria-label">
                   <option value="default" data-i18n>Her işlemde sor</option>
                   <option value="acceptEdits" data-i18n>Düzenlemeleri kabul et</option>

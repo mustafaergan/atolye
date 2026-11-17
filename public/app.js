@@ -56,7 +56,7 @@ const MODE_LABEL = {
   plan: 'Plan modu',
   bypassPermissions: 'İzinleri atla',
 };
-const MODE_CYCLE = ['default', 'acceptEdits', 'plan'];
+const WORK_CYCLE = ['agent', 'ask', 'plan'];
 
 // ---------- Durum ----------
 const state = {
@@ -374,7 +374,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, lang: getLang(), engine });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, work: state.work, lang: getLang(), engine });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
@@ -408,9 +408,10 @@ function applyEngineUi() {
   if (copilot && !state.copilotQuota) loadCopilotQuota(); else renderCopilotCredit();
   updateFetchButton();
   // Copilot'ta plan modu /plan komutuyla kullanılır
+  // Plan, izin seçicisinde değil çalışma kipi seçicisinde (Agent / Ask / Plan)
   const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
-  planOpt.hidden = copilot;
-  planOpt.disabled = copilot;
+  planOpt.hidden = true;
+  planOpt.disabled = true;
 }
 
 // Copilot "kurulu değil" görünüyorsa seçici açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
@@ -466,7 +467,9 @@ function handleEvent(ev) {
     case 'permission': return renderPermission(ev);
     case 'question': return renderQuestion(ev);
     case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
-    case 'mode': return setMode(ev.mode, false);
+    case 'mode':
+      if (state.work === 'plan' && ev.mode !== 'plan' && currentEngine() === 'claude') { state.agentMode = ev.mode; return setWork('agent', { notify: false }); }
+      return setMode(ev.mode, false);
     case 'model': setModelValue(ev.model || ''); store.set(modelKey(currentEngine()), ev.model || ''); return;
     case 'effort': $('#effortSelect').value = ev.effort || ''; return;
     case 'credits': state.credits = ev.credits; return updateStatus();
@@ -1227,6 +1230,7 @@ function setModelValue(model) {
 
 dom.modeSelect.addEventListener('change', () => {
   const mode = dom.modeSelect.value;
+  if (state.work === 'agent') state.agentMode = mode;
   if (mode === 'bypassPermissions' && !confirm(T('İzinleri atla modunda Claude dosya düzenleme ve komut çalıştırma işlemlerini SORMADAN yapar. Emin misiniz?'))) {
     dom.modeSelect.value = state.mode;
     return;
@@ -1250,7 +1254,7 @@ function send() {
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
   warnIfLinkUnavailable();
   const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? `${withFetchProtocol(text)}${activeLinks.filter((id) => !fetchLinks().includes(id)).map((id) => `\n${withOneLinkHint('', id).trim()}`).join('')}` : withLinkHint(text || (files.length ? T('Ekteki dosyaya bak.') : T('Bu görsele bak.')));
-  wsSend({ type: 'send', text: outgoing, images, ...(files.length ? { files } : {}) });
+  wsSend({ type: 'send', text: outgoing, images, work: state.work, ...(files.length ? { files } : {}) });
   dom.input.value = '';
   state.attachments = [];
   renderAttachments();
@@ -1279,9 +1283,30 @@ dom.input.addEventListener('keydown', (e) => {
 });
 
 function cycleMode() {
-  const i = MODE_CYCLE.indexOf(state.mode);
-  setMode(MODE_CYCLE[(i + 1) % MODE_CYCLE.length]);
+  const i = WORK_CYCLE.indexOf(state.work);
+  setWork(WORK_CYCLE[(i + 1) % WORK_CYCLE.length]);
 }
+
+// ---------- Çalışma kipi: Agent / Ask / Plan ----------
+// Ask ve Plan'da dosya değiştiren araçlar sunucuda reddedilir; izin modu Ask'ta "her işlemde sor", Plan'da "plan" olur.
+// Agent'a dönülünce Agent'ta seçilmiş izin modu geri gelir. Varsayılan role göre: Analist ve Proje Sahibi Ask,
+// Geliştirici Agent; kullanıcının seçimi rol başına saklanır.
+state.work = 'agent';
+state.agentMode = 'default';
+const workKey = () => `atolye:work:${state.role}`;
+function setWork(work, { notify = true, save = true } = {}) {
+  if (!WORK_CYCLE.includes(work)) work = 'agent';
+  state.work = work;
+  if (save) store.set(workKey(), work);
+  const sel = $('#workSelect');
+  sel.value = work;
+  sel.parentElement.dataset.work = work;
+  $('#modeWrap').hidden = work !== 'agent';
+  setMode(work === 'plan' ? (currentEngine() === 'copilot' ? 'default' : 'plan') : work === 'ask' ? 'default' : state.agentMode, notify);
+  if (notify) wsSend({ type: 'set_work', work });
+}
+$('#workSelect').addEventListener('change', () => setWork($('#workSelect').value));
+const roleWork = () => store.get(workKey(), '') || currentRole().work || 'agent';
 
 document.addEventListener('keydown', (e) => {
   const inField = e.target.matches?.('input, textarea, select');
@@ -2069,12 +2094,14 @@ const savedWhere = (text) => el('small', { class: 'links-where' }, el('span', { 
 const ROLES = {
   analist: {
     name: () => T('Analist'),
+    work: 'ask',
     tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
+    work: 'agent',
     tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
@@ -2092,6 +2119,7 @@ function applyRole() {
   if (!ROLES[state.role]) state.role = 'analist';
   sel.value = state.role;
   document.body.dataset.role = state.role;
+  setWork(roleWork(), { notify: false, save: false });
   if (!roleTabs().includes(links.tab)) links.tab = roleTabs()[0];
   updateEmptyState(state.cwd);
   renderLinkSelect();
@@ -2884,7 +2912,7 @@ function parseFetchRequest(text) {
 }
 
 function sendToAi(text) {
-  wsSend({ type: 'send', text, images: [] });
+  wsSend({ type: 'send', text, images: [], work: state.work });
   setBusy(true);
   scrollDown(true);
 }

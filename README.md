@@ -160,6 +160,11 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; birden fazla bağlantıyı birlikte ele alma yönergesiyle (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
 | **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic, Oracle, PostgreSQL | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
+Mesaj kutusunun başındaki **Agent / Ask / Plan** seçicisi yapay zekânın çalışma kipini belirler (Shift+Tab ile değişir):
+**Agent** dosya değiştirebilir ve komut çalıştırabilir (yanındaki izin ayarına göre), **Ask** yalnızca yanıtlar, **Plan**
+hiçbir şeyi değiştirmeden plan çıkarır. Ask ve Plan'da dosya değiştiren araçları Atölye reddeder. Varsayılan: Analist ve
+Proje Sahibi'nde Ask, Geliştirici'de Agent; seçim mod başına saklanır.
+
 Bütün modlarda mesaj kutusunun altındaki bağlantı seçicisinden aynı soru için **en fazla 4 bağlantı** birlikte seçilebilir
 (ör. Jira + Bitbucket + Confluence); yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır.
 

@@ -333,3 +333,18 @@ test('yeni Copilot oturumu GPT ile açılır; kullanıcının seçtiği model ve
     delete process.env.FAKE_EXTRA_MODELS;
   }
 });
+
+test('Ask kipinde Copilot\'un düzenleme izni sorulmadan reddedilir; komut izni yine sorulur', async () => {
+  const events = [];
+  const s = new CopilotSession({ cwd, work: 'ask', emit: (e) => {
+    events.push(e);
+    if (e.type === 'permission') setTimeout(() => s.answer(e.id, { behavior: 'allow' }), 5);
+  } });
+  s.start();
+  s.send('düzelt');
+  await until(() => sdk(events, 'result').length);
+  assert.deepEqual(events.filter((e) => e.type === 'permission').map((e) => e.toolName), ['Bash'], 'yalnızca komut sorulur');
+  const edit = toolResults(events).find((r) => r.tool_use_id === 'e1');
+  assert.equal(edit.is_error, true, 'düzenleme reddedildi');
+  s.close();
+});
