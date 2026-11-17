@@ -1,6 +1,7 @@
 // Tek bir sohbet oturumu: Agent SDK'nın query() akışını "streaming input" modunda
 // açık tutar, böylece aynı oturuma art arda mesaj gönderebilir, çalışmayı
 // durdurabilir, izin modunu ve modeli anında değiştirebiliriz.
+import { EDIT_TOOLS, denyMessage, validWork } from './workmode.js';
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { msg } from './messages.js';
@@ -69,7 +70,7 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr' }) {
+  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr', work = 'agent' }) {
     this.cwd = cwd;
     this.lang = lang;
     this.general = general;
@@ -81,6 +82,7 @@ export class AgentSession {
     this.commands = [];
     this.activeModel = null; // Claude Code'un gerçekte kullandığı model (init mesajından)
     this.permissionMode = permissionMode || 'default';
+    this.work = validWork(work); // Agent / Ask / Plan (bkz. workmode.js)
     this.emit = emit;
     this.sessionId = resume || null;
     this.pending = new Map(); // izin/soru id -> { resolve, input, toolName }
@@ -324,6 +326,8 @@ export class AgentSession {
   }
 
   #askPermission(toolName, input, { signal, blockedPath, decisionReason, title }) {
+    // Ask / Plan kipinde dosya değiştiren araçlar sorulmadan reddedilir
+    if (this.work !== 'agent' && EDIT_TOOLS.has(toolName)) return Promise.resolve({ behavior: 'deny', message: denyMessage(this.work) });
     if (!NEVER_ALWAYS.has(toolName) && this.allowed.has(allowanceGroup(toolName)))
       return Promise.resolve({ behavior: 'allow', updatedInput: input });
 

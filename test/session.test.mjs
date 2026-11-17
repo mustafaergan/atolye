@@ -115,3 +115,25 @@ test('Proje Sahibi rolü analistten türetilir: analist yönergesinin tamamını
   assert.ok(ROLE_PROMPTS.sahip.length > ROLE_PROMPTS.analist.length);
   assert.match(ROLE_PROMPTS.sahip, /bulk action/);
 });
+
+test('Ask / Plan kipinde dosya değiştiren araçlar sorulmadan reddedilir; Agent kipinde izin sorulur', async () => {
+  started.length = 0;
+  const events = [];
+  const s = new AgentSession({ cwd: '.', work: 'ask', emit: (e) => events.push(e) });
+  s.start();
+  const ask = (tool) => started[0].canUseTool(tool, { file_path: 'a.txt', content: 'x' }, { signal: new AbortController().signal });
+  const denied = await ask('Write');
+  assert.equal(denied.behavior, 'deny');
+  assert.match(denied.message, /Ask mode/);
+  assert.equal(events.filter((e) => e.type === 'permission').length, 0, 'kullanıcıya sorulmadı');
+  s.work = 'plan';
+  assert.match((await ask('Edit')).message, /Plan mode/);
+  s.work = 'agent';
+  const pending = ask('Write');
+  await new Promise((r) => setTimeout(r, 10));
+  const perm = events.find((e) => e.type === 'permission');
+  assert.ok(perm, 'Agent kipinde izin sorulur');
+  s.answer(perm.id, { behavior: 'allow' });
+  assert.equal((await pending).behavior, 'allow');
+  s.close();
+});

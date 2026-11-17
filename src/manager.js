@@ -13,6 +13,7 @@ import * as transcript from './transcript.js';
 import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
 import { aiTitle, shortTitle } from './title.js';
+import { validWork, workInstruction } from './workmode.js';
 import { attachmentPrompt } from './attachments.js';
 
 const IDLE_CLOSE_MS = 30_000;
@@ -34,7 +35,7 @@ export class SessionManager {
   }
 
   /** Var olan canlı oturumu döndürür ya da yenisini (gerekirse devam ettirerek) başlatır. */
-  async open({ liveId, sessionId, cwd, mode, model, effort, role, general = false, lang = 'tr', engine = 'claude' }) {
+  async open({ liveId, sessionId, cwd, mode, model, effort, role, general = false, lang = 'tr', engine = 'claude', work = 'agent' }) {
     const existing = this.find({ liveId, sessionId });
     if (existing) return existing;
 
@@ -77,6 +78,7 @@ export class SessionManager {
       model,
       effort,
       permissionMode: mode,
+      work,
       general,
       role,
       lang,
@@ -118,10 +120,13 @@ export class SessionManager {
     };
   }
 
-  send(entry, text, images, lang = 'tr', files = []) {
-    // Ekli dosyaların yolu ve içeriğinin başı yalnızca yapay zekâya giden mesaja eklenir; ekranda dosya adları görünür
+  send(entry, text, images, lang = 'tr', files = [], work) {
+    if (work) entry.agent.work = validWork(work);
+    // Ekli dosyaların yolu ve içeriğinin başı yalnızca yapay zekâya giden mesaja eklenir; ekranda dosya adları görünür.
+    // Ask / Plan kipinin yönergesi de yalnızca yapay zekâya gider (geçmişte system-reminder olarak gizlenir).
     const extra = attachmentPrompt(files, lang);
-    entry.agent.send(extra ? `${text}\n\n${extra}` : text, images);
+    const rule = text.startsWith('/') ? '' : workInstruction(entry.agent.work);
+    entry.agent.send(`${text}${extra ? `\n\n${extra}` : ''}${rule ? `\n\n<system-reminder>${rule}</system-reminder>` : ''}`, images);
     entry.sent = true;
     // Başlık yalnızca kullanıcının yazdığından çıkarılır (Atölye'nin eklediği notlar ve getirilen veriler hariç)
     if (!entry.title) { entry.title = shortTitle(text) || msg(lang, 'Görsel'); entry.firstPrompt = text; entry.lang = lang; }
