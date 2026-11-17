@@ -1613,10 +1613,9 @@ function sessionRow(s) {
       : null,
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
     s.id && !s.run?.busy ? el('span', { class: 's-actions' },
-      el('span', { title: T('Yukarı taşı'), onclick: (e) => { e.stopPropagation(); moveSession(s, -1); } }, icon(ICONS.up)),
-      el('span', { title: T('Aşağı taşı'), onclick: (e) => { e.stopPropagation(); moveSession(s, 1); } }, icon(ICONS.down)),
       el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
       el('span', { title: T('Sil'), onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
+  if (s.id && !s.draft) makeDraggable(item, { kind: 'session', dir: s.cwd, id: s.id }, (from, side) => dropSession(from, s, side));
   item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd, engine: s.engine || s.run?.engine }));
   return item;
 }
@@ -1650,6 +1649,8 @@ function renderSessions() {
         el('button', { class: 'p-btn', type: 'button', title: T('{project} içinde yeni oturum', { project: projectLabel(dir) }), onclick: () => newSession(dir) }, icon('<path d="M12 5v14M5 12h14"/>')),
         isGeneral(dir) ? null : el('button', { class: 'p-btn', type: 'button', title: T('Projeyi listeden kaldır'), onclick: () => removeProject(dir) }, icon('<path d="M6 6l12 12M18 6L6 18"/>'))));
 
+    // Klasörler sürüklenerek sıralanır (klasörsüz sohbet hep en üstte kalır)
+    if (!isGeneral(dir)) makeDraggable(head, { kind: 'project', dir }, (from, side) => dropProject(from, dir, side));
     const group = el('div', { class: 'project' }, head);
     if (collapsed) return group;
     if (!rows.length) {
@@ -2255,13 +2256,60 @@ $('#searchInput').addEventListener('input', () => {
 });
 $('#searchInput').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#searchInput').value = ''; searchUi.seq++; renderSearch(null); } });
 
-// ---------- Sohbetleri elle sıralama ----------
-async function moveSession(s, delta) {
-  const ids = sessionsOf(s.cwd).map((x) => x.id);
-  const at = ids.indexOf(s.id);
-  const to = at + delta;
-  if (at < 0 || to < 0 || to >= ids.length) return;
-  [ids[at], ids[to]] = [ids[to], ids[at]];
+// ---------- Sürükle-bırak ile sıralama (klasörler ve sohbetler) ----------
+// Bir klasör başka bir klasörün, bir sohbet aynı klasördeki başka bir sohbetin üstüne ya da altına bırakılır.
+let dragging = null; // { kind: 'project' | 'session', dir, id }
+const dropSide = (e, node) => { const r = node.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 ? 'before' : 'after'; };
+function clearDropMarks() {
+  document.querySelectorAll('.drop-before, .drop-after, .dragging').forEach((n) => n.classList.remove('drop-before', 'drop-after', 'dragging'));
+}
+function makeDraggable(node, item, onDrop) {
+  const accepts = () => dragging && dragging.kind === item.kind && (item.kind === 'project' || samePath(dragging.dir, item.dir))
+    && (item.kind === 'project' ? !samePath(dragging.dir, item.dir) : dragging.id !== item.id);
+  node.draggable = true;
+  node.addEventListener('dragstart', (e) => {
+    dragging = item;
+    node.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.id || item.dir);
+    e.stopPropagation();
+  });
+  node.addEventListener('dragend', () => { dragging = null; clearDropMarks(); });
+  node.addEventListener('dragover', (e) => {
+    if (!accepts()) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const side = dropSide(e, node);
+    node.classList.toggle('drop-before', side === 'before');
+    node.classList.toggle('drop-after', side === 'after');
+  });
+  node.addEventListener('dragleave', () => node.classList.remove('drop-before', 'drop-after'));
+  node.addEventListener('drop', (e) => {
+    if (!accepts()) return;
+    e.preventDefault();
+    const from = dragging;
+    const side = dropSide(e, node);
+    dragging = null;
+    clearDropMarks();
+    onDrop(from, side);
+  });
+}
+// "from" öğesini listede "to" öğesinin önüne ya da arkasına taşır
+function movedList(list, from, to, side, same) {
+  const item = list.find((x) => same(x, from));
+  const rest = list.filter((x) => !same(x, from));
+  const at = rest.findIndex((x) => same(x, to));
+  if (item === undefined || at < 0) return list;
+  rest.splice(side === 'before' ? at : at + 1, 0, item);
+  return rest;
+}
+function dropProject(from, dir, side) {
+  state.projects = withGeneralFirst(movedList(state.projects, from.dir, dir, side, samePath));
+  renderSessions();
+  api('/api/state/projects', { op: 'order', dirs: state.projects.filter((p) => !isGeneral(p)) }).catch(() => {});
+}
+async function dropSession(from, s, side) {
+  const ids = movedList(sessionsOf(s.cwd).map((x) => x.id), from.id, s.id, side, (a, b) => a === b);
   await api('/api/state/order', { dir: s.cwd, ids });
   loadSessions(s.cwd);
 }

@@ -97,6 +97,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const { op, dir } = req.body || {};
     if (op === 'add' && notGeneral(dir)) store.addProject(dir);
     else if (op === 'remove' && typeof dir === 'string') store.removeProject(dir);
+    else if (op === 'order' && Array.isArray(req.body?.dirs)) store.setProjectOrder(req.body.dirs);
     res.json(store.get());
   }));
   app.post('/api/state/collapsed', wrap(async (req, res) => {

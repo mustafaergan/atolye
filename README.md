@@ -58,7 +58,7 @@ Sonrasında masaüstündeki kısayol yeterlidir; Atölye zaten çalışıyorsa s
 | `atolye.ps1 guncelle` | Son sürümü indir, paketleri güncelle, çalışıyorsa yeniden başlat |
 | `atolye.ps1 durum` | Kurulum, çalışma ve otomatik başlatma durumu |
 | `atolye.ps1 otomatik-ac` / `otomatik-kapat` | Windows açılışında başlatmayı aç / kapat |
-| `atolye.ps1 kaldir` | Kaldır: durdurur, kısayolları ve otomatik başlatmayı siler; paketle kurulduysa klasörü de siler (onay ister). Git deposuna ve `~/.claude` sohbet geçmişine dokunmaz |
+| `atolye.ps1 kaldir` | Kaldır: durdurur, kısayolları ve otomatik başlatmayı siler; paketle kurulduysa klasörü de siler (onay ister). Git deposuna ve `~/.claude` sohbet geçmişine dokunmaz. Kişisel veriler (`~/.atolye`: öğretilen komutlar, yerel modeller, klasörsüz sohbet dosyaları) yalnızca sorulduğunda "evet" denirse ya da `-Veriler` verilirse silinir; `-Evet` tek başına silmez |
 
 Atölye arka planda gizli çalışır; çıktısı kurulum klasöründeki `atolye.log` dosyasına yazılır.
 Şirket politikası PowerShell script'lerini engelliyorsa komutları `powershell -ExecutionPolicy Bypass -File …`
@@ -204,7 +204,8 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
 
 **Sohbetlerde arama:** kenar çubuğundaki arama kutusu bütün proje klasörlerindeki sohbetlerin (Claude, Copilot, yerel)
 başlıklarında ve mesaj metinlerinde arar; sonuçta eşleşen bölüm vurgulanır, tıklayınca sohbet açılır. Araç çıktıları
-aranmaz. **Sıralama:** bir sohbetin üzerine gelince çıkan ▲▼ ile sohbetler elle sıralanır.
+aranmaz. **Sıralama:** kenar çubuğunda proje klasörleri ve bir klasörün içindeki sohbetler sürüklenip bırakılarak
+sıralanır (klasörsüz sohbet hep en üstte kalır).
 
 **Güncelleme denetimi:** Atölye açılır açılmaz ve her sabah 9'da depoya bakar; bilgisayar o saatte kapalı ya da
 uykudaysa açıldığında bakar (`ATOLYE_UPDATE_HOUR` saati değiştirir).

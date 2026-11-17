@@ -847,3 +847,22 @@ body.resizing { cursor: col-resize; user-select: none; }
 .links-body > .command-list { flex-shrink: 0; }
 .settings-dialog .command-list, .commands-dialog .command-list { max-height: none; overflow: visible; }
 .settings-dialog .links-body { max-height: min(66vh, 640px); }
+/* Dar ekran (telefon): oturum başlığı görünür kalsın, seçiciler ikişer ikişer sığsın */
+@media (max-width: 600px) {
+  .topbar { gap: 6px; }
+  .topbar-title { min-width: 76px; }
+  .conn .label { display: none; }
+  .engine-wrap select { max-width: 104px; }
+  .links-btn { padding-left: 8px; padding-right: 8px; }
+  .composer-bar .select-wrap select { max-width: 104px; }
+}
+/* Uzun pencerelerde Kaydet / Vazgeç düğmeleri kaydırmadan görünür kalır */
+.links-body > .links-actions:last-child { position: sticky; bottom: 0; background: var(--surface); padding: 10px 0 2px; margin-top: -2px; }
+
+/* ---------- Sürükle-bırak ile sıralama ---------- */
+.dragging { opacity: .45; }
+.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+/* Seçili renk halkası ve odak çerçevesi kaydırılan gövdenin kenarında kesilmesin */
+.links-body { padding: 2px 6px 2px 4px; }
+.swatches { padding: 6px 4px; }

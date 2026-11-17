@@ -72,6 +72,15 @@ export class StateStore {
     return this.data;
   }
 
+  /** Proje klasörlerinin sırası (kenar çubuğunda sürükle-bırak); listede olmayan klasörler sona kalır */
+  setProjectOrder(dirs) {
+    const want = strings(dirs);
+    const rank = (p) => { const i = want.findIndex((d) => key(d) === key(p)); return i < 0 ? want.length : i; };
+    const next = [...this.data.projects].sort((a, b) => rank(a) - rank(b));
+    if (next.join('|') !== this.data.projects.join('|')) { this.data.projects = next; this.#save(true); }
+    return this.data;
+  }
+
   removeProject(dir) {
     const before = this.data.projects.length;
     this.data.projects = this.data.projects.filter((p) => key(p) !== key(dir));
