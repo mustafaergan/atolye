@@ -39,8 +39,12 @@ param(
   # Başlatırken tarayıcıyı açma (Windows açılışında kullanılır)
   [switch]$TarayiciAcma,
 
-  # kaldir: onay sormadan kaldır
+  # kaldir: onay sormadan kaldır (kullanıcı verilerine dokunmaz)
   [switch]$Evet,
+
+  # kaldir: kullanıcı verilerini de sil (~/.atolye: klasörsüz sohbet klasörü, öğretilen komutlar, yerel model listesi,
+  # eklenen dosyalar, arayüz durumu). Verilmezse -Evet ile bile silinmez.
+  [switch]$Veriler,
 
   # kur: kullanım koşullarını sormadan kabul et (otomatik/toplu kurulum; ATOLYE_KABUL=1 ile aynı)
   [switch]$Kabul,
@@ -87,6 +91,7 @@ $FromPackage = ($null -ne $PaketInfo) -and -not (Test-Path (Join-Path $PSScriptR
 
 function Resolve-InstallDir {
   if ($Klasor) { return [IO.Path]::GetFullPath($Klasor) }
+  if ($env:ATOLYE_KLASOR) { return [IO.Path]::GetFullPath($env:ATOLYE_KLASOR) } # farklı bir kurulum klasörü (deneme / toplu kurulum)
   if ($FromPackage) { return (Join-Path $env:LOCALAPPDATA 'Atolye') }
   if (Test-AtolyeDir $PSScriptRoot) { return $PSScriptRoot }
   return (Join-Path $env:LOCALAPPDATA 'Atolye')
@@ -1240,6 +1245,7 @@ function Uninstall-Atolye {
   if ($canDelete) { Write-Host "    - Kurulum klasörü silinecek (.env ayarları dahil): $InstallDir" }
   elseif ($isRepo) { Write-Host "    - Git ile indirilmiş klasöre dokunulmayacak: $InstallDir" -ForegroundColor Gray }
   Write-Host '    - Sohbet geçmişi (~/.claude) korunacak; Claude Code CLI ile ortaktır' -ForegroundColor Gray
+  if (-not $Veriler) { Write-Host "    - Kişisel verileriniz ($generalDir) korunacak" -ForegroundColor Gray }
   Write-Host ''
   if (-not $Evet -and -not (Confirm-Yes "$AppName kaldırılsın mı?" $false)) {
     Write-Host '  Vazgeçildi, hiçbir şey değiştirilmedi.' -ForegroundColor Gray
@@ -1259,8 +1265,12 @@ function Uninstall-Atolye {
     else { Write-Warn "Klasör tamamen silinemedi (açık bir dosya olabilir): $full — elle silebilirsiniz." }
   }
 
-  if ((Test-Path $generalDir) -and ($Evet -or (Confirm-Yes "Klasörsüz sohbet klasörü ($generalDir) de silinsin mi?" $false))) {
-    if (Remove-DirWithRetry $generalDir) { Write-Ok "Silindi: $generalDir" }
+  # Kullanıcı verileri: yalnızca açıkça istenirse silinir (-Veriler ya da soruya "evet"). -Evet tek başına silmez;
+  # yeniden kurulumda komutlar, yerel modeller ve klasörsüz sohbet dosyaları yerinde olur.
+  if (Test-Path $generalDir) {
+    $wipe = $Veriler -or (-not $Evet -and (Confirm-Yes "Kişisel verileriniz de silinsin mi? (${generalDir}: klasörsüz sohbet dosyaları, öğrettiğiniz komutlar, yerel model listesi, eklediğiniz dosyalar)" $false))
+    if ($wipe) { if (Remove-DirWithRetry $generalDir) { Write-Ok "Silindi: $generalDir" } }
+    else { Write-Host "  Kişisel verileriniz korundu: $generalDir (silmek için: kaldir -Veriler)" -ForegroundColor Gray }
   }
 
   Write-Host ''

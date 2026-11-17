@@ -183,3 +183,11 @@ test('oturum başlığına gizli yönerge girmez', async () => {
   assert.equal(shortTitle('Merhaba, kimsin?<system-reminder>Ask mode: answer…</system-reminder>'), 'Merhaba, kimsin?');
   assert.equal(shortTitle('Soru\n<system-reminder>yarım kalan'), 'Soru');
 });
+
+test('klasör sırası: sürüklenen sıra saklanır; listede olmayan klasör sona kalır', () => {
+  const store = new StateStore(path.join(tmp, 'klasor', 'durum.json'));
+  for (const p of ['C:\\a', 'C:\\b', 'C:\\c', 'C:\\d']) store.addProject(p);
+  store.setProjectOrder(['C:\\c', 'c:\\A\\', 'C:\\yok']);
+  assert.deepEqual(store.get().projects, ['C:\\c', 'C:\\a', 'C:\\b', 'C:\\d']);
+  assert.deepEqual(new StateStore(path.join(tmp, 'klasor', 'durum.json')).get().projects, ['C:\\c', 'C:\\a', 'C:\\b', 'C:\\d']);
+});

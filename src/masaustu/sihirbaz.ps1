@@ -15,6 +15,11 @@ function Start-ConsoleInstall {
 try {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
+  # Yüksek çözünürlüklü ekranlarda pencere bulanık büyütülmesin: süreç DPI'yi kendisi yönetir, pencere ölçeğe göre büyür
+  try {
+    Add-Type -Namespace Atolye -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+    [void][Atolye.Dpi]::SetProcessDPIAware()
+  } catch { }
   [Windows.Forms.Application]::EnableVisualStyles()
 } catch {
   Start-ConsoleInstall
@@ -27,7 +32,7 @@ try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 $version = ''
 try { $version = [string](Get-Content (Join-Path $Root 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { }
 $fromPackage = (Test-Path (Join-Path $Root '.paket')) -and -not (Test-Path (Join-Path $Root '.git')) -and -not (Test-Path (Join-Path $Root '.kurulu'))
-$installDir = if ($fromPackage) { Join-Path $env:LOCALAPPDATA 'Atolye' } else { $Root }
+$installDir = if ($env:ATOLYE_KLASOR) { $env:ATOLYE_KLASOR } elseif ($fromPackage) { Join-Path $env:LOCALAPPDATA 'Atolye' } else { $Root }
 $oldVersion = ''
 if ($fromPackage) { try { $oldVersion = [string](Get-Content (Join-Path $installDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { } }
 $terms = ''
@@ -39,6 +44,7 @@ $font = New-Object Drawing.Font('Segoe UI', 9)
 $accent = [Drawing.Color]::FromArgb(201, 100, 66)
 $form = New-Object Windows.Forms.Form
 $form.Text = 'Atölye Kurulumu'
+$form.AutoScaleMode = 'None' # ölçekleme en sonda elle yapılır (aşağıda)
 $form.ClientSize = New-Object Drawing.Size(640, 480)
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -72,14 +78,15 @@ $header = New-Object Windows.Forms.Panel
 $header.SetBounds(0, 0, 640, 76)
 $header.BackColor = [Drawing.Color]::FromArgb(250, 249, 245)
 $form.Controls.Add($header)
-if ($form.Icon) {
-  $pic = New-Object Windows.Forms.PictureBox
-  $pic.SetBounds(24, 18, 40, 40)
-  $pic.SizeMode = 'StretchImage'
-  $pic.BackColor = $header.BackColor
-  try { $pic.Image = $form.Icon.ToBitmap() } catch { }
-  $header.Controls.Add($pic)
-}
+# Logo: Atölye'nin turuncu karesi içinde "A" (simge dosyasından bağımsız çizilir, her ölçekte net)
+$logo = New-Object Windows.Forms.Label
+$logo.SetBounds(24, 18, 40, 40)
+$logo.Text = 'A'
+$logo.TextAlign = 'MiddleCenter'
+$logo.Font = New-Object Drawing.Font('Segoe UI', 17, [Drawing.FontStyle]::Bold)
+$logo.ForeColor = [Drawing.Color]::White
+$logo.BackColor = $accent
+$header.Controls.Add($logo)
 $title = New-Label 'Atölye' 78 14 520 28 $header 14 -Bold
 $subtitle = New-Label '' 79 44 540 20 $header 9 -Gray
 $line1 = New-Object Windows.Forms.Label
@@ -190,6 +197,9 @@ function Show-Page($i) {
   $btnNext.Text = if ($i -eq 2) { 'Kur' } elseif ($i -eq 4) { 'Bitir' } else { 'İleri >' }
   $btnNext.Enabled = ($i -ne 1 -or $chkTerms.Checked)
   $btnCancel.Visible = ($i -ne 4)
+  # Son sayfada tek düğme kalır: sağ kenara alınır
+  if ($null -eq $script:NextLeft) { $script:NextLeft = $btnNext.Left }
+  $btnNext.Left = if ($i -eq 4) { $btnCancel.Left } else { $script:NextLeft }
   $btnCancel.Enabled = ($i -ne 3)
   $btnCancel.Text = 'İptal'
 }
@@ -317,6 +327,19 @@ if ($TestDir) {
   $form.Add_Shown({ $auto.Start() })
 }
 
-Show-Page 0
-[void]$form.ShowDialog()
+# Pencere 96 DPI'ye göre çizildi; ekran ölçeği daha büyükse (ör. %150, %200) bütün ölçüler ona göre büyütülür.
+# Yazılar punto cinsinden olduğu için kendiliğinden büyür.
+try {
+  $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+  $scale = $g.DpiX / 96
+  $g.Dispose()
+  if ($scale -gt 1.01) { $form.Scale((New-Object Drawing.SizeF($scale, $scale))) }
+} catch { }
+try {
+  Show-Page 0
+  [void]$form.ShowDialog()
+} catch {
+  # Sihirbazda beklenmeyen bir hata olursa (ve kurulum sürmüyorsa) komut penceresinden kurulum açılır
+  if (-not $script:Running -and $script:Page -lt 3) { Start-ConsoleInstall }
+}
 try { Remove-Item $script:LogFile, "$($script:LogFile).hata" -Force -ErrorAction SilentlyContinue } catch { }
