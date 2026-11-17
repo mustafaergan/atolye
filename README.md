@@ -157,8 +157,11 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 | Mod | Görünen bağlantılar | Öneriler ve anlatım |
 |---|---|---|
 | **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog Test, Graylog Prod, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
-| **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; ek olarak mesaj kutusunda **birden fazla bağlantı birlikte seçilebilir** (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
+| **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; birden fazla bağlantıyı birlikte ele alma yönergesiyle (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
 | **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
+
+Bütün modlarda mesaj kutusunun altındaki bağlantı seçicisinden aynı soru için **en fazla 4 bağlantı** birlikte seçilebilir
+(ör. Jira + Bitbucket + Confluence); yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır.
 
 Seçim saklanır. Mod değişince yeni bir oturum açılır (anlatım biçimi oturum açılırken belirlenir; Copilot'ta sistem
 yönergesi değiştirilemediği için orada yalnızca görünen bağlantılar ve öneriler değişir). Yeni bir mod (ör. yönetici,
