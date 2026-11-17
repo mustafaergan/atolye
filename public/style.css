@@ -816,3 +816,34 @@ body.resizing { cursor: col-resize; user-select: none; }
 .work-wrap[data-work="ask"] select { color: var(--accent); }
 .work-wrap[data-work="plan"] select { color: #8a6d1d; }
 #modeWrap[hidden] { display: none; }
+
+/* ---------- Ayarlar ---------- */
+.settings-dialog { width: min(680px, calc(100vw - 32px)); }
+.settings-toggle { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.settings-toggle input { margin-top: 3px; accent-color: var(--accent); flex: none; }
+.settings-toggle > span { display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; min-width: 0; }
+.settings-toggle small { color: var(--text-3); font-size: 12.5px; line-height: 1.4; }
+.settings-toggle .settings-inline { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings-inline input { font: inherit; font-size: 13.5px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.settings-inline input.settings-num { width: 84px; }
+.settings-version { font-size: 12.5px; color: var(--text-3); flex: 1; }
+.links-field input[type="password"], .links-field input[type="number"], .links-field input[type="date"] { font: inherit; font-size: 13.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+
+/* ---------- Sohbetlerde arama ---------- */
+.search-wrap { display: flex; align-items: center; gap: 6px; margin: 0 2px 6px; padding: 0 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.search-wrap:focus-within { border-color: var(--border-strong); }
+.search-wrap svg { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--text-3); stroke-width: 2; stroke-linecap: round; }
+.search-wrap input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; padding: 6px 0; }
+.search-results { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.search-results[hidden], .session-list[hidden] { display: none; }
+.search-head { font-size: 11.5px; color: var(--text-3); padding: 2px 8px 6px; }
+.search-item { display: flex; flex-direction: column; gap: 2px; text-align: left; border: 0; background: transparent; padding: 7px 9px; border-radius: 8px; color: var(--text); width: 100%; }
+.search-item:hover { background: var(--surface-2); }
+.search-item .s-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-meta { font-size: 11px; color: var(--text-3); }
+.search-snip { font-size: 12px; color: var(--text-2); line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.search-snip mark { background: var(--accent-soft); color: var(--text); border-radius: 3px; padding: 0 1px; }
+/* Liste, kaydırılan pencere gövdesinde sıkışıp kaybolmasın */
+.links-body > .command-list { flex-shrink: 0; }
+.settings-dialog .command-list, .commands-dialog .command-list { max-height: none; overflow: visible; }
+.settings-dialog .links-body { max-height: min(66vh, 640px); }

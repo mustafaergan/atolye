@@ -182,6 +182,33 @@ Proje Sahibi'nde Ask, Geliştirici'de Agent; seçim mod başına saklanır.
 Bütün modlarda mesaj kutusunun altındaki bağlantı seçicisinden aynı soru için **en fazla 4 bağlantı** birlikte seçilebilir
 (ör. Jira + Bitbucket + Confluence); yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır.
 
+### Ayarlar
+
+Sol üstteki dişli **Ayarlar** penceresini açar:
+
+- **Uygulama:** masaüstü uygulaması (kendi penceresi), masaüstü kısayolu ve Windows açılışında başlatma açılıp
+  kapatılır; Atölye gerekeni kendisi yapar (Windows kurulumunda).
+- **Claude Code:** gateway adresi ve token (kurulum klasöründeki `.env` dosyasına yazılır; boşsa Claude Code'un kendi
+  ayarları kullanılır).
+- **GitHub Copilot:** CLI kurulumu, GitHub girişi ve yeni oturumların varsayılan modeli.
+- **Yerel LLM:** bu bilgisayarda ya da yerel ağda çalışan modeller (Ollama, LM Studio, llama.cpp vb.). **+** ile birden
+  fazla model eklenir; her biri üstteki motor seçicisinde "Yerel: …" olarak çıkar. Yerel model Claude Code motoruyla
+  kullanılır, bu yüzden sunucunun Anthropic uyumlu uç noktası (`/v1/messages`) olmalıdır (Ollama 0.14+, LM Studio
+  0.4.1+). Liste `~/.atolye/yerel-llm.json` dosyasında durur. Küçük yerel modeller araç kullanımında (dosya okuma,
+  komut çalıştırma) zayıf kalabilir.
+- **Skill'ler:** içinde `SKILL.md` bulunan bir klasör (ya da birden fazla skill içeren üst klasör) eklenir; skill
+  `~/.claude/skills` altına kopyalanır ve yeni oturumlarda `/` komut listesinde çıkar. Yalnızca Atölye'nin eklediği
+  skill'ler buradan kaldırılabilir.
+- **Oturumlar:** "N gündür kullanılmayan" ya da "şu tarihten önce son kez kullanılan" oturumlar toplu silinir. Önce kaç
+  oturumun silineceği gösterilir. Claude oturumları Claude Code ile ortaktır; silinen geri gelmez.
+
+**Sohbetlerde arama:** kenar çubuğundaki arama kutusu bütün proje klasörlerindeki sohbetlerin (Claude, Copilot, yerel)
+başlıklarında ve mesaj metinlerinde arar; sonuçta eşleşen bölüm vurgulanır, tıklayınca sohbet açılır. Araç çıktıları
+aranmaz. **Sıralama:** bir sohbetin üzerine gelince çıkan ▲▼ ile sohbetler elle sıralanır.
+
+**Güncelleme denetimi:** Atölye açılır açılmaz ve her sabah 9'da depoya bakar; bilgisayar o saatte kapalı ya da
+uykudaysa açıldığında bakar (`ATOLYE_UPDATE_HOUR` saati değiştirir).
+
 **Komut öğretme:** boş oturum ekranındaki mavi **+ Komut öğret** düğmesine basıp ne yapılmasını istediğinizi kendi
 cümlelerinizle anlatın ("önce Jira kaydını okusun, sonra Bitbucket'a baksın…"). Seçili yapay zekâ anlattıklarınızı adı,
 adım adım yönergesi ve kullanacağı bağlantılarla bir komuta derler; kaydetmeden önce görür ve düzeltirsiniz. Öğretilen

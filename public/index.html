@@ -17,6 +17,9 @@
           <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M9 22l7-13 7 13M12 17h8"/></svg>
         </span>
         <span class="brand-name">Atölye</span>
+        <button class="icon-btn" id="settingsBtn" title="Ayarlar" aria-label="Ayarlar" data-i18n-attr="title,aria-label">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
         <button class="icon-btn" id="themeBtn" title="Tema değiştir" aria-label="Tema değiştir" data-i18n-attr="title,aria-label">
           <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
         </button>
@@ -40,6 +43,11 @@
           Klasör ekle
         </button>
       </div>
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="search" id="searchInput" placeholder="Sohbetlerde ara…" aria-label="Sohbetlerde ara…" data-i18n-attr="placeholder,aria-label" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="search-results" id="searchResults" hidden></div>
       <nav class="session-list" id="sessionList" aria-label="Projeler ve oturumlar" data-i18n-attr="aria-label"></nav>
 
       <div class="sidebar-foot">
@@ -54,7 +62,7 @@
           <button type="button" class="check-update" id="checkUpdateBtn" data-i18n>Güncellemeleri denetle</button>
           <a class="check-update" id="logBtn" href="/log.html" target="_blank" rel="noopener" data-i18n>Kayıtlar</a>
         </span>
-        <span data-i18n>optona.tr tarafından yazılmıştır</span>
+        <a href="https://optona.tr" target="_blank" rel="noopener" data-i18n>optona.tr tarafından yazılmıştır</a>
       </div>
       <div class="resizer side-resizer" id="sideResizer" role="separator" aria-orientation="vertical" title="Genişliği ayarlamak için sürükleyin (çift tıklama: varsayılan)" data-i18n-attr="title"></div>
     </aside>
@@ -223,6 +231,17 @@
       <div class="links-tabs" id="linksTabs" role="tablist"></div>
       <div class="links-body" id="linksBody"></div>
       <p class="links-note" id="linksNote"></p>
+    </div>
+  </dialog>
+
+  <dialog id="settingsDialog" class="dialog links-dialog settings-dialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 data-i18n>Ayarlar</h2>
+        <button class="icon-btn" id="settingsClose" type="button" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="links-tabs" id="settingsTabs" role="tablist"></div>
+      <div class="links-body" id="settingsBody"></div>
     </div>
   </dialog>
 

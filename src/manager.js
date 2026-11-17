@@ -12,6 +12,7 @@ import { AgentSession } from './session.js';
 import * as transcript from './transcript.js';
 import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
+import { localConfig } from './settings.js';
 import { aiTitle, shortTitle } from './title.js';
 import { validWork, workInstruction } from './workmode.js';
 import { attachmentPrompt } from './attachments.js';
@@ -35,7 +36,7 @@ export class SessionManager {
   }
 
   /** Var olan canlı oturumu döndürür ya da yenisini (gerekirse devam ettirerek) başlatır. */
-  async open({ liveId, sessionId, cwd, mode, model, effort, role, general = false, lang = 'tr', engine = 'claude', work = 'agent' }) {
+  async open({ liveId, sessionId, cwd, mode, model, effort, role, general = false, lang = 'tr', engine = 'claude', work = 'agent', localId }) {
     const existing = this.find({ liveId, sessionId });
     if (existing) return existing;
 
@@ -58,7 +59,8 @@ export class SessionManager {
 
     const entry = {
       liveId: randomUUID(),
-      engine: engine === 'copilot' ? 'copilot' : 'claude',
+      engine: ['copilot', 'yerel'].includes(engine) ? engine : 'claude',
+      local: engine === 'yerel' ? localConfig(localId) : null, // seçilen yerel model (bkz. settings.js)
       cwd,
       historyCount,
       buffer: saved.slice(),
@@ -84,6 +86,7 @@ export class SessionManager {
       lang,
       emit: (ev) => this.#onEvent(entry, ev),
       skipReplay: saved.length > 0,
+      local: entry.local,
     });
     this.entries.set(entry.liveId, entry);
     entry.agent.start();
@@ -102,6 +105,7 @@ export class SessionManager {
       type: 'opened',
       liveId: entry.liveId,
       engine: entry.engine,
+      local: entry.local?.id || null,
       sessionId: entry.agent.sessionId,
       cwd: entry.cwd,
       title: entry.title,
@@ -168,6 +172,7 @@ export class SessionManager {
   #onEvent(entry, ev) {
     entry.lastActivity = Date.now();
     if (ev.type === 'error') console.warn(`[oturum] ${entry.engine}: ${ev.message}`);
+    if (entry.engine === 'yerel' && entry.sent && entry.agent.sessionId) this.store?.recordLocalSession(entry.agent.sessionId);
     if (entry.engine === 'copilot') {
       this.#recordCopilot(entry, ev);
       if (transcript.shouldKeep(ev)) entry.unsaved.push(ev);
@@ -206,6 +211,7 @@ export class SessionManager {
 
   // Yapay zekâdan kısa başlık: asıl oturumu etkilemeyen ayrı, tek seferlik bir istek
   async #requestTitle(entry) {
+    if (entry.engine === 'yerel') return; // yerel modelde ek istek yapılmaz; başlık ilk mesajdan gelir
     const title = await aiTitle({ engine: entry.engine, cwd: entry.cwd, model: entry.agent.model || undefined, question: entry.firstPrompt, answer: entry.firstAnswer, lang: entry.lang });
     if (!title) return;
     entry.title = title;

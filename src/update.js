@@ -70,3 +70,31 @@ export async function checkUpdate({ force = false } = {}) {
   console.log(`[güncelleme] kurulu ${current}, depodaki ${value.latest || 'okunamadı'}`);
   return { ...base, ...value };
 }
+
+/** Bir sonraki günlük denetim anı: yerel saatle "hour":00 (o an geçtiyse ertesi gün) */
+export function nextDailyAt(now, hour = 9) {
+  const d = new Date(now);
+  d.setHours(hour, 0, 0, 0);
+  if (d.getTime() <= now) d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
+
+/**
+ * Güncellemeyi Atölye açılır açılmaz bir kez, sonra her sabah 9'da denetler. Bilgisayar o saatte kapalı ya da
+ * uykudaysa denetim açıldığında yapılır (saat birkaç dakikada bir yoklanır). Sonuç önbelleğe yazılır; arayüz
+ * "Güncelleme var" düğmesini oradan gösterir. ATOLYE_UPDATE_HOUR ile saat, ATOLYE_UPDATE_CHECK=0 ile kapatma.
+ */
+export function startDailyCheck({ hour = Number(process.env.ATOLYE_UPDATE_HOUR) || 9, check = () => checkUpdate({ force: true }), now = () => Date.now(), tickMs = 5 * 60 * 1000, firstMs = 5000 } = {}) {
+  if (process.env.ATOLYE_UPDATE_CHECK === '0') return () => {};
+  let due = nextDailyAt(now(), hour);
+  const run = () => Promise.resolve().then(check).catch(() => {});
+  const first = setTimeout(run, firstMs);
+  const timer = setInterval(() => {
+    if (now() < due) return;
+    due = nextDailyAt(now(), hour);
+    run();
+  }, tickMs);
+  first.unref?.();
+  timer.unref?.();
+  return () => { clearTimeout(first); clearInterval(timer); };
+}

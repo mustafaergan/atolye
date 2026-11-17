@@ -21,7 +21,7 @@ function normalize(d = {}) {
   const projects = [];
   for (const p of strings(d.projects)) if (!projects.some((q) => key(q) === key(p))) projects.push(p);
   const open = d.open && typeof d.open === 'object'
-    ? { liveId: str(d.open.liveId), sessionId: str(d.open.sessionId), cwd: str(d.open.cwd), engine: d.open.engine === 'copilot' ? 'copilot' : 'claude' }
+    ? { liveId: str(d.open.liveId), sessionId: str(d.open.sessionId), cwd: str(d.open.cwd), engine: ['copilot', 'yerel'].includes(d.open.engine) ? d.open.engine : 'claude' }
     : null;
   // GitHub Copilot oturumları (Claude oturumlarını Claude Code kendisi saklar; Copilot'unkileri biz listeleriz)
   const copilotSessions = (Array.isArray(d.copilotSessions) ? d.copilotSessions : [])
@@ -33,7 +33,12 @@ function normalize(d = {}) {
   const engine = 'copilot';
   // Kullanım rolü (analist, gelistirici, …): arayüzün hangi bağlantı ve işlevleri göstereceğini belirler
   const role = typeof d.role === 'string' && /^[a-z]{2,24}$/.test(d.role) ? d.role : 'analist';
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions };
+  // Yerel LLM ile açılmış oturumların kimlikleri (dosyaları Claude Code oturumlarıyla aynı yerdedir; listede ayırt edilsin diye)
+  const localSessions = [...new Set(strings(d.localSessions))].slice(-2000);
+  // Kullanıcının elle sıraladığı oturumlar: { <klasör anahtarı>: [oturum kimlikleri, üstten alta] }
+  const sessionOrder = {};
+  if (d.sessionOrder && typeof d.sessionOrder === 'object') for (const [k, v] of Object.entries(d.sessionOrder)) { const ids = strings(v).slice(0, 500); if (ids.length) sessionOrder[k] = ids; }
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, sessionOrder };
 }
 
 export class StateStore {
@@ -139,6 +144,96 @@ export class StateStore {
     const before = this.data.copilotSessions.length;
     this.data.copilotSessions = this.data.copilotSessions.filter((s) => s.id !== id);
     if (this.data.copilotSessions.length !== before) this.#save(false);
+  }
+
+  // ---------- Yerel LLM oturumları ve elle sıralama ----------
+  recordLocalSession(id) {
+    if (!str(id) || this.data.localSessions.includes(id)) return;
+    this.data.localSessions.push(id);
+    this.#save(false);
+  }
+
+  isLocalSession(id) { return this.data.localSessions.includes(id); }
+
+  deleteLocalSession(id) {
+    if (!this.data.localSessions.includes(id)) return;
+    this.data.localSessions = this.data.localSessions.filter((x) => x !== id);
+    this.#save(false);
+  }
+
+  setSessionOrder(dir, ids) {
+    if (!str(dir)) return;
+    const list = strings(ids).slice(0, 500);
+    if (list.length) this.data.sessionOrder[key(dir)] = list; else delete this.data.sessionOrder[key(dir)];
+    this.#save(false);
+  }
+
+  /** Listeyi kullanıcının sırasına göre dizer: sıralanmamış (yeni) oturumlar tarihe göre üstte, sıralananlar kendi sırasında */
+  applySessionOrder(dir, sessions) {
+    const order = this.data.sessionOrder[key(dir)];
+    if (!order?.length) return sessions;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...sessions.filter((s) => !rank.has(s.id)), ...sessions.filter((s) => rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id))];
+  }
+
+  // ---------- Yerel LLM oturumları ve elle sıralama ----------
+  recordLocalSession(id) {
+    if (!str(id) || this.data.localSessions.includes(id)) return;
+    this.data.localSessions.push(id);
+    this.#save(false);
+  }
+
+  isLocalSession(id) { return this.data.localSessions.includes(id); }
+
+  deleteLocalSession(id) {
+    if (!this.data.localSessions.includes(id)) return;
+    this.data.localSessions = this.data.localSessions.filter((x) => x !== id);
+    this.#save(false);
+  }
+
+  setSessionOrder(dir, ids) {
+    if (!str(dir)) return;
+    const list = strings(ids).slice(0, 500);
+    if (list.length) this.data.sessionOrder[key(dir)] = list; else delete this.data.sessionOrder[key(dir)];
+    this.#save(false);
+  }
+
+  /** Listeyi kullanıcının sırasına göre dizer: sıralanmamış (yeni) oturumlar tarihe göre üstte, sıralananlar kendi sırasında */
+  applySessionOrder(dir, sessions) {
+    const order = this.data.sessionOrder[key(dir)];
+    if (!order?.length) return sessions;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...sessions.filter((s) => !rank.has(s.id)), ...sessions.filter((s) => rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id))];
+  }
+
+  // ---------- Yerel LLM oturumları ve elle sıralama ----------
+  recordLocalSession(id) {
+    if (!str(id) || this.data.localSessions.includes(id)) return;
+    this.data.localSessions.push(id);
+    this.#save(false);
+  }
+
+  isLocalSession(id) { return this.data.localSessions.includes(id); }
+
+  deleteLocalSession(id) {
+    if (!this.data.localSessions.includes(id)) return;
+    this.data.localSessions = this.data.localSessions.filter((x) => x !== id);
+    this.#save(false);
+  }
+
+  setSessionOrder(dir, ids) {
+    if (!str(dir)) return;
+    const list = strings(ids).slice(0, 500);
+    if (list.length) this.data.sessionOrder[key(dir)] = list; else delete this.data.sessionOrder[key(dir)];
+    this.#save(false);
+  }
+
+  /** Listeyi kullanıcının sırasına göre dizer: sıralanmamış (yeni) oturumlar tarihe göre üstte, sıralananlar kendi sırasında */
+  applySessionOrder(dir, sessions) {
+    const order = this.data.sessionOrder[key(dir)];
+    if (!order?.length) return sessions;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...sessions.filter((s) => !rank.has(s.id)), ...sessions.filter((s) => rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id))];
   }
 
   onChange(fn) {

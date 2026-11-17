@@ -2,6 +2,7 @@
 // açık tutar, böylece aynı oturuma art arda mesaj gönderebilir, çalışmayı
 // durdurabilir, izin modunu ve modeli anında değiştirebiliriz.
 import { EDIT_TOOLS, denyMessage, validWork } from './workmode.js';
+import { localEnv } from './settings.js';
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { msg } from './messages.js';
@@ -70,13 +71,14 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr', work = 'agent' }) {
+  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr', work = 'agent', local = null }) {
     this.cwd = cwd;
+    this.local = local; // yerel LLM ayarı: doluysa istekler o sunucuya ve modele gider (bkz. settings.js)
     this.lang = lang;
     this.general = general;
     this.role = role;
     this.resume = resume;
-    this.model = model || undefined;
+    this.model = (local ? local.model : model) || undefined;
     this.effort = EFFORTS.includes(effort) ? effort : undefined; // düşünme seviyesi (boş: modelin varsayılanı)
     this.modelInfos = [];
     this.commands = [];
@@ -106,6 +108,12 @@ export class AgentSession {
       includePartialMessages: true,
       // CLAUDE.md, ~/.claude/settings.json (gateway adresi, token, izinler) yüklensin
       settingSources: ['user', 'project', 'local'],
+      // Yerel LLM: ortam değişkenleri hem sürece hem de (kullanıcı ayarlarındaki gateway adresinin önüne geçsin diye)
+      // komut satırı ayarı olarak verilir
+      ...(this.local ? { env: { ...process.env, ...localEnv(this.local) }, extraArgs: { settings: JSON.stringify({ env: localEnv(this.local) }) } } : {}),
+      // Yerel LLM: ortam değişkenleri hem sürece hem de (kullanıcı ayarlarındaki gateway adresinin önüne geçsin diye)
+      // komut satırı ayarı olarak verilir
+      ...(this.local ? { env: { ...process.env, ...localEnv(this.local) }, extraArgs: { settings: JSON.stringify({ env: localEnv(this.local) }) } } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.#promptAppend() ? { append: this.#promptAppend() } : {}) },
       canUseTool: (toolName, input, ctx) => this.#askPermission(toolName, input, ctx),
       stderr: (data) => {

@@ -50,6 +50,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Atölye'nin Ayarlar penceresi çıktıyı UTF-8 okur
+if ($env:ATOLYE_UTF8 -eq '1') { try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { } }
 $RepoUrl = 'https://github.com/mustafaergan/atolye.git'
 $AppName = 'Atölye'
 $MinNode = [version]'18.18.0'

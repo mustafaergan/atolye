@@ -75,3 +75,23 @@ test('oturum başlığı: yalnızca kullanıcının yazdığı ilk paragraf, kı
   assert.equal(cleanAiTitle(''), '');
   assert.ok(cleanAiTitle('a'.repeat(200)).length <= 61);
 });
+
+test('günlük denetim: her sabah 9, saat geçtiyse ertesi gün; kaçırılan denetim açılınca yapılır', async () => {
+  const { nextDailyAt, startDailyCheck } = await import('../src/update.js');
+  const at = (h, m = 0, day = 17) => new Date(2026, 10, day, h, m, 0, 0).getTime();
+  assert.equal(nextDailyAt(at(8, 30)), at(9));
+  assert.equal(nextDailyAt(at(9)), at(9, 0, 18), 'tam 9 ise ertesi gün');
+  assert.equal(nextDailyAt(at(23, 59)), at(9, 0, 18));
+  delete process.env.ATOLYE_UPDATE_CHECK;
+  let clock = at(8, 0);
+  let calls = 0;
+  const stop = startDailyCheck({ check: async () => { calls++; }, now: () => clock, tickMs: 10, firstMs: 1 });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(calls, 1, 'açılışta bir kez');
+  clock = at(11, 0); // bilgisayar 9'da uykudaydı, 11'de uyandı
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(calls, 2, 'kaçırılan 9 denetimi yapılır');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(calls, 2, 'aynı gün yeniden denetlenmez');
+  stop();
+});

@@ -47,6 +47,7 @@ const ICONS = {
   pencil: '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  down: '<path d="M12 5v14M5 12l7 7 7-7"/>',
   chat: '<path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L3.5 21l1.4-4.6A8.5 8.5 0 1 1 21 12z"/>',
 };
 
@@ -374,7 +375,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, work: state.work, lang: getLang(), engine });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, work: state.work, lang: getLang(), engine, local: engine === 'yerel' ? state.localId : null });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
@@ -382,8 +383,11 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
 // yeni bir oturum açar (açık oturum kendi motoruyla listede çalışmaya devam eder).
 state.engine = 'copilot';       // yeni oturumlar için seçilen. Sayfa her açıldığında Copilot'tur; seçim saklanmaz
 state.sessionEngine = null;     // açık oturumun motoru
+state.localId = null;           // yeni oturumlar için seçili yerel model
+state.sessionLocal = null;      // açık oturumun yerel modeli
 state.engines = { claude: { available: true }, copilot: { available: false } };
 
+const engineLabel = (e) => (e === 'copilot' ? 'Copilot' : e === 'yerel' ? T('Yerel') : 'Claude');
 async function loadEngines(refresh = false) {
   state.engines = await fetch(`/api/engines${refresh ? '?refresh=1' : ''}`).then((r) => r.json()).catch(() => state.engines);
   const opt = dom.engineSelect.querySelector('option[value="copilot"]');
@@ -393,18 +397,26 @@ async function loadEngines(refresh = false) {
   opt.textContent = cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil: kur…)');
   opt.title = cp.available ? `Copilot CLI ${cp.version || ''}` : cp.error || '';
   if (!cp.available && state.engine === 'copilot') state.engine = 'claude';
+  // Yerel modeller Ayarlar'da tanımlıysa her biri ayrı bir seçenek olarak çıkar
+  const locals = state.engines.yerel?.models || [];
+  dom.engineSelect.querySelectorAll('option[value^="yerel:"]').forEach((o) => o.remove());
+  for (const m of locals) dom.engineSelect.append(el('option', { value: `yerel:${m.id}`, text: T('Yerel: {name}', { name: m.name }), title: m.model }));
+  if (!locals.some((m) => m.id === state.localId)) state.localId = locals[0]?.id || null;
+  if (!locals.length && state.engine === 'yerel') state.engine = 'claude';
   applyEngineUi();
 }
 
 function applyEngineUi() {
   const engine = state.sessionEngine || state.engine;
-  dom.engineSelect.value = engine;
+  dom.engineSelect.value = engine === 'yerel' ? `yerel:${state.sessionLocal || state.localId}` : engine;
+  if (engine === 'yerel' && dom.engineSelect.selectedIndex < 0) dom.engineSelect.value = `yerel:${state.localId}`;
   dom.engineSelect.parentElement.classList.toggle('copilot', engine === 'copilot');
   const copilot = engine === 'copilot';
   // Model listesi seçili motorun kendi listesidir; Copilot model bildirmiyorsa seçici gizlenir (/model komutu kullanılır)
-  dom.modelSelect.parentElement.hidden = copilot && dom.modelSelect.options.length < 2;
+  // Yerel LLM'de model Ayarlar'da seçilir
+  dom.modelSelect.parentElement.hidden = (copilot && dom.modelSelect.options.length < 2) || engine === 'yerel';
   // Harcama göstergesi Claude gateway'inin bütçesidir; Copilot oturumunda gösterilmez (Copilot'un kotası değildir)
-  $('#spendWrap').classList.toggle('other-engine', copilot);
+  $('#spendWrap').classList.toggle('other-engine', copilot || engine === 'yerel');
   if (copilot && !state.copilotQuota) loadCopilotQuota(); else renderCopilotCredit();
   updateFetchButton();
   // Copilot'ta plan modu /plan komutuyla kullanılır
@@ -417,10 +429,14 @@ function applyEngineUi() {
 // Copilot "kurulu değil" görünüyorsa seçici açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
 dom.engineSelect.addEventListener('pointerdown', () => { if (!state.engines.copilot?.available) loadEngines(true); });
 dom.engineSelect.addEventListener('change', () => {
-  const engine = dom.engineSelect.value;
+  const raw = dom.engineSelect.value;
+  const engine = raw.startsWith('yerel:') ? 'yerel' : raw;
+  const localId = engine === 'yerel' ? raw.slice(6) : null;
   if (engine === 'copilot' && !state.engines.copilot?.available) { applyEngineUi(); return offerCopilotInstall(true); }
   state.engine = engine; // yalnızca bu sayfa açıkken geçerli; bir sonraki açılışta yine Copilot gelir
-  if (engine !== state.sessionEngine) newSession(state.cwd);
+  const changed = engine !== state.sessionEngine || (engine === 'yerel' && localId !== state.sessionLocal);
+  if (localId) state.localId = localId;
+  if (changed) newSession(state.cwd);
 });
 
 function rememberOpen() {
@@ -433,6 +449,7 @@ function applyOpened(ev) {
   clearTimeout(openWatch);
   state.liveId = ev.liveId;
   state.sessionEngine = ev.engine || 'claude';
+  state.sessionLocal = ev.local || null;
   state.sessionId = ev.sessionId;
   if (ev.cwd && !samePath(ev.cwd, state.cwd)) setCwdLabel(ev.cwd);
   rememberOpen();
@@ -1592,10 +1609,12 @@ function sessionRow(s) {
     el('span', { class: 's-title', text: s.title }),
     // Liste zaten seçili motorun oturumlarını gösterir; etiket yalnızca diğer motorda hâlâ çalışan oturumda çıkar
     !s.draft && (s.engine || s.run?.engine || 'claude') !== currentEngine()
-      ? el('span', { class: 's-engine', text: (s.engine || s.run?.engine) === 'copilot' ? 'Copilot' : 'Claude', title: (s.engine || s.run?.engine) === 'copilot' ? 'GitHub Copilot' : 'Claude Code' })
+      ? el('span', { class: 's-engine', text: engineLabel(s.engine || s.run?.engine) })
       : null,
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
     s.id && !s.run?.busy ? el('span', { class: 's-actions' },
+      el('span', { title: T('Yukarı taşı'), onclick: (e) => { e.stopPropagation(); moveSession(s, -1); } }, icon(ICONS.up)),
+      el('span', { title: T('Aşağı taşı'), onclick: (e) => { e.stopPropagation(); moveSession(s, 1); } }, icon(ICONS.down)),
       el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
       el('span', { title: T('Sil'), onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
   item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd, engine: s.engine || s.run?.engine }));
@@ -1698,6 +1717,7 @@ function newSession(dir = state.cwd) {
   dom.sessionTitle.textContent = T('Yeni oturum');
   renderSessions();
   state.sessionEngine = state.engine;
+  state.sessionLocal = state.engine === 'yerel' ? state.localId : null;
   applyEngineUi();
   resetSessionParams();
   openLive({ isNew: true, cwd: dir, engine: state.engine });
@@ -1909,12 +1929,13 @@ function renderCommandList() {
   const ready = builtinCommands([EMPTY[r.emptyProject] || EMPTY.project, EMPTY[r.emptyGeneral] || EMPTY.general]);
   commandsView(T('Komutlar'),
     el('p', { class: 'links-intro', text: T('Boş oturum ekranındaki düğmeler buradan yönetilir: içeriklerini, bağlantılarını ve renklerini değiştirebilir, hazır komutları gizleyebilir, öğrettiklerinizi silebilirsiniz.') }),
+    // Ekleme düğmesi listenin üstünde: liste uzasa da hep görünür
+    el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn learn', text: T('+ Komut öğret'), onclick: () => openCommands('teach') })),
     el('div', { class: 'command-list' },
       el('div', { class: 'command-head', text: T('Öğrettiğim komutlar') }),
       learned.list.length ? learned.list.map(commandRow) : el('div', { class: 'links-result', text: T('Henüz komut öğretmediniz.') }),
       el('div', { class: 'command-head', text: T('Hazır komutlar ({role})', { role: r.name() }) }),
-      ready.map(commandRow)),
-    el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn learn', text: T('+ Komut öğret'), onclick: () => openCommands('teach') })));
+      ready.map(commandRow)));
 }
 function renderTeach(text = '') {
   const desc = el('textarea', { rows: '7', placeholder: T('Örnek: Jira numarasını vereceğim. Önce Jira kaydını ve alt görevlerini oku. Sonra Bitbucket\'ta bu numarayla açılmış çekme isteklerini bul. En sonda neyin bittiğini, neyin eksik kaldığını kısaca yaz.') });
@@ -1993,6 +2014,257 @@ function renderCommandEdit(c) {
 $('#commandsBtn').onclick = async () => { await loadCommands(); openCommands('list'); };
 $('#commandsClose').onclick = () => commandsDlg.close();
 loadCommands();
+
+// ---------- Ayarlar ----------
+// Sol üstteki dişli: uygulama seçenekleri (masaüstü uygulaması, kısayol, otomatik başlatma), Claude ve Copilot
+// ayarları, yerel LLM, skill klasörleri ve eski oturumların temizliği (bkz. src/settings.js).
+const settingsDlg = $('#settingsDialog');
+const settingsUi = { tab: 'app', data: null, busy: false, note: null };
+const SETTINGS_TABS = [['app', () => T('Uygulama')], ['claude', () => 'Claude Code'], ['copilot', () => 'GitHub Copilot'], ['local', () => T('Yerel LLM')], ['skills', () => T('Skill\'ler')], ['sessions', () => T('Oturumlar')]];
+const sField = (label, input, hint) => el('label', { class: 'links-field' }, el('span', { text: label }), input, hint && el('small', { text: hint }));
+const sInput = (value, attrs = {}) => { const i = el('input', { type: 'text', spellcheck: 'false', autocomplete: 'off', ...attrs }); i.value = value || ''; return i; };
+const sNote = (text, kind = '') => el('div', { class: `links-result ${kind}`, text });
+const sCall = (path, body, method = 'POST') => fetch(`${path}${path.includes('?') ? '&' : '?'}lang=${getLang()}`, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+  .then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+async function loadSettings() {
+  settingsUi.data = await fetch('/api/settings').then((r) => r.json()).catch(() => null);
+}
+function renderSettings() {
+  $('#settingsTabs').replaceChildren(...SETTINGS_TABS.map(([id, name]) => el('button', { type: 'button', class: 'links-tab', role: 'tab', 'aria-selected': String(id === settingsUi.tab), text: name(), onclick: () => { settingsUi.tab = id; settingsUi.note = null; renderSettings(); } })));
+  const body = $('#settingsBody');
+  if (!settingsUi.data) { body.replaceChildren(sNote(T('Ayarlar okunamadı. Atölye çalışıyor mu?'), 'err')); return; }
+  const parts = { app: settingsApp, claude: settingsClaude, copilot: settingsCopilot, local: settingsLocal, skills: settingsSkills, sessions: settingsSessions }[settingsUi.tab]();
+  body.replaceChildren(...[...parts.flat(), settingsUi.note && sNote(settingsUi.note.text, settingsUi.note.kind)].filter(Boolean));
+}
+const setNote = (text, kind = '') => { settingsUi.note = text ? { text, kind } : null; renderSettings(); };
+
+function settingsApp() {
+  const d = settingsUi.data;
+  const a = d.app || {};
+  const toggle = (key, label, hint, disabled) => {
+    const box = el('input', { type: 'checkbox' });
+    box.checked = Boolean(a[key]);
+    box.disabled = settingsUi.busy || disabled;
+    box.onchange = async () => {
+      settingsUi.busy = true;
+      setNote(T('Uygulanıyor…'));
+      const r = await sCall('/api/settings/app', { key, on: box.checked });
+      settingsUi.busy = false;
+      if (r.status) d.app = r.status;
+      setNote(r.ok ? T('Tamam.') : (r.error || r.output || T('Uygulanamadı')), r.ok ? 'ok' : 'err');
+    };
+    return el('label', { class: 'settings-toggle' }, box, el('span', {}, el('strong', { text: label }), hint && el('small', { text: hint })));
+  };
+  return [
+    a.supported ? [
+      toggle('desktopApp', T('Masaüstü uygulaması olarak aç'), a.desktopApp
+        ? T('Atölye kendi penceresinde açılıyor. Görev çubuğuna sabitlemek için pencere açıkken görev çubuğundaki simgesine sağ tıklayıp "Görev çubuğuna sabitle"yi seçin. Kapatırsanız açık Atölye penceresi kapanır ve Atölye tarayıcıda açılır.')
+        : a.desktopAppAvailable ? T('Atölye kendi penceresinde açılır ve görev çubuğuna sabitlenebilir. Windows\'un kendi bileşenini kullanır; ek yük getirmez.')
+          : T('Bu kurulumda masaüstü uygulaması hazırlanamıyor (gerekli dosyalar ya da .NET derleyicisi yok).'), !a.desktopApp && !a.desktopAppAvailable),
+      toggle('desktopShortcut', T('Masaüstü kısayolu'), T('Masaüstünde Atölye simgesi durur.')),
+      toggle('autostart', T('Windows açılışında arka planda başlat'), T('Bilgisayar açıldığında Atölye hazır olur; kapalıysa ilk açılış birkaç saniye sürer.')),
+    ] : sNote(T('Masaüstü uygulaması, kısayol ve otomatik başlatma seçenekleri yalnızca Windows kurulumunda kullanılabilir.')),
+    el('div', { class: 'links-actions' },
+      el('span', { class: 'settings-version', text: T('Atölye sürümü: {v}', { v: d.version || '?' }) }),
+      el('button', { type: 'button', class: 'btn ghost', text: T('Güncellemeleri denetle'), onclick: () => { settingsDlg.close(); $('#checkUpdateBtn').click(); } })),
+  ];
+}
+
+function settingsClaude() {
+  const c = settingsUi.data.claude || {};
+  const url = sInput(c.baseUrl, { placeholder: 'https://gateway.example.com' });
+  const token = sInput('', { type: 'password', placeholder: c.hasToken ? T('Kayıtlı (değiştirmek için yenisini yazın)') : '' });
+  return [
+    el('p', { class: 'links-intro', text: T('Claude Code\'un bağlanacağı gateway adresi ve token. Boş bırakırsanız Claude Code\'un kendi ayarları (~/.claude/settings.json) ya da claude.ai girişi kullanılır. Değişiklik yeni açılan oturumlarda geçerli olur.') }),
+    sNote(c.baseUrl ? T('Şu an: {url}, token {state}', { url: c.baseUrl, state: c.hasToken ? T('var') : T('yok') }) : T('Şu an Atölye\'de gateway adresi yok; Claude Code\'un kendi ayarları kullanılıyor.')),
+    sField(T('Gateway adresi'), url),
+    sField('Token', token, T('Token bu bilgisayarda, kurulum klasöründeki .env dosyasında düz metin olarak saklanır.')),
+    el('div', { class: 'links-actions' },
+      el('button', { type: 'button', class: 'btn primary', text: T('Kaydet'), onclick: async () => {
+        const r = await sCall('/api/settings/claude', { baseUrl: url.value, token: token.value });
+        if (r.status) settingsUi.data.claude = r.status;
+        setNote(r.ok ? T('Kaydedildi. Yeni açılan oturumlarda geçerli olur.') : r.error, r.ok ? 'ok' : 'err');
+      } }),
+      c.saved && el('button', { type: 'button', class: 'btn ghost', text: T('Kaldır'), onclick: async () => {
+        const r = await sCall('/api/settings/claude', null, 'DELETE');
+        if (r.status) settingsUi.data.claude = r.status;
+        setNote(r.ok ? T('Kaldırıldı; Claude Code\'un kendi ayarları kullanılacak.') : r.error, r.ok ? 'ok' : 'err');
+      } })),
+  ];
+}
+
+function settingsCopilot() {
+  const cp = state.engines.copilot || {};
+  const model = sInput(settingsUi.data.copilot?.defaultModel, { placeholder: 'gpt-5' });
+  return [
+    sNote(cp.available ? T('Copilot CLI kurulu (sürüm {v}).', { v: cp.version || '?' }) : T('Copilot CLI bu bilgisayarda kurulu değil.'), cp.available ? 'ok' : ''),
+    el('div', { class: 'links-actions' },
+      !cp.available && el('button', { type: 'button', class: 'btn primary', text: T('Copilot CLI\'yi kur'), onclick: () => { settingsDlg.close(); offerCopilotInstall(true); } }),
+      cp.available && el('button', { type: 'button', class: 'btn', text: T('GitHub\'a giriş yap / hesabı değiştir'), onclick: () => { settingsDlg.close(); offerCopilotLogin(); } })),
+    sField(T('Yeni oturumların varsayılan modeli'), model, T('Boş bırakırsanız en yeni GPT modeli seçilir. "copilot" yazarsanız Copilot\'un kendi varsayılanı kullanılır.')),
+    el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('Kaydet'), onclick: async () => {
+      const r = await sCall('/api/settings/copilot', { model: model.value });
+      if (r.status) settingsUi.data.copilot = r.status;
+      setNote(r.ok ? T('Kaydedildi. Yeni açılan oturumlarda geçerli olur.') : r.error, r.ok ? 'ok' : 'err');
+    } })),
+  ];
+}
+
+function settingsLocal() {
+  const models = settingsUi.data.local?.models || [];
+  // Form yalnızca "+" düğmesine basılınca ya da bir model düzenlenirken açılır
+  const draft = settingsUi.localDraft || { id: '', name: '', url: '', model: '' };
+  const formOpen = Boolean(settingsUi.localDraft);
+  const name = sInput(draft.name, { placeholder: T('Listede görünecek ad (boşsa model adı)'), maxlength: '40' });
+  const url = sInput(draft.url, { placeholder: 'http://localhost:11434' });
+  const model = sInput(draft.model, { list: 'localModels', placeholder: 'qwen3-coder' });
+  const editing = models.find((m) => m.id === draft.id);
+  const key = sInput('', { type: 'password', placeholder: editing?.hasKey ? T('Kayıtlı (değiştirmek için yenisini yazın)') : T('Çoğu yerel sunucuda gerekmez') });
+  const list = el('datalist', { id: 'localModels' }, (settingsUi.localModels || []).map((m) => el('option', { value: m })));
+  const keep = () => Object.assign(draft, { name: name.value, url: url.value, model: model.value });
+  const applied = async (r) => { if (r.status) { settingsUi.data.local = r.status; await loadEngines(true); } };
+  return [
+    el('p', { class: 'links-intro', text: T('Bu bilgisayarda ya da yerel ağınızda çalışan modelleri (Ollama, LM Studio, llama.cpp vb.) Atölye\'de kullanın. Birden fazla model ekleyebilirsiniz; her biri üstteki motor seçicisinde ayrı bir seçenek olur. Sunucunun Anthropic uyumlu uç noktası olmalıdır (Ollama 0.14+, LM Studio 0.4.1+). Verileriniz yalnızca yazdığınız adrese gider.') }),
+    models.length ? el('div', { class: 'command-list' }, models.map((m) => el('div', { class: 'command-row' },
+      el('div', { class: 'c-main' }, el('div', { class: 'c-name plain', text: m.name }), el('div', { class: 'c-prompt', text: `${m.model} · ${m.url}` })),
+      el('div', { class: 'c-actions' },
+        el('button', { type: 'button', class: 'btn ghost', text: T('Düzenle'), onclick: () => { settingsUi.localDraft = { id: m.id, name: m.name, url: m.url, model: m.model }; setNote(''); } }),
+        el('button', { type: 'button', class: 'btn ghost', text: T('Kaldır'), onclick: async () => {
+          const r = await sCall(`/api/settings/local/${encodeURIComponent(m.id)}`, null, 'DELETE');
+          await applied(r);
+          if (draft.id === m.id) settingsUi.localDraft = null;
+          setNote(r.ok ? T('Yerel model kaldırıldı.') : r.error, r.ok ? 'ok' : 'err');
+        } })))))
+      : sNote(T('Henüz yerel model eklemediniz.')),
+    !formOpen && el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('+ Yerel model ekle'), onclick: () => { settingsUi.localDraft = { id: '', name: '', url: '', model: '' }; setNote(''); } })),
+    ...(!formOpen ? [] : [
+    el('div', { class: 'command-head', text: editing ? T('{name} düzenleniyor', { name: editing.name }) : T('Yeni yerel model') }),
+    sField(T('Sunucu adresi'), url, T('Ollama: http://localhost:11434 · LM Studio: http://localhost:1234')),
+    sField(T('Model'), model, T('"Bağlantıyı dene" sunucudaki modelleri listeye getirir.')), list,
+    sField(T('Ad'), name),
+    sField(T('API anahtarı (isteğe bağlı)'), key),
+    el('div', { class: 'links-actions' },
+      el('button', { type: 'button', class: 'btn', text: T('Bağlantıyı dene'), onclick: async () => {
+        keep(); setNote(T('Deneniyor… Model ilk kez yükleniyorsa bir dakika kadar sürebilir.'));
+        const r = await sCall('/api/settings/local/test', { id: draft.id, url: url.value, model: model.value, key: key.value });
+        if (r.models) settingsUi.localModels = r.models;
+        setNote(r.ok ? (r.answered ? T('Model yanıt verdi. Kaydedebilirsiniz.') : T('Sunucuya ulaşıldı; {n} model bulundu. Bir model seçip yeniden deneyin.', { n: (r.models || []).length })) : r.error, r.ok ? 'ok' : 'err');
+      } }),
+      el('button', { type: 'button', class: 'btn primary', text: editing ? T('Kaydet') : T('Ekle'), onclick: async () => {
+        keep();
+        const r = await sCall('/api/settings/local', { id: draft.id || undefined, name: name.value, url: url.value, model: model.value, key: key.value });
+        await applied(r);
+        if (r.ok) settingsUi.localDraft = null;
+        setNote(r.ok ? T('Kaydedildi. Üstteki motor seçicisinden seçebilirsiniz.') : r.error, r.ok ? 'ok' : 'err');
+      } }),
+      el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => { settingsUi.localDraft = null; setNote(''); } })),
+    ]),
+  ];
+}
+
+function settingsSkills() {
+  const skills = settingsUi.data.skills || [];
+  const dir = sInput('', { placeholder: 'C:\\dev\\skillerim\\rapor-yaz' });
+  return [
+    el('p', { class: 'links-intro', text: T('Skill, yapay zekâya belirli bir işi nasıl yapacağını anlatan bir klasördür (içinde SKILL.md bulunur). Klasörün yolunu yazıp ekleyin; birden fazla skill içeren bir üst klasör de verebilirsiniz. Eklenen skill yeni açılan oturumlarda "/" komut listesinde çıkar.') }),
+    skills.length ? el('div', { class: 'command-list' }, skills.map((s) => el('div', { class: 'command-row' },
+      el('div', { class: 'c-main' },
+        el('div', { class: 'c-name plain', text: `/${s.name}` }, !s.exists && el('span', { class: 'c-badge', text: T('dosyası yok') })),
+        el('div', { class: 'c-prompt', text: s.description || s.source || '' })),
+      el('div', { class: 'c-actions' }, el('button', { type: 'button', class: 'btn ghost', text: T('Kaldır'), onclick: async () => {
+        const r = await sCall(`/api/settings/skills/${encodeURIComponent(s.name)}`, null, 'DELETE');
+        if (r.skills) settingsUi.data.skills = r.skills;
+        setNote(r.ok ? T('Skill kaldırıldı.') : r.error, r.ok ? 'ok' : 'err');
+      } })))))
+      : sNote(T('Henüz skill eklemediniz.')),
+    sField(T('Skill klasörü'), dir),
+    el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('Ekle'), onclick: async () => {
+      const r = await sCall('/api/settings/skills', { dir: dir.value });
+      if (r.skills) settingsUi.data.skills = r.skills;
+      setNote(r.ok ? T('Eklendi: {names}. Yeni açılan oturumlarda kullanılabilir.', { names: (r.added || []).map((n) => `/${n}`).join(', ') }) : r.error, r.ok ? 'ok' : 'err');
+    } })),
+  ];
+}
+
+function settingsSessions() {
+  const u = settingsUi.cleanup || (settingsUi.cleanup = { mode: 'days', days: '90', before: '', preview: null });
+  const days = sInput(u.days, { type: 'number', min: '1', max: '3650', class: 'settings-num' });
+  const before = sInput(u.before, { type: 'date' });
+  const radio = (mode) => { const r = el('input', { type: 'radio', name: 'cleanupMode' }); r.checked = u.mode === mode; r.onchange = () => { keep(); u.mode = mode; u.preview = null; renderSettings(); }; return r; };
+  const keep = () => { u.days = days.value; u.before = before.value; };
+  const body = () => (u.mode === 'days' ? { days: Number(days.value) } : { before: before.value });
+  const del = el('button', { type: 'button', class: 'btn danger', text: T('{n} oturumu sil', { n: u.preview?.count || 0 }) });
+  del.onclick = async () => {
+    if (!del.dataset.sure) { del.dataset.sure = '1'; del.textContent = T('Emin misiniz? Geri alınamaz'); return; }
+    const r = await sCall('/api/sessions/cleanup', { ...body(), apply: true });
+    u.preview = null;
+    if (r.ok) loadAllSessions();
+    setNote(r.ok ? T('{n} oturum silindi.', { n: r.deleted }) : r.error, r.ok ? 'ok' : 'err');
+  };
+  return [
+    el('p', { class: 'links-intro', text: T('Uzun süredir kullanılmayan oturumları toplu olarak silin. Atölye\'deki bütün proje klasörlerine bakılır; açık oturumlara dokunulmaz. Claude oturumları Claude Code ile ortaktır: burada silinen oturum Claude Code\'da da silinir ve geri getirilemez.') }),
+    el('label', { class: 'settings-toggle' }, radio('days'), el('span', { class: 'settings-inline' }, days, T('gündür kullanılmayan oturumlar'))),
+    el('label', { class: 'settings-toggle' }, radio('before'), el('span', { class: 'settings-inline' }, before, T('tarihinden önce son kez kullanılan oturumlar'))),
+    el('div', { class: 'links-actions' },
+      el('button', { type: 'button', class: 'btn', text: T('Kaç oturum silinecek?'), onclick: async () => {
+        keep();
+        const r = await sCall('/api/sessions/cleanup', body());
+        u.preview = r.ok ? r : null;
+        setNote(r.ok ? (r.count ? T('{n} oturum silinecek. Örnekler: {list}', { n: r.count, list: r.sample.map((s) => `${s.title} (${folderOf(s.cwd)}, ${timeAgo(s.lastModified)})`).join(' · ') }) : T('Bu ölçüte uyan oturum yok.')) : r.error, r.ok ? '' : 'err');
+      } }),
+      u.preview?.count ? del : null),
+  ];
+}
+
+$('#settingsBtn').onclick = async () => {
+  settingsUi.note = null;
+  await Promise.all([loadSettings(), loadEngines(true)]);
+  renderSettings();
+  settingsDlg.showModal();
+};
+$('#settingsClose').onclick = () => settingsDlg.close();
+settingsDlg.addEventListener('click', (e) => { if (e.target === settingsDlg) settingsDlg.close(); });
+
+// ---------- Bütün sohbetlerde arama ----------
+const searchUi = { timer: null, seq: 0 };
+function renderSearch(results, q) {
+  const box = $('#searchResults');
+  if (!results) { box.hidden = true; dom.sessionList.hidden = false; return; }
+  dom.sessionList.hidden = true;
+  box.hidden = false;
+  box.replaceChildren(
+    el('div', { class: 'search-head', text: results.length ? T('{n} sohbette bulundu', { n: results.length }) : T('"{q}" hiçbir sohbette geçmiyor', { q }) }),
+    ...results.map((r) => {
+      const item = el('button', { type: 'button', class: 'search-item', title: r.cwd },
+        el('span', { class: 's-title', text: r.title }),
+        el('span', { class: 'search-meta', text: `${folderOf(r.cwd)} · ${engineLabel(r.engine)} · ${timeAgo(r.lastModified)}${r.count > 1 ? ` · ${T('{n} yerde', { n: r.count })}` : ''}` }),
+        r.snippet && el('span', { class: 'search-snip' }, r.snippet.before, el('mark', { text: r.snippet.match }), r.snippet.after));
+      item.onclick = () => openSession({ sessionId: r.id, cwd: r.cwd, engine: r.engine });
+      return item;
+    }));
+}
+$('#searchInput').addEventListener('input', () => {
+  const q = $('#searchInput').value.trim();
+  clearTimeout(searchUi.timer);
+  if (q.length < 2) { searchUi.seq++; renderSearch(null); return; }
+  searchUi.timer = setTimeout(async () => {
+    const seq = ++searchUi.seq;
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&lang=${getLang()}`).then((x) => x.json()).catch(() => ({ results: [] }));
+    if (seq === searchUi.seq) renderSearch(r.results || [], q);
+  }, 350);
+});
+$('#searchInput').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#searchInput').value = ''; searchUi.seq++; renderSearch(null); } });
+
+// ---------- Sohbetleri elle sıralama ----------
+async function moveSession(s, delta) {
+  const ids = sessionsOf(s.cwd).map((x) => x.id);
+  const at = ids.indexOf(s.id);
+  const to = at + delta;
+  if (at < 0 || to < 0 || to >= ids.length) return;
+  [ids[at], ids[to]] = [ids[to], ids[at]];
+  await api('/api/state/order', { dir: s.cwd, ids });
+  loadSessions(s.cwd);
+}
 
 // ---------- Klasör seçici ----------
 const dlg = $('#folderDialog');
@@ -3290,6 +3562,9 @@ async function applyUpdate(u) {
 $('#updateBtn').onclick = (e) => { e.stopPropagation(); $('#updatePop').hidden = !$('#updatePop').hidden; };
 document.addEventListener('click', (e) => { if (!$('#updateWrap').contains(e.target)) $('#updatePop').hidden = true; });
 checkUpdate();
+// Sunucu her sabah 9'da (o saatte kapalıysa açılınca) depoya bakar; açık sayfa sonucu buradan öğrenir
+setInterval(() => checkUpdate(), 30 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 setInterval(checkUpdate, 60 * 60 * 1000); // sunucu depoya günde bir kez bakar; bu yalnızca sonucu okur
 
 // Geliştirme için: ?debug ile açıldığında olaylar konsoldan elle verilebilir

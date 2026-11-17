@@ -29,6 +29,8 @@ import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
 import * as commands from './commands.js';
+import * as settings from './settings.js';
+import { searchSessions } from './search.js';
 import { validWork } from './workmode.js';
 import { copilotQuota } from './copilot-quota.js';
 import { checkBrowser, installedMcp, installPlaywrightMcp, playwrightLibrary } from './browser-check.js';
@@ -190,6 +192,102 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err) }); }
   }));
 
+
+  // ---------- Ayarlar (bkz. settings.js) ----------
+  const settingsError = (lang, err) => ({
+    'bad-url': msg(lang, 'Geçerli bir adres girin (http://… ya da https://… ile başlamalı)'),
+    'no-token': msg(lang, 'Gateway adresi ya da token girin'),
+    'no-model': msg(lang, 'Model adını yazın ya da listeden seçin'),
+    'unreachable': msg(lang, 'Sunucuya ulaşılamadı: {detail}. Adresi ve sunucunun çalıştığını kontrol edin.', { detail: err.detail || '' }),
+    'no-messages-api': msg(lang, 'Sunucu çalışıyor ama Anthropic uyumlu uç noktası (/v1/messages) yok. Ollama 0.14 ve üstü ya da LM Studio 0.4.1 ve üstü gerekir.'),
+    'bad-model': msg(lang, 'Model yanıt vermedi: {detail}', { detail: err.detail || '' }),
+    'no-dir': msg(lang, 'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\skillerim).'),
+    'no-skill': msg(lang, 'Bu klasörde skill bulunamadı. Klasörün (ya da alt klasörlerinin) içinde SKILL.md dosyası olmalı.'),
+    'exists': msg(lang, '"{name}" adında bir skill zaten var ve Atölye eklememiş; üzerine yazılmadı.', { name: err.name || '' }),
+    'not-found': msg(lang, 'Bu skill Atölye ile eklenmemiş; kaldırılamaz'),
+    'not-supported': msg(lang, 'Bu seçenek yalnızca Windows kurulumunda kullanılabilir'),
+    'bad-date': msg(lang, 'Geçerli ve geçmiş bir tarih seçin'),
+    'bad-days': msg(lang, 'Gün sayısı 1 ile 3650 arasında olmalı'),
+    'local-not-found': msg(lang, 'Bu yerel model bulunamadı; silinmiş olabilir'),
+    'too-many-local': msg(lang, 'En fazla {n} yerel model eklenebilir', { n: settings.MAX_LOCAL }),
+  })[err.code] || err.message;
+  const guard = (fn) => wrap(async (req, res) => {
+    try { res.json(await fn(req, res)); } catch (err) { res.json({ ok: false, error: settingsError(req.query.lang, err) }); }
+  });
+  const pkgVersion = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8')).version;
+  app.get('/api/settings', wrap(async (_req, res) => res.json({
+    version: pkgVersion,
+    app: await settings.appStatus(),
+    claude: settings.claudeStatus(),
+    copilot: settings.copilotStatus(),
+    local: settings.localStatus(),
+    skills: settings.listSkills(),
+  })));
+  app.post('/api/settings/app', guard(async (req) => {
+    const r = await settings.appSet(String(req.body?.key || ''), Boolean(req.body?.on));
+    console.log(`[ayarlar] ${req.body?.key}: ${req.body?.on ? 'açık' : 'kapalı'} (${r.ok ? 'tamam' : 'başarısız'})`);
+    return r;
+  }));
+  app.post('/api/settings/claude', guard(async (req) => { const st = settings.saveClaude(req.body || {}); console.log('[ayarlar] Claude bağlantısı kaydedildi'); return { ok: true, status: st }; }));
+  app.delete('/api/settings/claude', guard(async () => { console.log('[ayarlar] Claude bağlantısı kaldırıldı'); return { ok: true, status: settings.removeClaude() }; }));
+  app.post('/api/settings/copilot', guard(async (req) => ({ ok: true, status: settings.saveCopilot(req.body || {}) })));
+  app.post('/api/settings/local', guard(async (req) => { const st = settings.saveLocal(req.body || {}); console.log(`[ayarlar] yerel LLM kaydedildi (${st.models.length} model)`); return { ok: true, status: st }; }));
+  app.delete('/api/settings/local/:id', guard(async (req) => { console.log('[ayarlar] yerel LLM kaldırıldı'); return { ok: true, status: settings.removeLocal(req.params.id) }; }));
+  app.post('/api/settings/local/test', guard(async (req) => {
+    // Düzenlenen modelde anahtar alanı boş bırakıldıysa kayıtlı anahtarla denenir
+    const saved = req.body?.id ? settings.localConfig(req.body.id) : null;
+    return settings.testLocal({ ...req.body, key: req.body?.key || (saved?.id === req.body?.id ? saved.key : '') || '' });
+  }));
+  app.post('/api/settings/skills', guard(async (req) => { const added = settings.addSkill(req.body?.dir); console.log(`[ayarlar] skill eklendi: ${added.join(', ')}`); return { ok: true, added, skills: settings.listSkills() }; }));
+  app.delete('/api/settings/skills/:name', guard(async (req) => { const skills = settings.removeSkill(req.params.name); console.log(`[ayarlar] skill kaldırıldı: ${req.params.name}`); return { ok: true, skills }; }));
+
+  // Atölye'nin bildiği bütün klasörlerdeki oturumlar (temizlik ve arama için), en yenisi üstte
+  async function allSessions(lang) {
+    const dirs = [];
+    for (const d of [...store.get().projects, GENERAL_DIR, defaultCwd]) if (d && !dirs.some((x) => samePath(x, d))) dirs.push(d);
+    const out = [];
+    for (const dir of dirs) {
+      const list = await listSessions({ dir, limit: 300 }).catch(() => []);
+      for (const s of list) out.push({ id: s.sessionId, engine: store.isLocalSession(s.sessionId) ? 'yerel' : 'claude', cwd: s.cwd || dir, lastModified: s.lastModified, title: s.customTitle || shortTitle(s.summary) || shortTitle(s.firstPrompt) || msg(lang, 'Adsız oturum') });
+    }
+    for (const s of store.get().copilotSessions) out.push({ id: s.id, engine: 'copilot', cwd: s.cwd, lastModified: s.lastModified, title: s.title || msg(lang, 'Adsız oturum') });
+    const seen = new Set();
+    return out.filter((s) => !seen.has(`${s.engine}:${s.id}`) && seen.add(`${s.engine}:${s.id}`)).sort((a, b) => b.lastModified - a.lastModified);
+  }
+
+  // Eski oturumların temizliği: önce kaç oturumun silineceği sorulur (apply yok), onaydan sonra silinir (apply: true)
+  app.post('/api/sessions/cleanup', guard(async (req) => {
+    const cutoff = settings.cleanupCutoff(req.body || {});
+    const openIds = new Set([...manager.entries.values()].map((e) => e.agent.sessionId).filter(Boolean));
+    const old = settings.selectOld(await allSessions(req.query.lang), cutoff, openIds);
+    if (!req.body?.apply) return { ok: true, count: old.length, cutoff, sample: old.slice(0, 6).map((s) => ({ title: s.title, cwd: s.cwd, lastModified: s.lastModified })) };
+    let deleted = 0;
+    for (const s of old) {
+      try {
+        if (s.engine === 'copilot') { store.deleteCopilotSession(s.id); transcript.remove(s.id); } else { await deleteSession(s.id, { dir: s.cwd }); store.deleteLocalSession(s.id); }
+        deleted++;
+      } catch { /* silinemeyen oturum atlanır */ }
+    }
+    console.log(`[oturum] temizlik: ${deleted} eski oturum silindi (sınır ${new Date(cutoff).toISOString().slice(0, 10)})`);
+    return { ok: true, deleted };
+  }));
+
+  // Bütün sohbetlerde arama (bkz. search.js)
+  app.get('/api/search', wrap(async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ ok: true, results: [] });
+    const started = Date.now();
+    const results = searchSessions({ q, sessions: await allSessions(req.query.lang), readCopilot: (id) => transcript.read(id) });
+    console.log(`[arama] ${results.length} sonuç, ${Date.now() - started} ms`);
+    res.json({ ok: true, results });
+  }));
+
+  // Oturumların elle sıralanması
+  app.post('/api/state/order', wrap(async (req, res) => {
+    if (typeof req.body?.dir === 'string') store.setSessionOrder(req.body.dir, req.body.ids);
+    res.json({ ok: true });
+  }));
+
   // Tarayıcı bağlantısı (Playwright MCP): ön koşul denetimi, onay sonrası kurulum, etkinleştirme
   app.get('/api/browser/check', wrap(async (req, res) => res.json(await checkBrowser(String(req.query.browser || 'chrome')))));
   app.get('/api/browser/installed', wrap(async (_req, res) => res.json({ version: (await installedMcp())?.version || null })));
@@ -321,7 +419,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   // Hangi yapay zekâ motorları kullanılabilir? (Claude Code her zaman; GitHub Copilot CLI kuruluysa)
   app.get('/api/engines', wrap(async (req, res) => {
-    res.json({ claude: { available: true }, copilot: await detectCopilot({ force: req.query.refresh === '1' }) });
+    const local = settings.localStatus();
+    res.json({ claude: { available: true }, copilot: await detectCopilot({ force: req.query.refresh === '1' }), yerel: { available: local.configured, models: local.models.map(({ id, name, model }) => ({ id, name, model })) } });
   }));
 
   app.get('/api/sessions', wrap(async (req, res) => {
@@ -329,8 +428,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const sessions = await listSessions({ dir, limit: 100 });
     const claude = sessions.map((s) => ({
       id: s.sessionId,
-      engine: 'claude',
-      title: s.customTitle || s.summary || shortTitle(s.firstPrompt) || msg(req.query.lang, 'Adsız oturum'),
+      engine: store.isLocalSession(s.sessionId) ? 'yerel' : 'claude',
+      title: s.customTitle || shortTitle(s.summary) || shortTitle(s.firstPrompt) || msg(req.query.lang, 'Adsız oturum'),
       lastModified: s.lastModified,
       gitBranch: s.gitBranch,
       cwd: s.cwd,
@@ -342,7 +441,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       lastModified: s.lastModified,
       cwd: s.cwd,
     }));
-    res.json([...claude, ...copilot].sort((a, b) => b.lastModified - a.lastModified));
+    res.json(store.applySessionOrder(dir, [...claude, ...copilot].sort((a, b) => b.lastModified - a.lastModified)));
   }));
 
   app.get('/api/sessions/:id/messages', wrap(async (req, res) => {
@@ -363,7 +462,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     manager.closeBySessionId(req.params.id);
     // Copilot oturumu: listeden kaldırılır (Copilot'un kendi kayıtlarına dokunulmaz)
     if (req.query.engine === 'copilot') { store.deleteCopilotSession(req.params.id); transcript.remove(req.params.id); }
-    else await deleteSession(req.params.id, { dir });
+    else { await deleteSession(req.params.id, { dir }); store.deleteLocalSession(req.params.id); }
     res.json({ ok: true });
   }));
 
@@ -446,13 +545,15 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       const cwd = path.resolve(String(m.cwd || defaultCwd));
       const stat = await fs.stat(cwd).catch(() => null);
       if (!stat?.isDirectory()) throw new Error(msg(lang, 'Klasör bulunamadı: {dir}', { dir: cwd }));
-      const engine = m.engine === 'copilot' ? 'copilot' : 'claude';
+      const engine = ['copilot', 'yerel'].includes(m.engine) ? m.engine : 'claude';
+      if (engine === 'yerel' && !settings.localConfig()) throw new Error(msg(lang, 'Yerel LLM ayarlı değil. Ayarlar > Yerel LLM bölümünden sunucu adresini ve modeli girin.'));
       if (engine === 'copilot') {
         const cp = await detectCopilot();
         if (!cp.available) throw new Error(msg(lang, 'GitHub Copilot CLI bulunamadı. Kurmak için: npm install -g @github/copilot ({error})', { error: cp.error }));
       }
       const next = await manager.open({
         engine,
+        localId: typeof m.local === 'string' ? m.local : undefined,
         liveId: m.new ? null : m.liveId,
         sessionId: m.new ? null : m.sessionId,
         cwd,
