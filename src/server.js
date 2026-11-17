@@ -2,6 +2,7 @@
 // isteklerde Host/Origin kontrolü yapılır (DNS rebinding ve başka sitelerin
 // yerel sunucuya WebSocket açmasına karşı).
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -27,6 +28,7 @@ import { saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
+import * as commands from './commands.js';
 import { validWork } from './workmode.js';
 import { copilotQuota } from './copilot-quota.js';
 import { checkBrowser, installedMcp, installPlaywrightMcp, playwrightLibrary } from './browser-check.js';
@@ -155,6 +157,33 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     }
   }));
   app.delete('/api/testauto', wrap(async (_req, res) => { console.log('[test otomasyonu] bağlantı kaldırıldı'); res.json({ ok: true, status: testauto.remove() }); }));
+
+  // Öğretilen komutlar (bkz. commands.js): kullanıcının tarif ettiği, yapay zekânın derlediği hazır komutlar
+  const commandsFile = process.env.ATOLYE_COMMANDS_FILE || undefined;
+  const commandList = () => ({ ok: true, commands: commands.list(commandsFile), linkIds: commands.LINK_IDS, maxLinks: commands.MAX_LINKS });
+  const commandError = (lang, err) => (err.code === 'no-name' ? msg(lang, 'Komuta bir ad verin')
+    : err.code === 'no-prompt' ? msg(lang, 'Komutun ne yapacağını yazın')
+      : err.code === 'no-description' ? msg(lang, 'Ne yapılmasını istediğinizi anlatın')
+        : err.code === 'not-found' ? msg(lang, 'Bu komut bulunamadı; silinmiş olabilir')
+          : err.code === 'too-many' ? msg(lang, 'En fazla {n} komut kaydedilebilir; önce birini silin', { n: commands.MAX_COMMANDS }) : err.message);
+  app.get('/api/commands', wrap(async (_req, res) => res.json(commandList())));
+  app.post('/api/commands', wrap(async (req, res) => {
+    try {
+      commands.save(req.body || {}, commandsFile);
+      console.log(`[komut] kaydedildi: ${String(req.body?.name || '').slice(0, 40)}`);
+      res.json(commandList());
+    } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err) }); }
+  }));
+  app.delete('/api/commands/:id', wrap(async (req, res) => { commands.remove(req.params.id, commandsFile); console.log('[komut] silindi'); res.json(commandList()); }));
+  app.post('/api/commands/compile', wrap(async (req, res) => {
+    const { description, engine, cwd, model } = req.body || {};
+    try {
+      const dir = typeof cwd === 'string' && cwd && existsSync(cwd) ? cwd : GENERAL_DIR;
+      const c = await commands.compile({ engine: engine === 'copilot' ? 'copilot' : 'claude', cwd: dir, model: typeof model === 'string' && model ? model : undefined, description, lang: req.query.lang });
+      console.log(`[komut] derlendi (${c.ai ? 'yapay zekâ' : 'yedek: tarif olduğu gibi'}): ${c.name}`);
+      res.json({ ok: true, command: c });
+    } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err) }); }
+  }));
 
   // Tarayıcı bağlantısı (Playwright MCP): ön koşul denetimi, onay sonrası kurulum, etkinleştirme
   app.get('/api/browser/check', wrap(async (req, res) => res.json(await checkBrowser(String(req.query.browser || 'chrome')))));

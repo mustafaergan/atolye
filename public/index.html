@@ -17,6 +17,10 @@
           <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M9 22l7-13 7 13M12 17h8"/></svg>
         </span>
         <span class="brand-name">Atölye</span>
+        <button class="icon-btn commands-btn" id="commandsBtn" title="Komutlarım: öğrettiğiniz komutları düzenleyin, bağlantılarını değiştirin ya da silin" aria-label="Komutlarım" data-i18n-attr="title,aria-label">
+          <svg viewBox="0 0 24 24"><path d="M5 4h14v17l-7-4-7 4z"/></svg>
+          <span class="commands-count" id="commandsCount" hidden></span>
+        </button>
         <button class="icon-btn" id="themeBtn" title="Tema değiştir" aria-label="Tema değiştir" data-i18n-attr="title,aria-label">
           <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
         </button>
@@ -218,6 +222,16 @@
       <div class="links-tabs" id="linksTabs" role="tablist"></div>
       <div class="links-body" id="linksBody"></div>
       <p class="links-note" id="linksNote"></p>
+    </div>
+  </dialog>
+
+  <dialog id="commandsDialog" class="dialog links-dialog commands-dialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="commandsTitle"></h2>
+        <button class="icon-btn" id="commandsClose" type="button" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="links-body" id="commandsBody"></div>
     </div>
   </dialog>
 
