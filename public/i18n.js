@@ -346,6 +346,7 @@ export const EN = {
   'Kullanım modu': 'Usage mode',
   'Kullanım modu: görünen bağlantılar, öneriler ve yapay zekânın anlatım biçimi buna göre değişir': 'Usage mode: the visible connections, the suggestions and the way the AI explains things change accordingly',
   'Analist': 'Analyst',
+  'En fazla {n} bağlantı seçilebilir.': 'Up to {n} connections can be selected.',
   'Bu, CANLI (prod) ortamın Graylog bağlantısıdır; test ortamı için "Graylog Test" sekmesini kullanın. Yapay zekâ canlı kayıtlara yalnızca okumak için ve siz canlı ortamı sorduğunuzda bakar.': 'This is the Graylog connection of the LIVE (prod) environment; use the "Graylog Test" tab for the test environment. The AI looks at live logs only to read them and only when you ask about the live environment.',
   'Canlı ortam kayıtları müşteri ya da kişisel bilgi içerebilir ve okunan kayıtlar yapay zekâ hizmetine gönderilir. Kuruluşunuzun bu konudaki kurallarına uyun; mümkünse yalnızca okuma yetkisi olan bir kullanıcının belirtecini kullanın.': 'Live environment logs may contain customer or personal information, and the logs read are sent to the AI service. Follow your organisation\'s rules on this; if possible use the token of a user who only has read access.',
   'Örnek: "Graylog prod\'da son 15 dakikada uygulama-adi için hata var mı? Varsa test ortamındakiyle karşılaştır".': 'Example: "Are there errors for uygulama-adi in Graylog prod in the last 15 minutes? If so, compare with the test environment".',

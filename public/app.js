@@ -2063,7 +2063,7 @@ const ROLES = {
 };
 // Project Owner analistten türetilir: analistte ne varsa (bağlantılar, öneriler) onda da vardır; analist değişince
 // o da değişir. Tek farkı, aynı soruda birden fazla bağlantının birlikte seçilebilmesidir.
-ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi'), multiLink: true };
+ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi') };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
 const roleTabs = () => currentRole().tabs;
@@ -2138,13 +2138,16 @@ const LINK_TOOLS = {
 let activeLink = ''; // seçili (ilk) bağlantı
 let activeLinks = []; // seçili bağlantıların tümü; birden fazlası yalnızca çoklu seçime izin veren modda (Proje Sahibi)
 let linkConnected = [];
-const multiLink = () => Boolean(currentRole().multiLink);
+// Bütün modlarda aynı soruda birden fazla bağlantı seçilebilir; en fazla MAX_LINKS (yapay zekâya giden yönerge ve
+// Copilot'ta Atölye'nin getireceği veri kısa kalsın diye)
+const MAX_LINKS = 4;
+const multiLink = () => true;
 const linkNames = (list) => list.map((id) => LINKS[id].name).join(' + ');
 function renderLinkSelect() {
   const sel = $('#linkSelect');
   const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && roleTabs().includes(id)).map(([id]) => id);
   linkConnected = connected;
-  activeLinks = activeLinks.filter((id) => connected.includes(id)).slice(0, multiLink() ? connected.length : 1);
+  activeLinks = activeLinks.filter((id) => connected.includes(id)).slice(0, multiLink() ? MAX_LINKS : 1);
   activeLink = activeLinks[0] || '';
   $('#linkWrap').hidden = !connected.length || multiLink();
   $('#linkMulti').hidden = !connected.length || !multiLink();
@@ -2167,11 +2170,14 @@ function renderLinkMulti() {
     ...linkConnected.map((id) => {
       const box = el('input', { type: 'checkbox' });
       box.checked = activeLinks.includes(id);
+      // Sınıra ulaşıldıysa seçilmemiş olanlar pasif olur
+      box.disabled = !box.checked && activeLinks.length >= MAX_LINKS;
       box.onchange = () => pick(id, box.checked);
-      return el('label', { class: 'link-multi-item' }, box, el('span', { text: LINKS[id].name }));
+      return el('label', { class: `link-multi-item${box.disabled ? ' off' : ''}` }, box, el('span', { text: LINKS[id].name }));
     }),
+    el('div', { class: 'link-multi-note', text: T('En fazla {n} bağlantı seçilebilir.', { n: MAX_LINKS }) }),
     el('div', { class: 'link-multi-foot' },
-      el('button', { type: 'button', class: 'btn ghost', text: T('Tümünü seç'), onclick: () => setActiveLinks(linkConnected) }),
+      linkConnected.length <= MAX_LINKS ? el('button', { type: 'button', class: 'btn ghost', text: T('Tümünü seç'), onclick: () => setActiveLinks(linkConnected) }) : el('span'),
       el('button', { type: 'button', class: 'btn ghost', text: T('Temizle'), onclick: () => setActiveLinks([]) })));
 }
 $('#linkMultiBtn').onclick = () => { $('#linkMultiPop').hidden = !$('#linkMultiPop').hidden; };
@@ -2179,7 +2185,7 @@ document.addEventListener('pointerdown', (e) => { if (!e.target.closest?.('#link
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#linkMultiPop').hidden = true; });
 
 function setActiveLinks(list) {
-  activeLinks = [...new Set(list.filter(Boolean))];
+  activeLinks = [...new Set(list.filter(Boolean))].slice(0, MAX_LINKS);
   activeLink = activeLinks[0] || '';
   $('#linkSelect').value = activeLink;
   activeLinks.forEach(loadFetchTools);
