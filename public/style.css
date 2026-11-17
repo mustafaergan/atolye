@@ -195,6 +195,33 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .suggestions button:hover { border-color: var(--border-strong); color: var(--text); }
 .suggestions button.recommended { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .suggestions button.recommended:hover { background: var(--accent); color: #fff; }
+/* Öğretilen komutlar mavi belirteçlidir */
+:root { --learn: #2f6fd6; --learn-soft: #e4edfb; }
+:root[data-theme="dark"] { --learn: #6ea3f5; --learn-soft: #1f2e47; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --learn: #6ea3f5; --learn-soft: #1f2e47; } }
+.suggestions button.learned { border-color: var(--learn); color: var(--learn); display: inline-flex; align-items: center; gap: 7px; }
+.suggestions button.learned::before, .command-row .c-name::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--learn); flex: none; }
+.suggestions button.learned:hover { background: var(--learn); color: #fff; }
+.suggestions button.learned:hover::before { background: #fff; }
+.suggestions button.teach { border: 1px dashed var(--learn); color: var(--learn); background: var(--learn-soft); font-weight: 600; }
+.suggestions button.teach:hover { border-style: solid; background: var(--learn); color: #fff; }
+.commands-btn { position: relative; }
+.commands-btn svg { color: var(--learn); }
+.commands-count { position: absolute; top: -3px; right: -3px; min-width: 15px; padding: 0 4px; border-radius: 8px; background: var(--learn); color: #fff; font-size: 10px; line-height: 15px; text-align: center; }
+.commands-count[hidden] { display: none; }
+.command-list { display: flex; flex-direction: column; gap: 8px; max-height: 52vh; overflow-y: auto; }
+.command-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start; }
+.command-row .c-main { flex: 1; min-width: 0; }
+.command-row .c-name { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14px; }
+.command-row .c-links { font-size: 12px; color: var(--learn); margin-top: 2px; }
+.command-row .c-prompt { font-size: 12.5px; color: var(--text-3); margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
+.command-row .c-actions { display: flex; gap: 6px; flex: none; }
+.command-links { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.command-links .off { color: var(--text-3); }
+.btn.learn { background: var(--learn); border-color: var(--learn); color: #fff; }
+.btn.learn:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--err); border-color: var(--err); }
+.commands-dialog .links-field textarea { font-family: inherit; font-size: 13.5px; line-height: 1.45; }
 
 /* ---------- Messages ---------- */
 .msg-user { align-self: flex-end; max-width: 85%; }

@@ -74,6 +74,11 @@ function copilotTitle({ cwd, text }) {
   });
 }
 
+/** Seçili motora araçsız, tek seferlik bir istek gönderir ve yanıt metnini döndürür (süre dolarsa boş) */
+export function oneShot({ engine, cwd, model, text, timeoutMs = 60_000 }) {
+  return withTimeout(engine === 'copilot' ? copilotTitle({ cwd, text }) : claudeTitle({ cwd, model, text }), timeoutMs);
+}
+
 /** Konuşmaya yapay zekâdan başlık ister; olmazsa boş döner (başlık isteği asıl oturumu hiç etkilemez) */
 export async function aiTitle({ engine, cwd, model, question, answer, lang = 'tr' }) {
   if (!question || !answer) return '';
