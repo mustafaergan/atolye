@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { setRunner, friendly } from '../src/outlook.js';
 import { availableTools, callTool } from '../src/mcp-server.js';
 
-const env = { OUTLOOK_ENABLED: '1', ATOLYE_OUTLOOK: '1' };
+const env = { OUTLOOK_ENABLED: '1', ATOLYE_YEREL_OTURUM: '1' };
 const calls = [];
 setRunner(async (op, args) => {
   calls.push([op, args]);
@@ -25,7 +25,9 @@ test('Outlook araçları yalnızca etkinleştirilince sunulur; hepsi okuma yapar
   assert.deepEqual(names, ['outlook_list_folders', 'outlook_search_mail', 'outlook_get_mail', 'outlook_list_events']);
   assert.ok(availableTools(env).every((t) => t.annotations.readOnlyHint));
   assert.equal(availableTools({}).length, 0);
-  assert.equal(availableTools({ OUTLOOK_ENABLED: '1' }).length, 0, 'pasif: ATOLYE_OUTLOOK=1 olmadan sunulmaz');
+  assert.equal(availableTools({ OUTLOOK_ENABLED: '1' }).length, 0, 'yerel LLM oturumu işareti olmadan (Claude, Copilot) sunulmaz');
+  assert.equal(availableTools({ ATOLYE_YEREL_OTURUM: '1' }).length, 0, 'kullanıcı etkinleştirmeden sunulmaz');
+  assert.equal(availableTools({ OUTLOOK_ENABLED: '1', ATOLYE_OUTLOOK: '1' }).length, 0, 'eski anahtar artık açmaz');
 });
 
 test('Outlook: klasörler, arama, e-posta ve takvim çıktısı', async () => {
@@ -39,6 +41,34 @@ test('Outlook: klasörler, arama, e-posta ve takvim çıktısı', async () => {
   assert.equal(await text('outlook_list_events'), 'Takvim: 2026-11-17\n2026-11-17 10:00 – 10:30 | Günlük toplantı | Teams | düzenleyen: Can Demir | kabul');
   const { clients } = await import('../src/atlassian.js');
   assert.equal(await clients.outlook.whoami(), 'Ayşe Yılmaz (Gelen Kutusu: 3303 e-posta, 1 okunmamış)');
+});
+
+test('Outlook yalnızca yerel LLM ile sorgulanır: etkinleştirme, sınama, yerel oturum işareti; Copilot veri getirmesi kullanamaz', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-outlook-'));
+  process.env.ATOLYE_CLAUDE_JSON = path.join(dir, '.claude.json');
+  process.env.ATOLYE_COPILOT_MCP = path.join(dir, 'copilot', 'mcp-config.json');
+  const integ = await import('../src/integrations.js');
+  assert.equal(integ.status().services.outlook.connected, false);
+  assert.deepEqual(await integ.test('outlook'), { ok: false, error: 'not-configured' });
+  integ.setOutlook(true);
+  assert.equal(integ.status().services.outlook.connected, true, 'etkinleştirilince arayüzde bağlı görünür');
+  assert.deepEqual(await integ.test('outlook'), { ok: true, user: 'Ayşe Yılmaz (Gelen Kutusu: 3303 e-posta, 1 okunmamış)' });
+  // Araç sunucusuna kaydedilen ortamda oturum işareti yoktur: Claude ve Copilot oturumları ile "veri getir" kullanamaz
+  const saved = JSON.parse(fs.readFileSync(process.env.ATOLYE_CLAUDE_JSON, 'utf8')).mcpServers.atolye.env;
+  assert.deepEqual(saved, { OUTLOOK_ENABLED: '1' });
+  assert.equal(availableTools(saved).length, 0);
+  assert.equal((await integ.runReadTool('outlook_list_folders', {})).ok, false);
+  // İşareti yalnızca yerel LLM oturumunun ortamı taşır
+  const { localEnv } = await import('../src/settings.js');
+  const local = localEnv({ id: 'a', url: 'http://localhost:11434', model: 'm', kind: 'anthropic' }, {});
+  assert.equal(local.ATOLYE_YEREL_OTURUM, '1');
+  assert.equal(local.ENABLE_TOOL_SEARCH, 'false', 'araçlar ertelenmez: yerel model ertelenmiş aracı çağıramaz');
+  assert.equal(availableTools({ ...saved, ...local }).length, 4);
+  integ.setOutlook(false);
+  assert.equal(integ.status().services.outlook.connected, false);
 });
 
 test('Outlook hata metinleri anlaşılır', () => {

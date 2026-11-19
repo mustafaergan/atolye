@@ -142,7 +142,8 @@ export function status() {
       url: env[envKey(s, 'url')] || '',
       email: env[envKey(s, 'email')] || '',
       hasToken: Boolean(env[envKey(s, 'token')]),
-      connected: Boolean(configFromEnv(s, env)),
+      // Outlook'ta "bağlı" = kullanıcı etkinleştirmiş; araçları yine de yalnızca yerel LLM oturumlarında sunulur
+      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : Boolean(configFromEnv(s, env)),
     };
   }
   out.services[BROWSER_SERVER] = browserStatus();
@@ -197,7 +198,8 @@ export function remove(service) {
 /** Kayıtlı bilgilerle giriş dener: { ok, user } ya da { ok: false, error } */
 export async function test(service) {
   check(service);
-  const cfg = configFromEnv(service, readEnv());
+  // Sınamayı kullanıcı arayüzden yapar (sonuç yapay zekâya gitmez): Outlook'ta oturum işareti burada verilir
+  const cfg = configFromEnv(service, { ...readEnv(), ...(service === 'outlook' ? { ATOLYE_YEREL_OTURUM: '1' } : {}) });
   if (!cfg) return { ok: false, error: 'not-configured' };
   try {
     return { ok: true, user: await clients[service].whoami(cfg) };

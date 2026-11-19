@@ -47,6 +47,9 @@ const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toL
 
 export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   await fs.mkdir(GENERAL_DIR, { recursive: true });
+  // Bu işaret yalnızca yerel LLM oturumlarına verilir (bkz. settings.js localEnv); dışarıdan gelmişse yok sayılır ki
+  // Outlook araçları Claude ya da Copilot oturumlarına hiçbir koşulda sunulmasın
+  delete process.env.ATOLYE_YEREL_OTURUM;
   const app = express();
   const store = new StateStore();
   const manager = new SessionManager({
