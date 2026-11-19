@@ -111,9 +111,6 @@ export class AgentSession {
       // Yerel LLM: ortam değişkenleri hem sürece hem de (kullanıcı ayarlarındaki gateway adresinin önüne geçsin diye)
       // komut satırı ayarı olarak verilir
       ...(this.local ? { env: { ...process.env, ...localEnv(this.local) }, extraArgs: { settings: JSON.stringify({ env: localEnv(this.local) }) } } : {}),
-      // Yerel LLM: ortam değişkenleri hem sürece hem de (kullanıcı ayarlarındaki gateway adresinin önüne geçsin diye)
-      // komut satırı ayarı olarak verilir
-      ...(this.local ? { env: { ...process.env, ...localEnv(this.local) }, extraArgs: { settings: JSON.stringify({ env: localEnv(this.local) }) } } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.#promptAppend() ? { append: this.#promptAppend() } : {}) },
       canUseTool: (toolName, input, ctx) => this.#askPermission(toolName, input, ctx),
       stderr: (data) => {

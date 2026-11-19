@@ -2114,22 +2114,28 @@ function settingsCopilot() {
 function settingsLocal() {
   const models = settingsUi.data.local?.models || [];
   // Form yalnızca "+" düğmesine basılınca ya da bir model düzenlenirken açılır
-  const draft = settingsUi.localDraft || { id: '', name: '', url: '', model: '' };
+  const draft = settingsUi.localDraft || { id: '', name: '', url: '', model: '', kind: '' };
   const formOpen = Boolean(settingsUi.localDraft);
   const name = sInput(draft.name, { placeholder: T('Listede görünecek ad (boşsa model adı)'), maxlength: '40' });
   const url = sInput(draft.url, { placeholder: 'http://localhost:11434' });
+  // Sunucu türü: Anthropic uyumlu sunucuya doğrudan, OpenAI uyumlu sunucuya Atölye'nin köprüsüyle bağlanılır
+  const kind = el('select', { class: 'links-select' },
+    el('option', { value: 'anthropic', text: T('Anthropic uyumlu (Ollama, LM Studio)') }),
+    el('option', { value: 'openai', text: T('OpenAI uyumlu (/chat/completions)') }));
+  kind.value = draft.kind === 'openai' ? 'openai' : 'anthropic';
+  url.addEventListener('input', () => { if (/\/chat\/completions\/?$/i.test(url.value.trim())) kind.value = 'openai'; });
   const model = sInput(draft.model, { list: 'localModels', placeholder: 'qwen3-coder' });
   const editing = models.find((m) => m.id === draft.id);
-  const key = sInput('', { type: 'password', placeholder: editing?.hasKey ? T('Kayıtlı (değiştirmek için yenisini yazın)') : T('Çoğu yerel sunucuda gerekmez') });
+  const key = sInput(draft.key || '', { type: 'password', placeholder: editing?.hasKey ? T('Kayıtlı (değiştirmek için yenisini yazın)') : T('Çoğu yerel sunucuda gerekmez') });
   const list = el('datalist', { id: 'localModels' }, (settingsUi.localModels || []).map((m) => el('option', { value: m })));
-  const keep = () => Object.assign(draft, { name: name.value, url: url.value, model: model.value });
+  const keep = () => Object.assign(draft, { name: name.value, url: url.value, model: model.value, kind: kind.value, key: key.value }); // anahtar yalnızca pencere açıkken bellekte durur
   const applied = async (r) => { if (r.status) { settingsUi.data.local = r.status; await loadEngines(true); } };
   return [
-    el('p', { class: 'links-intro', text: T('Bu bilgisayarda ya da yerel ağınızda çalışan modelleri (Ollama, LM Studio, llama.cpp vb.) Atölye\'de kullanın. Birden fazla model ekleyebilirsiniz; her biri üstteki motor seçicisinde ayrı bir seçenek olur. Sunucunun Anthropic uyumlu uç noktası olmalıdır (Ollama 0.14+, LM Studio 0.4.1+). Verileriniz yalnızca yazdığınız adrese gider.') }),
+    el('p', { class: 'links-intro', text: T('Bu bilgisayarda, yerel ağınızda ya da kurumunuzda çalışan modelleri (Ollama, LM Studio, llama.cpp, OpenAI uyumlu gateway vb.) Atölye\'de kullanın. Birden fazla model ekleyebilirsiniz; her biri üstteki motor seçicisinde ayrı bir seçenek olur. Hem Anthropic uyumlu (/v1/messages) hem de OpenAI uyumlu (/chat/completions) sunucular desteklenir. Verileriniz yalnızca yazdığınız adrese gider.') }),
     models.length ? el('div', { class: 'command-list' }, models.map((m) => el('div', { class: 'command-row' },
-      el('div', { class: 'c-main' }, el('div', { class: 'c-name plain', text: m.name }), el('div', { class: 'c-prompt', text: `${m.model} · ${m.url}` })),
+      el('div', { class: 'c-main' }, el('div', { class: 'c-name plain', text: m.name }), el('div', { class: 'c-prompt', text: `${m.model} · ${m.kind === 'openai' ? T('OpenAI uyumlu') : T('Anthropic uyumlu')} · ${m.url}` })),
       el('div', { class: 'c-actions' },
-        el('button', { type: 'button', class: 'btn ghost', text: T('Düzenle'), onclick: () => { settingsUi.localDraft = { id: m.id, name: m.name, url: m.url, model: m.model }; setNote(''); } }),
+        el('button', { type: 'button', class: 'btn ghost', text: T('Düzenle'), onclick: () => { settingsUi.localDraft = { id: m.id, name: m.name, url: m.url, model: m.model, kind: m.kind }; setNote(''); } }),
         el('button', { type: 'button', class: 'btn ghost', text: T('Kaldır'), onclick: async () => {
           const r = await sCall(`/api/settings/local/${encodeURIComponent(m.id)}`, null, 'DELETE');
           await applied(r);
@@ -2137,23 +2143,28 @@ function settingsLocal() {
           setNote(r.ok ? T('Yerel model kaldırıldı.') : r.error, r.ok ? 'ok' : 'err');
         } })))))
       : sNote(T('Henüz yerel model eklemediniz.')),
-    !formOpen && el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('+ Yerel model ekle'), onclick: () => { settingsUi.localDraft = { id: '', name: '', url: '', model: '' }; setNote(''); } })),
+    !formOpen && el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('+ Yerel model ekle'), onclick: () => { settingsUi.localDraft = { id: '', name: '', url: '', model: '', kind: '' }; setNote(''); } })),
     ...(!formOpen ? [] : [
     el('div', { class: 'command-head', text: editing ? T('{name} düzenleniyor', { name: editing.name }) : T('Yeni yerel model') }),
-    sField(T('Sunucu adresi'), url, T('Ollama: http://localhost:11434 · LM Studio: http://localhost:1234')),
+    sField(T('Sunucu adresi'), url, T('Ollama: http://localhost:11434 · LM Studio: http://localhost:1234 · OpenAI uyumlu sunucu ya da gateway: /chat/completions ile biten tam adres')),
+    sField(T('Sunucu türü'), kind, T('Emin değilseniz "Bağlantıyı dene"ye basın; tür kendiliğinden bulunur.')),
     sField(T('Model'), model, T('"Bağlantıyı dene" sunucudaki modelleri listeye getirir.')), list,
     sField(T('Ad'), name),
     sField(T('API anahtarı (isteğe bağlı)'), key),
     el('div', { class: 'links-actions' },
       el('button', { type: 'button', class: 'btn', text: T('Bağlantıyı dene'), onclick: async () => {
         keep(); setNote(T('Deneniyor… Model ilk kez yükleniyorsa bir dakika kadar sürebilir.'));
-        const r = await sCall('/api/settings/local/test', { id: draft.id, url: url.value, model: model.value, key: key.value });
+        const r = await sCall('/api/settings/local/test', { id: draft.id, url: url.value, model: model.value, key: key.value, kind: kind.value });
         if (r.models) settingsUi.localModels = r.models;
-        setNote(r.ok ? (r.answered ? T('Model yanıt verdi. Kaydedebilirsiniz.') : T('Sunucuya ulaşıldı; {n} model bulundu. Bir model seçip yeniden deneyin.', { n: (r.models || []).length })) : r.error, r.ok ? 'ok' : 'err');
+        // Deneme türü kendisi bulduysa seçim de ona göre değişir
+        const switched = r.ok && r.kind && r.kind !== draft.kind;
+        if (r.ok && r.kind) draft.kind = r.kind;
+        const lead = switched ? `${r.kind === 'openai' ? T('Sunucu OpenAI uyumlu çıktı; tür buna göre ayarlandı.') : T('Sunucu Anthropic uyumlu çıktı; tür buna göre ayarlandı.')} ` : '';
+        setNote(r.ok ? lead + (r.answered ? T('Model yanıt verdi. Kaydedebilirsiniz.') : T('Sunucuya ulaşıldı; {n} model bulundu. Bir model seçip yeniden deneyin.', { n: (r.models || []).length })) : r.error, r.ok ? 'ok' : 'err');
       } }),
       el('button', { type: 'button', class: 'btn primary', text: editing ? T('Kaydet') : T('Ekle'), onclick: async () => {
         keep();
-        const r = await sCall('/api/settings/local', { id: draft.id || undefined, name: name.value, url: url.value, model: model.value, key: key.value });
+        const r = await sCall('/api/settings/local', { id: draft.id || undefined, name: name.value, url: url.value, model: model.value, key: key.value, kind: kind.value });
         await applied(r);
         if (r.ok) settingsUi.localDraft = null;
         setNote(r.ok ? T('Kaydedildi. Üstteki motor seçicisinden seçebilirsiniz.') : r.error, r.ok ? 'ok' : 'err');

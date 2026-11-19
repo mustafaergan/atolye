@@ -30,6 +30,7 @@ import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
 import * as commands from './commands.js';
 import * as settings from './settings.js';
+import { bridge, bridgeHandlers } from './kopru.js';
 import { searchSessions } from './search.js';
 import { validWork } from './workmode.js';
 import { copilotQuota } from './copilot-quota.js';
@@ -200,7 +201,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     'no-token': msg(lang, 'Gateway adresi ya da token girin'),
     'no-model': msg(lang, 'Model adını yazın ya da listeden seçin'),
     'unreachable': msg(lang, 'Sunucuya ulaşılamadı: {detail}. Adresi ve sunucunun çalıştığını kontrol edin.', { detail: err.detail || '' }),
-    'no-messages-api': msg(lang, 'Sunucu çalışıyor ama Anthropic uyumlu uç noktası (/v1/messages) yok. Ollama 0.14 ve üstü ya da LM Studio 0.4.1 ve üstü gerekir.'),
+    'no-messages-api': msg(lang, 'Sunucu yanıt veriyor ama bu adreste ne Anthropic uyumlu (/v1/messages) ne de OpenAI uyumlu (/chat/completions) uç nokta bulundu. Adresi kontrol edin; OpenAI uyumlu sunucuda adresi /chat/completions ile biten tam hâliyle yazabilirsiniz.'),
+    'no-model-list': msg(lang, 'Bu sunucu model listesi vermiyor. Model adını elle yazıp yeniden deneyin.'),
     'bad-model': msg(lang, 'Model yanıt vermedi: {detail}', { detail: err.detail || '' }),
     'no-dir': msg(lang, 'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\skillerim).'),
     'no-skill': msg(lang, 'Bu klasörde skill bulunamadı. Klasörün (ya da alt klasörlerinin) içinde SKILL.md dosyası olmalı.'),
@@ -237,7 +239,15 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.post('/api/settings/local/test', guard(async (req) => {
     // Düzenlenen modelde anahtar alanı boş bırakıldıysa kayıtlı anahtarla denenir
     const saved = req.body?.id ? settings.localConfig(req.body.id) : null;
-    return settings.testLocal({ ...req.body, key: req.body?.key || (saved?.id === req.body?.id ? saved.key : '') || '' });
+    return settings.testLocal({ ...req.body, key: req.body?.key || (saved && saved.id === req.body.id ? saved.key : '') || '' });
+  }));
+  // OpenAI uyumlu sunucular için köprü: Claude Code buraya Anthropic biçiminde yazar (bkz. kopru.js)
+  bridge.origin = `http://127.0.0.1:${port}`;
+  const kopru = bridgeHandlers({ configOf: (id) => settings.localConfig(id), log: (text) => console.error(`[köprü] ${text}`) });
+  app.post('/kopru/:id/v1/messages/count_tokens', (req, res) => kopru.countTokens(req, res));
+  app.post('/kopru/:id/v1/messages', (req, res) => kopru.messages(req, res).catch((err) => {
+    console.error(`[köprü] ${err?.message || err}`);
+    if (!res.headersSent) res.status(500).json({ type: 'error', error: { type: 'api_error', message: String(err?.message || err) } }); else res.end();
   }));
   app.post('/api/settings/skills', guard(async (req) => { const added = settings.addSkill(req.body?.dir); console.log(`[ayarlar] skill eklendi: ${added.join(', ')}`); return { ok: true, added, skills: settings.listSkills() }; }));
   app.delete('/api/settings/skills/:name', guard(async (req) => { const skills = settings.removeSkill(req.params.name); console.log(`[ayarlar] skill kaldırıldı: ${req.params.name}`); return { ok: true, skills }; }));
