@@ -191,11 +191,19 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
 - **Claude Code:** gateway adresi ve token (kurulum klasöründeki `.env` dosyasına yazılır; boşsa Claude Code'un kendi
   ayarları kullanılır).
 - **GitHub Copilot:** CLI kurulumu, GitHub girişi ve yeni oturumların varsayılan modeli.
-- **Yerel LLM:** bu bilgisayarda ya da yerel ağda çalışan modeller (Ollama, LM Studio, llama.cpp vb.). **+** ile birden
-  fazla model eklenir; her biri üstteki motor seçicisinde "Yerel: …" olarak çıkar. Yerel model Claude Code motoruyla
-  kullanılır, bu yüzden sunucunun Anthropic uyumlu uç noktası (`/v1/messages`) olmalıdır (Ollama 0.14+, LM Studio
-  0.4.1+). Liste `~/.atolye/yerel-llm.json` dosyasında durur. Küçük yerel modeller araç kullanımında (dosya okuma,
-  komut çalıştırma) zayıf kalabilir.
+- **Yerel LLM:** bu bilgisayarda, yerel ağda ya da kurum içinde çalışan modeller (Ollama, LM Studio, llama.cpp,
+  OpenAI uyumlu gateway vb.). **+** ile birden fazla model eklenir; her biri üstteki motor seçicisinde "Yerel: …"
+  olarak çıkar. Yerel model Claude Code motoruyla kullanılır ve iki tür sunucu desteklenir:
+  - **Anthropic uyumlu** (`/v1/messages`; Ollama 0.14+, LM Studio 0.4.1+): Claude Code doğrudan sunucuya bağlanır.
+  - **OpenAI uyumlu** (`/chat/completions`; vLLM, LiteLLM, kurum içi gateway'ler): araya Atölye'nin köprüsü girer
+    (`src/kopru.js`); istek OpenAI biçimine, yanıt (akış ve araç çağrıları dahil) Anthropic biçimine çevrilir.
+    Adres `/chat/completions` ile biten tam hâliyle (ör. `https://gateway.sirket.com/chat/completions`) ya da kök
+    olarak (`http://localhost:8000`, sonuna `/v1/chat/completions` eklenir) yazılabilir. API anahtarı `Authorization:
+    Bearer` başlığıyla gönderilir ve Claude Code sürecine verilmez.
+
+  Tür, adres `/chat/completions` ile bitiyorsa kendiliğinden seçilir; emin değilseniz **Bağlantıyı dene** hangisinin
+  çalıştığını bulur. Liste `~/.atolye/yerel-llm.json` dosyasında durur. Küçük modeller araç kullanımında (dosya
+  okuma, komut çalıştırma) zayıf kalabilir; modelin araç çağrısını (function calling) desteklemesi gerekir.
 - **Skill'ler:** içinde `SKILL.md` bulunan bir klasör (ya da birden fazla skill içeren üst klasör) eklenir; skill
   `~/.claude/skills` altına kopyalanır ve yeni oturumlarda `/` komut listesinde çıkar. Yalnızca Atölye'nin eklediği
   skill'ler buradan kaldırılabilir.
@@ -339,6 +347,8 @@ Kurumsal ağlarda TLS denetimi sertifikaları genelde yalnızca işletim sistemi
 
 - Sunucu **sadece `127.0.0.1`** adresini dinler; ağdaki başka bilgisayarlar erişemez.
 - Başka web sitelerinin yerel sunucuya bağlanmasını engellemek için `Host` ve `Origin` başlıkları kontrol edilir.
+- OpenAI uyumlu yerel modeller için köprü (`/kopru/…`) yalnızca bu bilgisayardan ve her açılışta yeniden üretilen bir
+  anahtarla çağrılabilir; model sunucusunun asıl API anahtarı Atölye'nin dışına yalnızca o sunucuya giderken çıkar.
 - Token tarayıcıya hiçbir zaman gönderilmez; yalnızca Node.js sürecinde kalır.
 - Claude dosya düzenleyebilir ve komut çalıştırabilir. *İzinleri atla* modunu yalnızca güvendiğiniz klasörlerde kullanın.
 

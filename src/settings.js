@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { bridge, looksOpenAI, openaiEndpoint, openaiModelsUrl, upstreamHeaders } from './kopru.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fail = (code, extra = {}) => Object.assign(new Error(code), { code, ...extra });
@@ -118,22 +119,28 @@ export function saveCopilot({ model } = {}) {
 }
 
 // ---------- Yerel LLM ----------
-// Bilgisayarda (ya da yerel ağda) çalışan model sunucuları: Ollama, LM Studio, llama.cpp vb. Birden fazla model
-// eklenebilir; her biri motor seçicisinde ayrı bir seçenek olur. Atölye yerel modeli Claude Code motoruyla
-// kullanır; bunun için sunucunun Anthropic uyumlu uç noktası (/v1/messages) olmalıdır.
+// Bilgisayarda, yerel ağda ya da kurum içinde çalışan model sunucuları: Ollama, LM Studio, llama.cpp, kurum içi
+// gateway vb. Birden fazla model eklenebilir; her biri motor seçicisinde ayrı bir seçenek olur. Atölye bu modelleri
+// Claude Code motoruyla kullanır. Sunucu iki türden biri olabilir:
+//   anthropic: Anthropic uyumlu uç nokta (/v1/messages); Claude Code doğrudan sunucuya bağlanır.
+//   openai:    OpenAI uyumlu uç nokta (/chat/completions); araya Atölye'nin köprüsü girer (bkz. kopru.js).
 // Liste ~/.atolye/yerel-llm.json dosyasında durur.
 export const MAX_LOCAL = 10;
 const localFile = () => process.env.ATOLYE_LOCAL_FILE || path.join(stateDir(), 'yerel-llm.json');
+/** Sunucu türü: adres /chat/completions ile bitiyorsa her zaman OpenAI uyumludur */
+const kindOf = (url, kind) => (looksOpenAI(url) || kind === 'openai' ? 'openai' : 'anthropic');
 function readLocal() {
   try {
     const d = JSON.parse(fs.readFileSync(localFile(), 'utf8'));
-    return (Array.isArray(d?.models) ? d.models : []).filter((m) => m && m.id && httpUrl(m.url) && m.model);
+    return (Array.isArray(d?.models) ? d.models : []).filter((m) => m && m.id && httpUrl(m.url) && m.model).map((m) => ({ ...m, kind: kindOf(m.url, m.kind) }));
   } catch {
     return [];
   }
 }
 const writeLocal = (models) => { fs.mkdirSync(path.dirname(localFile()), { recursive: true }); fs.writeFileSync(localFile(), `${JSON.stringify({ models }, null, 2)}\n`); };
-const localUrl = (value) => httpUrl(value).replace(/\/v1$/, '');
+// OpenAI uyumlu sunucuda adres yazıldığı gibi kalır (uç nokta kopru.js içinde hesaplanır)
+const localUrl = (value, kind) => (kind === 'openai' ? httpUrl(value) : httpUrl(value).replace(/\/v1$/, ''));
+const netDetail = (err) => err?.cause?.code || err?.cause?.message || err?.message || String(err);
 
 /** Kayıtlı yerel model (id verilmezse ya da bulunamazsa ilki); hiç yoksa null */
 export function localConfig(id) {
@@ -143,13 +150,14 @@ export function localConfig(id) {
 
 /** Arayüze giden liste (anahtarlar gönderilmez) */
 export function localStatus() {
-  const models = readLocal().map((m) => ({ id: m.id, name: m.name || m.model, url: m.url, model: m.model, hasKey: Boolean(m.key) }));
+  const models = readLocal().map((m) => ({ id: m.id, name: m.name || m.model, url: m.url, model: m.model, kind: m.kind, hasKey: Boolean(m.key) }));
   return { configured: models.length > 0, models };
 }
 
 /** Yeni yerel model ekler ya da (id verilmişse) var olanı günceller. Anahtar boş bırakılırsa var olan korunur. */
-export function saveLocal({ id, name, url, model, key } = {}) {
-  const u = localUrl(url);
+export function saveLocal({ id, name, url, model, key, kind } = {}) {
+  const type = kindOf(url, kind);
+  const u = localUrl(url, type);
   const m = String(model || '').trim().slice(0, 120);
   if (!u) throw fail('bad-url');
   if (!m) throw fail('no-model');
@@ -158,10 +166,10 @@ export function saveLocal({ id, name, url, model, key } = {}) {
   const label = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 40) || m;
   const at = id ? all.findIndex((x) => x.id === id) : -1;
   if (id && at < 0) throw fail('local-not-found');
-  if (at >= 0) all[at] = { ...all[at], name: label, url: u, model: m, ...(k ? { key: k } : {}) };
+  if (at >= 0) all[at] = { ...all[at], name: label, url: u, model: m, kind: type, ...(k ? { key: k } : {}) };
   else {
     if (all.length >= MAX_LOCAL) throw fail('too-many-local');
-    all.push({ id: Math.random().toString(36).slice(2, 10), name: label, url: u, model: m, key: k });
+    all.push({ id: Math.random().toString(36).slice(2, 10), name: label, url: u, model: m, kind: type, key: k });
   }
   writeLocal(all);
   return localStatus();
@@ -172,14 +180,18 @@ export function removeLocal(id) {
   return localStatus();
 }
 
-/** Yerel oturumda Claude Code'a verilen ortam: bütün istekler yerel sunucuya ve seçilen modele gider */
+/**
+ * Yerel oturumda Claude Code'a verilen ortam: bütün istekler seçilen modele gider. Anthropic uyumlu sunucuya
+ * doğrudan, OpenAI uyumlu sunucuya Atölye'nin köprüsü üzerinden (asıl anahtar o durumda Atölye'de kalır).
+ */
 export function localEnv(cfg, env = process.env) {
   let host = '';
   try { host = new URL(cfg.url).hostname; } catch { /* yoksay */ }
   const noProxy = [...new Set([...(env.NO_PROXY || env.no_proxy || '').split(',').map((s) => s.trim()).filter(Boolean), 'localhost', '127.0.0.1', host].filter(Boolean))].join(',');
+  const viaBridge = cfg.kind === 'openai';
   return {
-    ANTHROPIC_BASE_URL: cfg.url,
-    ANTHROPIC_AUTH_TOKEN: cfg.key || 'yerel',
+    ANTHROPIC_BASE_URL: viaBridge ? `${bridge.origin}/kopru/${cfg.id}` : cfg.url,
+    ANTHROPIC_AUTH_TOKEN: viaBridge ? bridge.secret : cfg.key || 'yerel',
     ANTHROPIC_API_KEY: '',
     ANTHROPIC_MODEL: cfg.model,
     ANTHROPIC_SMALL_FAST_MODEL: cfg.model,
@@ -193,54 +205,101 @@ export function localEnv(cfg, env = process.env) {
 }
 
 async function getJson(url, key, timeoutMs) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: key ? { authorization: `Bearer ${key}`, 'x-api-key': key } : {} });
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: key ? { authorization: `Bearer ${key}`, 'x-api-key': key, 'api-key': key } : {} });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+const modelIds = (d) => (Array.isArray(d?.data) ? d.data : []).map((m) => m?.id).filter(Boolean);
 
 /** Sunucudaki modeller (OpenAI uyumlu /v1/models; yoksa Ollama'nın /api/tags listesi) */
-export async function localModels({ url, key } = {}) {
-  const u = localUrl(url);
+export async function localModels({ url, key, kind } = {}) {
+  const type = kindOf(url, kind);
+  const u = localUrl(url, type);
   if (!u) throw fail('bad-url');
+  if (type === 'openai') {
+    try { return modelIds(await getJson(openaiModelsUrl(u), key, 8000)); } catch (err) { throw fail('unreachable', { detail: netDetail(err) }); }
+  }
   try {
-    const d = await getJson(`${u}/v1/models`, key, 8000);
-    const ids = (Array.isArray(d?.data) ? d.data : []).map((m) => m?.id).filter(Boolean);
+    const ids = modelIds(await getJson(`${u}/v1/models`, key, 8000));
     if (ids.length) return ids;
   } catch { /* Ollama listesi denenir */ }
   try {
     const d = await getJson(`${u}/api/tags`, key, 8000);
     return (Array.isArray(d?.models) ? d.models : []).map((m) => m?.name).filter(Boolean);
   } catch (err) {
-    throw fail('unreachable', { detail: err.message });
+    throw fail('unreachable', { detail: netDetail(err) });
   }
 }
 
-/** Yerel sunucuya ulaşılıyor mu ve model Anthropic uyumlu uç noktadan yanıt veriyor mu */
-export async function testLocal({ url, model, key } = {}) {
-  const u = localUrl(url);
+const TEST_MESSAGE = { max_tokens: 16, messages: [{ role: 'user', content: 'Merhaba' }] };
+/** Model listesi: sunucu yanıt verip liste vermiyorsa (birçok gateway böyledir) boş liste; hiç ulaşılamıyorsa hata */
+async function modelsOrEmpty(args) {
+  try { return await localModels(args); } catch (err) { if (/^HTTP \d/.test(err.detail || '')) return []; throw err; }
+}
+/** Model yazılmadıysa deneme yalnızca listeyi getirir; liste de yoksa model adının elle yazılması istenir */
+const listOnly = (models, kind) => { if (!models.length) throw fail('no-model-list'); return { ok: true, models, answered: false, kind }; };
+/** 404/405: model adı yanlışsa da dönebilir; gövdede model geçiyorsa ona göre bildirilir */
+async function checkAnswer(res) {
+  if (res.ok) return;
+  const body = (await res.text().catch(() => '')).replace(/\s+/g, ' ').trim();
+  if ((res.status === 404 || res.status === 405) && !/model/i.test(body)) throw fail('no-messages-api');
+  throw fail('bad-model', { detail: `HTTP ${res.status} ${body.slice(0, 200)}`.trim() });
+}
+
+async function testAnthropic({ url, model, key }) {
+  const u = localUrl(url, 'anthropic');
   if (!u) throw fail('bad-url');
-  const models = await localModels({ url: u, key });
+  const models = await modelsOrEmpty({ url: u, key, kind: 'anthropic' });
   const m = String(model || '').trim();
-  if (!m) return { ok: true, models, answered: false };
+  if (!m) return listOnly(models, 'anthropic');
   let res;
   try {
     res = await fetch(`${u}/v1/messages`, {
       method: 'POST',
       signal: AbortSignal.timeout(120_000),
       headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': key || 'yerel', authorization: `Bearer ${key || 'yerel'}` },
-      body: JSON.stringify({ model: m, max_tokens: 16, messages: [{ role: 'user', content: 'Merhaba' }] }),
+      body: JSON.stringify({ model: m, ...TEST_MESSAGE }),
     });
   } catch (err) {
-    throw fail('unreachable', { detail: err.message });
+    throw fail('unreachable', { detail: netDetail(err) });
   }
-  if (res.status === 404 || res.status === 405) {
-    // Model adı yanlışsa da 404 dönebilir: gövdede model geçiyorsa ona göre bildir
-    const body = await res.text().catch(() => '');
-    if (/model/i.test(body)) throw fail('bad-model', { detail: body.slice(0, 200) });
-    throw fail('no-messages-api');
+  await checkAnswer(res);
+  return { ok: true, models, answered: true, kind: 'anthropic' };
+}
+
+async function testOpenAI({ url, model, key }) {
+  const u = localUrl(url, 'openai');
+  if (!u) throw fail('bad-url');
+  const models = await modelsOrEmpty({ url: u, key, kind: 'openai' });
+  const m = String(model || '').trim();
+  if (!m) return listOnly(models, 'openai');
+  let res;
+  try {
+    res = await fetch(openaiEndpoint(u), { method: 'POST', signal: AbortSignal.timeout(120_000), headers: upstreamHeaders(key), body: JSON.stringify({ model: m, ...TEST_MESSAGE }) });
+  } catch (err) {
+    throw fail('unreachable', { detail: netDetail(err) });
   }
-  if (!res.ok) throw fail('bad-model', { detail: `HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}` });
-  return { ok: true, models, answered: true };
+  await checkAnswer(res);
+  return { ok: true, models, answered: true, kind: 'openai' };
+}
+
+/**
+ * Sunucuya ulaşılıyor mu ve model yanıt veriyor mu. Tür belli değilse önce Anthropic uyumlu uç nokta, o yoksa
+ * OpenAI uyumlu uç nokta denenir; sonuçtaki "kind" hangisinin çalıştığını söyler.
+ */
+export async function testLocal({ url, model, key, kind } = {}) {
+  if (kindOf(url, kind) === 'openai') return testOpenAI({ url, model, key });
+  try {
+    return await testAnthropic({ url, model, key });
+  } catch (err) {
+    if (err.code !== 'no-messages-api' && err.code !== 'no-model-list') throw err;
+    try {
+      return await testOpenAI({ url, model, key });
+    } catch (second) {
+      // OpenAI uç noktası var ama modeli ya da anahtarı kabul etmediyse asıl sebep odur
+      throw second.code === 'bad-model' ? second : err;
+    }
+  }
 }
 
 // ---------- Skill klasörleri ----------

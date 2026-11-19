@@ -93,12 +93,61 @@ test('yerel model denemesi: model listesi, yanıt, uç nokta yok ve ulaşılamı
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}`;
   try {
-    assert.deepEqual(await s.testLocal({ url }), { ok: true, models: ['model-a', 'model-b'], answered: false });
-    assert.deepEqual(await s.testLocal({ url: `${url}/v1`, model: 'model-a' }), { ok: true, models: ['model-a', 'model-b'], answered: true });
+    assert.deepEqual(await s.testLocal({ url }), { ok: true, models: ['model-a', 'model-b'], answered: false, kind: 'anthropic' });
+    assert.deepEqual(await s.testLocal({ url: `${url}/v1`, model: 'model-a' }), { ok: true, models: ['model-a', 'model-b'], answered: true, kind: 'anthropic' });
     mode = 'eski';
     await assert.rejects(s.testLocal({ url, model: 'model-a' }), { code: 'no-messages-api' });
   } finally { server.close(); }
   await assert.rejects(s.testLocal({ url: 'http://127.0.0.1:9', model: 'x' }), { code: 'unreachable' });
+});
+
+test('OpenAI uyumlu sunucu: tür adresten ya da denemeden bulunur, oturum köprü üzerinden açılır', async () => {
+  const { bridge } = await import('../src/kopru.js');
+  bridge.origin = 'http://127.0.0.1:3210';
+  let mode = 'ok';
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (req.url === '/models' && mode === 'liste') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ data: [{ id: 'gw-a' }] })); }
+    if (req.method === 'POST' && (req.url === '/chat/completions' || req.url === '/v1/chat/completions')) {
+      if (mode === 'yetkisiz') { res.statusCode = 401; return res.end('anahtar gerekli'); }
+      res.setHeader('content-type', 'application/json'); return res.end('{"choices":[{"message":{"content":"Merhaba"}}]}');
+    }
+    res.statusCode = req.method === 'GET' ? 405 : 404; res.end('yok');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const root = `http://127.0.0.1:${server.address().port}`;
+  try {
+    // Tam adres: tür adresten anlaşılır; model listesi olmayan sunucuda model adı istenir
+    await assert.rejects(s.testLocal({ url: `${root}/chat/completions` }), { code: 'no-model-list' });
+    assert.deepEqual(await s.testLocal({ url: `${root}/chat/completions`, model: 'gw-a' }), { ok: true, models: [], answered: true, kind: 'openai' });
+    mode = 'liste';
+    assert.deepEqual(await s.testLocal({ url: `${root}/chat/completions/` }), { ok: true, models: ['gw-a'], answered: false, kind: 'openai' });
+    // Kök adres: önce Anthropic uç noktası denenir, yoksa OpenAI uç noktası bulunur
+    mode = 'ok';
+    seen.length = 0;
+    assert.deepEqual(await s.testLocal({ url: root, model: 'gw-a' }), { ok: true, models: [], answered: true, kind: 'openai' });
+    assert.ok(seen.includes('POST /v1/chat/completions'));
+    mode = 'yetkisiz';
+    await assert.rejects(s.testLocal({ url: `${root}/chat/completions`, model: 'gw-a' }), (err) => err.code === 'bad-model' && /HTTP 401 anahtar gerekli/.test(err.detail));
+  } finally { server.close(); }
+  await assert.rejects(s.testLocal({ url: 'http://127.0.0.1:9/chat/completions', model: 'x' }), { code: 'unreachable' });
+
+  for (const m of s.localStatus().models) s.removeLocal(m.id);
+  const st = s.saveLocal({ name: 'Gateway', url: 'https://gateway.example.com/chat/completions/', model: 'gw-a', key: 'asil' });
+  assert.deepEqual(st.models.map((m) => [m.url, m.kind, m.hasKey]), [['https://gateway.example.com/chat/completions', 'openai', true]]);
+  const cfg = s.localConfig(st.models[0].id);
+  const env = s.localEnv(cfg, {});
+  assert.equal(env.ANTHROPIC_BASE_URL, `http://127.0.0.1:3210/kopru/${cfg.id}`);
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, bridge.secret);
+  assert.ok(!JSON.stringify(env).includes('asil'), 'asıl anahtar Claude Code sürecine verilmez');
+  assert.equal(env.ANTHROPIC_MODEL, 'gw-a');
+  // Seçimle belirtilen tür ve /v1 ile biten adres korunur; Anthropic türünde /v1 atılır
+  const two = s.saveLocal({ url: 'http://localhost:8000/v1', model: 'm', kind: 'openai' }).models[1];
+  assert.deepEqual([two.url, two.kind], ['http://localhost:8000/v1', 'openai']);
+  const three = s.saveLocal({ id: two.id, url: 'http://localhost:8000/v1', model: 'm', kind: 'anthropic' }).models[1];
+  assert.deepEqual([three.url, three.kind], ['http://localhost:8000', 'anthropic']);
+  for (const m of s.localStatus().models) s.removeLocal(m.id);
 });
 
 test('skill klasörü eklenir (tek ya da üst klasör), listelenir ve kaldırılır; elle eklenmiş skill ezilmez', () => {
