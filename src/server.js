@@ -493,7 +493,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.get('/api/fs/list', wrap(async (req, res) => {
     const requested = String(req.query.path || '');
     if (!requested && process.platform === 'win32') return res.json({ path: '', parent: null, dirs: await windowsDrives() });
-    const dir = path.resolve(requested || os.homedir());
+    // "~": kullanıcının ev klasörü (klasör seçici başlangıcı)
+    const dir = path.resolve(requested === '~' ? os.homedir() : requested || os.homedir());
     const entries = await fs.readdir(dir, { withFileTypes: true });
     const dirs = entries
       .filter((e) => e.isDirectory() && !e.name.startsWith('$'))
