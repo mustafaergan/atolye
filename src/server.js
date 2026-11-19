@@ -213,6 +213,10 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     'bad-days': msg(lang, 'Gün sayısı 1 ile 3650 arasında olmalı'),
     'local-not-found': msg(lang, 'Bu yerel model bulunamadı; silinmiş olabilir'),
     'too-many-local': msg(lang, 'En fazla {n} yerel model eklenebilir', { n: settings.MAX_LOCAL }),
+    'nothing-to-export': msg(lang, 'Dışa aktarılacak yerel model yok'),
+    'bad-file': msg(lang, 'Bu dosya bir Atölye yerel model dosyası değil ya da bozuk'),
+    'need-pass': msg(lang, 'Dosyadaki API anahtarları şifreli; şifreleme anahtarını yazın'),
+    'bad-pass': msg(lang, 'Şifreleme anahtarı yanlış; dosyadaki API anahtarları çözülemedi'),
   })[err.code] || err.message;
   const guard = (fn) => wrap(async (req, res) => {
     try { res.json(await fn(req, res)); } catch (err) { res.json({ ok: false, error: settingsError(req.query.lang, err) }); }
@@ -236,6 +240,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.post('/api/settings/copilot', guard(async (req) => ({ ok: true, status: settings.saveCopilot(req.body || {}) })));
   app.post('/api/settings/local', guard(async (req) => { const st = settings.saveLocal(req.body || {}); console.log(`[ayarlar] yerel LLM kaydedildi (${st.models.length} model)`); return { ok: true, status: st }; }));
   app.delete('/api/settings/local/:id', guard(async (req) => { console.log('[ayarlar] yerel LLM kaldırıldı'); return { ok: true, status: settings.removeLocal(req.params.id) }; }));
+  // Dışa / içe aktarma: API anahtarları dosyada şifreli durur (bkz. settings.js)
+  app.post('/api/settings/local/export', guard(async (req) => { const file = settings.exportLocal(req.body || {}); console.log(`[ayarlar] yerel LLM dışa aktarıldı (${file.models.length} model)`); return { ok: true, file }; }));
+  app.post('/api/settings/local/import', guard(async (req) => { const r = settings.importLocal(req.body || {}); console.log(`[ayarlar] yerel LLM içe aktarıldı (${r.added} yeni, ${r.updated} güncellenen)`); return { ok: true, ...r }; }));
   app.post('/api/settings/local/test', guard(async (req) => {
     // Düzenlenen modelde anahtar alanı boş bırakıldıysa kayıtlı anahtarla denenir
     const saved = req.body?.id ? settings.localConfig(req.body.id) : null;

@@ -204,6 +204,11 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
   Tür, adres `/chat/completions` ile bitiyorsa kendiliğinden seçilir; emin değilseniz **Bağlantıyı dene** hangisinin
   çalıştığını bulur. Liste `~/.atolye/yerel-llm.json` dosyasında durur. Küçük modeller araç kullanımında (dosya
   okuma, komut çalıştırma) zayıf kalabilir; modelin araç çağrısını (function calling) desteklemesi gerekir.
+
+  **Dışa aktar / İçe aktar:** model listesi `atolye-yerel-llm.json` dosyasına yazılır ve başka bir bilgisayarda içe
+  aktarılır. API anahtarları dosyada açık durmaz; şifreleme anahtarıyla (değiştirilmezse `atolye`) AES-256-GCM ile
+  şifrelenir ve içe aktarırken aynı anahtar sorulur; yanlış anahtarda hiçbir şey eklenmez. Varsayılan anahtar herkesçe
+  bilindiği için dosyayı paylaşacaksanız dışa aktarırken kendi anahtarınızı yazın.
 - **Skill'ler:** içinde `SKILL.md` bulunan bir klasör (ya da birden fazla skill içeren üst klasör) eklenir; skill
   `~/.claude/skills` altına kopyalanır ve yeni oturumlarda `/` komut listesinde çıkar. Yalnızca Atölye'nin eklediği
   skill'ler buradan kaldırılabilir.

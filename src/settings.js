@@ -1,6 +1,7 @@
 // Ayarlar penceresinin sunucu tarafı: uygulama seçenekleri (masaüstü uygulaması, kısayol, otomatik başlatma),
 // Claude ve Copilot ayarları, yerel LLM, skill klasörleri ve eski oturumların seçimi.
 // Kalıcı değerler kurulum klasöründeki .env dosyasına yazılır ve çalışan sürece de hemen uygulanır.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -178,6 +179,77 @@ export function saveLocal({ id, name, url, model, key, kind } = {}) {
 export function removeLocal(id) {
   writeLocal(readLocal().filter((m) => m.id !== id));
   return localStatus();
+}
+
+// Dışa / içe aktarma: model listesi tek bir JSON dosyasına yazılır. API anahtarları dosyada açık durmaz; verilen
+// şifreleme anahtarıyla (boş bırakılırsa "atolye") AES-256-GCM ile şifrelenir, içe aktarırken aynı anahtar istenir.
+export const EXPORT_PASS = 'atolye';
+const passKey = (pass, salt) => crypto.scryptSync(String(pass), salt, 32);
+
+/** Kayıtlı yerel modellerin dışa aktarım dosyası (nesne olarak) */
+export function exportLocal({ pass } = {}) {
+  const all = readLocal();
+  if (!all.length) throw fail('nothing-to-export');
+  const salt = crypto.randomBytes(16);
+  const key = passKey(String(pass || '') || EXPORT_PASS, salt);
+  const seal = (text) => {
+    const iv = crypto.randomBytes(12);
+    const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const data = Buffer.concat([c.update(text, 'utf8'), c.final()]);
+    return { iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), data: data.toString('base64') };
+  };
+  return {
+    app: 'atolye', type: 'yerel-llm', version: 1, salt: salt.toString('base64'),
+    models: all.map((m) => ({ name: m.name || m.model, url: m.url, model: m.model, kind: m.kind, ...(m.key ? { key: seal(m.key) } : {}) })),
+  };
+}
+
+/** Dosyada şifreli API anahtarı var mı (varsa içe aktarırken şifreleme anahtarı sorulur) */
+const exportShape = (data) => {
+  let d = data;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch { throw fail('bad-file'); } }
+  if (!d || d.app !== 'atolye' || d.type !== 'yerel-llm' || !Array.isArray(d.models)) throw fail('bad-file');
+  return d;
+};
+
+/**
+ * Dışa aktarılmış dosyadaki modelleri ekler. Aynı adres ve modelle kayıt varsa adı ve anahtarı güncellenir.
+ * Şifreleme anahtarı yanlışsa hiçbir şey yazılmaz.
+ */
+export function importLocal({ data, pass } = {}) {
+  const d = exportShape(data);
+  const sealed = d.models.some((m) => m?.key);
+  if (sealed && !String(pass || '')) throw fail('need-pass');
+  let key = null;
+  const open = (k) => {
+    try {
+      key ||= passKey(pass, Buffer.from(String(d.salt || ''), 'base64'));
+      const dc = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(String(k.iv), 'base64'));
+      dc.setAuthTag(Buffer.from(String(k.tag), 'base64'));
+      return Buffer.concat([dc.update(Buffer.from(String(k.data), 'base64')), dc.final()]).toString('utf8');
+    } catch {
+      throw fail('bad-pass');
+    }
+  };
+  const all = readLocal();
+  let added = 0;
+  let updated = 0;
+  for (const raw of d.models.slice(0, 50)) {
+    const type = kindOf(raw?.url, raw?.kind);
+    const u = localUrl(raw?.url, type);
+    const m = String(raw?.model || '').trim().slice(0, 120);
+    if (!u || !m) continue;
+    const k = raw.key ? open(raw.key) : '';
+    const label = String(raw.name || '').replace(/\s+/g, ' ').trim().slice(0, 40) || m;
+    const at = all.findIndex((x) => x.url === u && x.model === m && x.kind === type);
+    if (at >= 0) { all[at] = { ...all[at], name: label, ...(k ? { key: k } : {}) }; updated += 1; continue; }
+    if (all.length >= MAX_LOCAL) throw fail('too-many-local');
+    all.push({ id: Math.random().toString(36).slice(2, 10), name: label, url: u, model: m, kind: type, key: k });
+    added += 1;
+  }
+  if (!added && !updated) throw fail('bad-file');
+  writeLocal(all);
+  return { added, updated, status: localStatus() };
 }
 
 /**

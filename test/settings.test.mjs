@@ -150,6 +150,41 @@ test('OpenAI uyumlu sunucu: tür adresten ya da denemeden bulunur, oturum köpr�
   for (const m of s.localStatus().models) s.removeLocal(m.id);
 });
 
+test('yerel modeller dışa ve içe aktarılır: API anahtarı dosyada şifreli durur, anahtar yanlışsa hiçbir şey yazılmaz', () => {
+  for (const m of s.localStatus().models) s.removeLocal(m.id);
+  assert.throws(() => s.exportLocal({}), { code: 'nothing-to-export' });
+  s.saveLocal({ name: 'Gateway', url: 'https://gateway.example.com/chat/completions', model: 'gw-a', key: 'cok-gizli-token' });
+  s.saveLocal({ url: 'http://localhost:11434', model: 'qwen3-coder' });
+  const file = s.exportLocal({});
+  const text = JSON.stringify(file);
+  assert.deepEqual([file.app, file.type, file.version], ['atolye', 'yerel-llm', 1]);
+  assert.deepEqual(file.models.map((m) => [m.name, m.url, m.model, m.kind, Boolean(m.key)]), [
+    ['Gateway', 'https://gateway.example.com/chat/completions', 'gw-a', 'openai', true],
+    ['qwen3-coder', 'http://localhost:11434', 'qwen3-coder', 'anthropic', false],
+  ]);
+  assert.ok(!text.includes('cok-gizli-token'), 'anahtar dosyada açık durmaz');
+  assert.ok(!('id' in file.models[0]));
+
+  for (const m of s.localStatus().models) s.removeLocal(m.id);
+  assert.throws(() => s.importLocal({ data: text }), { code: 'need-pass' });
+  assert.throws(() => s.importLocal({ data: text, pass: 'yanlis' }), { code: 'bad-pass' });
+  assert.equal(s.localStatus().models.length, 0, 'yanlış anahtarda hiçbir şey yazılmaz');
+  assert.throws(() => s.importLocal({ data: '{bozuk', pass: 'atolye' }), { code: 'bad-file' });
+  assert.throws(() => s.importLocal({ data: { app: 'baska', models: [] }, pass: 'atolye' }), { code: 'bad-file' });
+  const r = s.importLocal({ data: text, pass: 'atolye' });
+  assert.deepEqual([r.added, r.updated, r.status.models.map((m) => [m.name, m.kind, m.hasKey])], [2, 0, [['Gateway', 'openai', true], ['qwen3-coder', 'anthropic', false]]]);
+  assert.equal(s.localConfig(r.status.models[0].id).key, 'cok-gizli-token');
+  // Aynı dosya yeniden alınırsa kayıtlar çoğalmaz, güncellenir
+  assert.deepEqual([s.importLocal({ data: file, pass: 'atolye' }).added, s.localStatus().models.length], [0, 2]);
+
+  // Kullanıcının seçtiği anahtarla: varsayılan anahtar o dosyayı açmaz; anahtarsız dosyada anahtar sorulmaz
+  const own = s.exportLocal({ pass: 'benim anahtarım' });
+  assert.throws(() => s.importLocal({ data: own, pass: 'atolye' }), { code: 'bad-pass' });
+  assert.equal(s.importLocal({ data: own, pass: 'benim anahtarım' }).updated, 2);
+  assert.equal(s.importLocal({ data: { ...own, models: own.models.slice(1) } }).updated, 1);
+  for (const m of s.localStatus().models) s.removeLocal(m.id);
+});
+
 test('skill klasörü eklenir (tek ya da üst klasör), listelenir ve kaldırılır; elle eklenmiş skill ezilmez', () => {
   const src = path.join(tmp, 'kaynak');
   const mk = (dir, text) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'SKILL.md'), text); };

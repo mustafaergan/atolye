@@ -2111,6 +2111,51 @@ function settingsCopilot() {
   ];
 }
 
+// JSON nesnesini dosya olarak indirir
+function downloadJson(name, obj) {
+  const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' })), download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
+// Yerel modelleri dışa / içe aktarma bölümü. API anahtarları dosyaya şifreleme anahtarıyla (varsayılan "atolye")
+// şifrelenerek yazılır; içe aktarırken aynı anahtar sorulur.
+function settingsLocalIo(applied) {
+  const io = settingsUi.localIo;
+  const close = el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => { settingsUi.localIo = null; setNote(''); } });
+  if (io.mode === 'export') {
+    const pass = sInput(io.pass, { maxlength: '200' });
+    return [
+      el('div', { class: 'command-head', text: T('Yerel modelleri dışa aktar') }),
+      sField(T('Şifreleme anahtarı'), pass, T('API anahtarları dosyaya açık yazılmaz; bu anahtarla şifrelenir. İçe aktarırken aynı anahtar sorulur. Değiştirmezseniz anahtar "atolye" olur.')),
+      el('div', { class: 'links-actions' },
+        el('button', { type: 'button', class: 'btn primary', text: T('Dosyayı indir'), onclick: async () => {
+          io.pass = pass.value;
+          const r = await sCall('/api/settings/local/export', { pass: pass.value });
+          if (r.ok) { downloadJson('atolye-yerel-llm.json', r.file); settingsUi.localIo = null; }
+          setNote(r.ok ? T('{n} model dışa aktarıldı: atolye-yerel-llm.json', { n: r.file.models.length }) : r.error, r.ok ? 'ok' : 'err');
+        } }),
+        close),
+    ];
+  }
+  const pass = sInput(io.pass, { type: 'password', maxlength: '200' });
+  const run = async () => {
+    io.pass = pass.value;
+    const r = await sCall('/api/settings/local/import', { data: io.data, pass: pass.value });
+    await applied(r);
+    if (r.ok) settingsUi.localIo = null;
+    setNote(r.ok ? T('İçe aktarıldı: {a} yeni, {u} güncellenen model.', { a: r.added, u: r.updated }) : r.error, r.ok ? 'ok' : 'err');
+  };
+  pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+  return [
+    el('div', { class: 'command-head', text: T('{name} içe aktarılıyor ({n} model)', { name: io.name, n: io.data.models.length }) }),
+    sField(T('Şifreleme anahtarı'), pass, T('Dosya dışa aktarılırken kullanılan anahtarı yazın.')),
+    el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('İçe aktar'), onclick: run }), close),
+  ];
+}
+
 function settingsLocal() {
   const models = settingsUi.data.local?.models || [];
   // Form yalnızca "+" düğmesine basılınca ya da bir model düzenlenirken açılır
@@ -2130,6 +2175,19 @@ function settingsLocal() {
   const list = el('datalist', { id: 'localModels' }, (settingsUi.localModels || []).map((m) => el('option', { value: m })));
   const keep = () => Object.assign(draft, { name: name.value, url: url.value, model: model.value, kind: kind.value, key: key.value }); // anahtar yalnızca pencere açıkken bellekte durur
   const applied = async (r) => { if (r.status) { settingsUi.data.local = r.status; await loadEngines(true); } };
+  const ioOpen = Boolean(settingsUi.localIo) && !formOpen;
+  // İçe aktarılacak dosya seçilince: şifreli anahtar varsa şifreleme anahtarı sorulur, yoksa doğrudan eklenir
+  const picker = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: async () => {
+    const f = picker.files?.[0];
+    if (!f) return;
+    let data = null;
+    try { data = JSON.parse(await f.text()); } catch { /* aşağıda bildirilir */ }
+    if (!data || data.app !== 'atolye' || data.type !== 'yerel-llm' || !Array.isArray(data.models)) { setNote(T('Bu dosya bir Atölye yerel model dosyası değil ya da bozuk'), 'err'); return; }
+    if (data.models.some((m) => m && m.key)) { settingsUi.localIo = { mode: 'import', name: f.name, data, pass: '' }; setNote(''); return; }
+    const r = await sCall('/api/settings/local/import', { data });
+    await applied(r);
+    setNote(r.ok ? T('İçe aktarıldı: {a} yeni, {u} güncellenen model.', { a: r.added, u: r.updated }) : r.error, r.ok ? 'ok' : 'err');
+  } });
   return [
     el('p', { class: 'links-intro', text: T('Bu bilgisayarda, yerel ağınızda ya da kurumunuzda çalışan modelleri (Ollama, LM Studio, llama.cpp, OpenAI uyumlu gateway vb.) Atölye\'de kullanın. Birden fazla model ekleyebilirsiniz; her biri üstteki motor seçicisinde ayrı bir seçenek olur. Hem Anthropic uyumlu (/v1/messages) hem de OpenAI uyumlu (/chat/completions) sunucular desteklenir. Verileriniz yalnızca yazdığınız adrese gider.') }),
     models.length ? el('div', { class: 'command-list' }, models.map((m) => el('div', { class: 'command-row' },
@@ -2143,7 +2201,12 @@ function settingsLocal() {
           setNote(r.ok ? T('Yerel model kaldırıldı.') : r.error, r.ok ? 'ok' : 'err');
         } })))))
       : sNote(T('Henüz yerel model eklemediniz.')),
-    !formOpen && el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('+ Yerel model ekle'), onclick: () => { settingsUi.localDraft = { id: '', name: '', url: '', model: '', kind: '' }; setNote(''); } })),
+    !formOpen && !ioOpen && el('div', { class: 'links-actions' },
+      el('button', { type: 'button', class: 'btn primary', text: T('+ Yerel model ekle'), onclick: () => { settingsUi.localDraft = { id: '', name: '', url: '', model: '', kind: '' }; setNote(''); } }),
+      models.length > 0 && el('button', { type: 'button', class: 'btn', text: T('Dışa aktar'), onclick: () => { settingsUi.localIo = { mode: 'export', pass: 'atolye' }; setNote(''); } }),
+      el('button', { type: 'button', class: 'btn', text: T('İçe aktar'), onclick: () => picker.click() }),
+      picker),
+    ...(ioOpen ? settingsLocalIo(applied) : []),
     ...(!formOpen ? [] : [
     el('div', { class: 'command-head', text: editing ? T('{name} düzenleniyor', { name: editing.name }) : T('Yeni yerel model') }),
     sField(T('Sunucu adresi'), url, T('Ollama: http://localhost:11434 · LM Studio: http://localhost:1234 · OpenAI uyumlu sunucu ya da gateway: /chat/completions ile biten tam adres')),
