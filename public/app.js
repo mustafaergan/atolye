@@ -2243,7 +2243,8 @@ function settingsLocal() {
 
 function settingsSkills() {
   const skills = settingsUi.data.skills || [];
-  const dir = sInput('', { placeholder: 'C:\\dev\\skillerim\\rapor-yaz' });
+  const dir = sInput(settingsUi.skillDir || '', { placeholder: 'C:\\dev\\skillerim\\rapor-yaz' });
+  dir.addEventListener('input', () => { settingsUi.skillDir = dir.value; });
   return [
     el('p', { class: 'links-intro', text: T('Skill, yapay zekâya belirli bir işi nasıl yapacağını anlatan bir klasördür (içinde SKILL.md bulunur). Klasörün yolunu yazıp ekleyin; birden fazla skill içeren bir üst klasör de verebilirsiniz. Eklenen skill yeni açılan oturumlarda "/" komut listesinde çıkar.') }),
     skills.length ? el('div', { class: 'command-list' }, skills.map((s) => el('div', { class: 'command-row' },
@@ -2256,10 +2257,20 @@ function settingsSkills() {
         setNote(r.ok ? T('Skill kaldırıldı.') : r.error, r.ok ? 'ok' : 'err');
       } })))))
       : sNote(T('Henüz skill eklemediniz.')),
-    sField(T('Skill klasörü'), dir),
-    el('div', { class: 'links-actions' }, el('button', { type: 'button', class: 'btn primary', text: T('Ekle'), onclick: async () => {
+    sField(T('Skill klasörü'), dir, T('Yolu yazın ya da "Klasör seç" ile bilgisayarınızdan seçin.')),
+    el('div', { class: 'links-actions' },
+      el('button', { type: 'button', class: 'btn', text: T('Klasör seç…'), onclick: async () => {
+        // Yazılı bir yol varsa oradan, yoksa proje klasöründen (klasörsüz sohbette kullanıcının ev klasöründen) başlanır
+        const picked = await pickFolder({ start: dir.value.trim() || (isGeneral(state.cwd) ? '~' : state.cwd), title: T('Skill klasörü seç'), ok: T('Bu klasörü seç') });
+        if (!picked) return;
+        dir.value = picked;
+        settingsUi.skillDir = picked;
+        dir.focus();
+      } }),
+      el('button', { type: 'button', class: 'btn primary', text: T('Ekle'), onclick: async () => {
       const r = await sCall('/api/settings/skills', { dir: dir.value });
       if (r.skills) settingsUi.data.skills = r.skills;
+      if (r.ok) settingsUi.skillDir = '';
       setNote(r.ok ? T('Eklendi: {names}. Yeni açılan oturumlarda kullanılabilir.', { names: (r.added || []).map((n) => `/${n}`).join(', ') }) : r.error, r.ok ? 'ok' : 'err');
     } })),
   ];
@@ -2457,12 +2468,28 @@ async function browse(p) {
     dirList.replaceChildren(el('div', { class: 'list-empty', text: err.message }));
   }
 }
-function openFolderDialog() { browse(state.cwd); dlg.showModal(); }
+// Pencere iki işte kullanılır: proje klasörü eklemek (varsayılan) ve başka bir ekran için yalnızca klasör seçmek
+let folderPick = null; // seçim bekleniyorsa sonucu alacak işlev
+function folderDialogText(title, ok) {
+  dlg.querySelector('h2').textContent = title;
+  $('#folderChoose').textContent = ok;
+}
+function openFolderDialog() { folderPick = null; folderDialogText(T('Proje klasörü ekle'), T('Ekle ve yeni oturum aç')); browse(state.cwd); dlg.showModal(); }
+/** Klasör seçtirir; seçilen yolu, vazgeçilirse null döndürür */
+function pickFolder({ start = '', title, ok }) {
+  return new Promise((resolve) => {
+    folderPick = resolve;
+    folderDialogText(title, ok);
+    browse(start);
+    dlg.showModal();
+  });
+}
 $('#folderBtn').onclick = openFolderDialog;
 $('#pathGo').onclick = () => browse(pathInput.value);
 pathInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); browse(pathInput.value); } });
 // Seçilen klasör projelere eklenir ve içinde yeni bir oturum açılır
 dlg.addEventListener('close', () => {
+  if (folderPick) { const done = folderPick; folderPick = null; done(dlg.returnValue === 'ok' && pathInput.value ? pathInput.value : null); return; }
   if (dlg.returnValue !== 'ok' || !pathInput.value) return;
   const dir = pathInput.value;
   setCollapsed(pathKey(dir), false);
