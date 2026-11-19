@@ -50,6 +50,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Bu işaret yalnızca yerel LLM oturumlarına verilir (bkz. settings.js localEnv); dışarıdan gelmişse yok sayılır ki
   // Outlook araçları Claude ya da Copilot oturumlarına hiçbir koşulda sunulmasın
   delete process.env.ATOLYE_YEREL_OTURUM;
+  // Eski sürümle eklenmiş skill'ler Copilot'un klasörüne de kopyalanır (bkz. settings.js syncSkills)
+  try { const n = settings.syncSkills(); if (n) console.log(`[ayarlar] ${n} skill Copilot klasörüne kopyalandı`); } catch (err) { console.error(`[ayarlar] skill eşitlenemedi: ${err?.message || err}`); }
   const app = express();
   const store = new StateStore();
   const manager = new SessionManager({
