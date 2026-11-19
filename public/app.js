@@ -424,6 +424,10 @@ function applyEngineUi() {
   const planOpt = dom.modeSelect.querySelector('option[value="plan"]');
   planOpt.hidden = true;
   planOpt.disabled = true;
+  // Outlook yalnızca yerel LLM oturumunda vardır: motor değişince bağlantı listeleri yenilenir
+  if (!roleTabs().includes(links.tab)) links.tab = roleTabs()[0];
+  renderLinkSelect();
+  renderLinksBadge();
 }
 
 // Copilot "kurulu değil" görünüyorsa seçici açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
@@ -2732,7 +2736,9 @@ const ROLES = {
 ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi') };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
-const roleTabs = () => currentRole().tabs;
+// Outlook her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar yalnızca yerel modele okutulur)
+const withOutlook = (tabs) => { const at = tabs.indexOf('tarayici'); return at < 0 ? [...tabs, 'outlook'] : [...tabs.slice(0, at), 'outlook', ...tabs.slice(at)]; };
+const roleTabs = () => (currentEngine() === 'yerel' ? withOutlook(currentRole().tabs) : currentRole().tabs);
 function applyRole() {
   const sel = $('#roleSelect');
   sel.replaceChildren(...['analist', 'sahip', 'gelistirici'].filter((id) => ROLES[id]).map((id) => el('option', { value: id, text: ROLES[id].name() })));
@@ -3232,7 +3238,7 @@ async function renderProxyTab() {
 
 // ---------- Outlook bağlantısı ----------
 // Bilgisayardaki klasik Outlook'tan okuma; adres ya da anahtar yok, yalnızca etkinleştirilir ve sınanır.
-// Şimdilik pasif: hiçbir modun sekmelerinde yok (ekranda görünmez); kod ileride açmak için duruyor
+// Sekmesi ve araçları yalnızca yerel LLM oturumunda vardır (bkz. roleTabs ve src/atlassian.js configFromEnv)
 LINKS.outlook = { name: 'Outlook' };
 const outlookUi = { result: null };
 function renderOutlookTab() {
@@ -3260,7 +3266,7 @@ function renderOutlookTab() {
     if (links.tab === 'outlook') renderLinks();
   } });
   $('#linksBody').replaceChildren(
-    el('ol', { class: 'links-steps' }, el('li', { text: T('Bu bağlantı, bilgisayarınızdaki Outlook\'tan e-postaları ve takvimi yapay zekâya okutur: e-posta arama, bir e-postayı okuma, klasörleri ve toplantıları listeleme. Hesap, parola ya da adres gerekmez; Outlook\'ta açık olan hesabınız kullanılır.') }), el('li', { text: T('Yalnızca klasik (masaüstü) Outlook ile çalışır. "Yeni Outlook" ya da Outlook web kullanıyorsanız çalışmaz; klasik Outlook\'ta sağ üstteki "Yeni Outlook" anahtarı kapalı olmalıdır.') }), el('li', { text: T('Yalnızca okuma yapılır: e-posta gönderilmez, taşınmaz, silinmez ve okundu işareti değişmez. İlk erişimde Outlook bir onay penceresi gösterebilir; bu, kuruluşunuzun ayarına bağlıdır.') }), el('li', { text: T('E-postalar müşteri, kişisel ya da gizli bilgi içerebilir ve okunan içerik yapay zekâ hizmetine gönderilir. Kuruluşunuzun bu konudaki kurallarına uyun.') })),
+    el('ol', { class: 'links-steps' }, el('li', { text: T('Bu bağlantı, bilgisayarınızdaki Outlook\'tan e-postaları ve takvimi yapay zekâya okutur: e-posta arama, bir e-postayı okuma, klasörleri ve toplantıları listeleme. Hesap, parola ya da adres gerekmez; Outlook\'ta açık olan hesabınız kullanılır.') }), el('li', { text: T('Yalnızca klasik (masaüstü) Outlook ile çalışır. "Yeni Outlook" ya da Outlook web kullanıyorsanız çalışmaz; klasik Outlook\'ta sağ üstteki "Yeni Outlook" anahtarı kapalı olmalıdır.') }), el('li', { text: T('Yalnızca okuma yapılır: e-posta gönderilmez, taşınmaz, silinmez ve okundu işareti değişmez. İlk erişimde Outlook bir onay penceresi gösterebilir; bu, kuruluşunuzun ayarına bağlıdır.') }), el('li', { text: T('E-postalar müşteri, kişisel ya da gizli bilgi içerebilir. Bu yüzden Outlook yalnızca yerel LLM oturumlarında kullanılabilir: okunan içerik yalnızca seçtiğiniz yerel modele gider; Claude Code ve GitHub Copilot oturumlarında Outlook araçları bulunmaz. Kuruluşunuzun bu konudaki kurallarına uyun.') })),
     el('div', { class: 'links-actions' }, saveBtn, st.connected ? removeBtn : null, helpButton('outlook')),
     result,
     el('p', { class: 'links-intro', text: T('Örnek: "Outlook\'ta son 3 günde jira klasörüne gelen e-postaları özetle" ya da "bugünkü toplantılarım neler?".') }));

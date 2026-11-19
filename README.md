@@ -284,6 +284,15 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   `~/.atolye/test-otomasyon.json` dosyasında tutulur.
 - **ReportPortal** (API anahtarı; bütün modlarda, yalnızca okuma): `reportportal_list_projects`, `reportportal_list_launches`,
   `reportportal_get_launch`, `reportportal_list_items` (başarısız testler), `reportportal_get_logs` (hata kayıtları).
+- **Outlook** (yalnızca **yerel LLM** oturumlarında; bütün modlarda, yalnızca okuma): bilgisayardaki klasik Outlook'tan
+  e-posta ve takvim okur: `outlook_list_folders`, `outlook_search_mail`, `outlook_get_mail`, `outlook_list_events`.
+  Hesap, parola ya da adres gerekmez; Bağlantılar penceresindeki Outlook sekmesinden etkinleştirilir. E-postalar gizli
+  bilgi içerebildiği için sekme de araçlar da yalnızca motor seçicisinde bir yerel model seçiliyken vardır: okunan
+  içerik yalnızca o modele gider, Claude Code ve GitHub Copilot oturumlarına Outlook araçları hiç sunulmaz ("Veri
+  getir" de kullanamaz). Erişim PowerShell üzerinden Outlook'un kendi arayüzüyle (COM) yapılır; "Yeni Outlook" ve
+  Outlook web desteklenmez, güvenlik yazılımı PowerShell'i engelliyorsa bağlantı çalışmaz.
+- Yerel LLM oturumlarında bağlantı araçları modele doğrudan tanımlanır (Claude Code'un araçları sonradan yükleyen
+  "araç araması" kapatılır; yerel modeller ertelenmiş araçları çağıramaz).
 - Geliştirici modundaki bağlantılar:
   - **Jenkins** (kullanıcı adı + API belirteci): `jenkins_list_jobs`, `jenkins_get_build`, `jenkins_get_console`,
     `jenkins_trigger_build` (derleme başlatır; diğer yazan araçlar gibi önce izin sorar).

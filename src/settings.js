@@ -271,6 +271,11 @@ export function localEnv(cfg, env = process.env) {
     ANTHROPIC_DEFAULT_SONNET_MODEL: cfg.model,
     ANTHROPIC_DEFAULT_OPUS_MODEL: cfg.model,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    // Araçlar ertelenmeden (araç araması olmadan) doğrudan verilir: erteleme Anthropic'e özgü bir düzenektir, yerel
+    // modeller bağlantı araçlarını (Jira, Outlook…) ancak istekte tanımlıysa çağırabilir
+    ENABLE_TOOL_SEARCH: 'false',
+    // Araç sunucusuna "bu oturum yerel modelle çalışıyor" işareti: Outlook araçları yalnızca bununla sunulur
+    ATOLYE_YEREL_OTURUM: '1',
     NO_PROXY: noProxy,
     no_proxy: noProxy,
   };
