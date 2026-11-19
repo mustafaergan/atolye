@@ -866,3 +866,21 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* Seçili renk halkası ve odak çerçevesi kaydırılan gövdenin kenarında kesilmesin */
 .links-body { padding: 2px 6px 2px 4px; }
 .swatches { padding: 6px 4px; }
+
+/* ---------- Soru işaretleri (sağ kenar) ---------- */
+.qnav { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); z-index: 3; display: flex; flex-direction: column; align-items: flex-end; max-height: 60vh; padding: 4px 0; }
+.qnav[hidden] { display: none; }
+.main.has-qnav .transcript { padding-right: 40px; }
+.q-tick { position: relative; border: 0; background: transparent; width: 22px; height: clamp(5px, calc(56vh / var(--n, 10)), 13px); padding: 0; display: flex; align-items: center; justify-content: flex-end; cursor: pointer; flex: none; }
+.q-line { width: 12px; height: 2px; border-radius: 1px; background: var(--border-strong); transition: width .12s, background .12s; }
+.q-tick.on .q-line { width: 18px; background: var(--accent); }
+.q-tick:hover .q-line, .q-tick:focus-visible .q-line { width: 22px; background: var(--text); }
+.q-tick:focus-visible { outline: 0; }
+.q-tip { display: none; position: absolute; right: 30px; top: 50%; transform: translateY(-50%); width: max-content; max-width: 300px; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 8px 12px; pointer-events: none; }
+.q-tick:hover .q-tip, .q-tick:focus-visible .q-tip { display: block; }
+.q-no { display: block; font-size: 11px; color: var(--text-3); margin-bottom: 2px; }
+.q-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; line-height: 1.4; color: var(--text); overflow-wrap: anywhere; }
+.msg-user.q-flash .bubble { animation: qflash 1.4s ease-out; }
+@keyframes qflash { 0%, 35% { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
+@media (max-width: 600px) { .qnav { right: 4px; } .main.has-qnav .transcript { padding-right: 26px; } .q-tip { max-width: 220px; } }
+.msg-user { scroll-margin-top: 14px; }

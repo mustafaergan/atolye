@@ -2314,6 +2314,48 @@ async function dropSession(from, s, side) {
   loadSessions(s.cwd);
 }
 
+// ---------- Soru işaretleri ----------
+// Konuşmanın sağ kenarında, kullanıcının her sorusu için küçük bir çizgi durur: üzerine gelince sorunun başı görünür,
+// tıklayınca o soruya gidilir. Ekranda görünen bölümün sorusu vurgulanır. Tek soruluk konuşmada gösterilmez.
+const qnav = $('#qnav');
+let qnavItems = []; // [{ node, tick }]
+function refreshQnav() {
+  const nodes = [...dom.messages.querySelectorAll(':scope > .msg-user')];
+  const show = nodes.length >= 2;
+  qnav.hidden = !show;
+  $('.main').classList.toggle('has-qnav', show);
+  if (!show) { qnavItems = []; qnav.replaceChildren(); return; }
+  qnav.style.setProperty('--n', String(nodes.length));
+  qnavItems = nodes.map((node, i) => {
+    const text = ($('.bubble', node)?.textContent || '').replace(/\s+/g, ' ').trim() || T('Ek dosya');
+    const tick = el('button', { type: 'button', class: 'q-tick', 'aria-label': text.slice(0, 120) },
+      el('span', { class: 'q-line' }),
+      el('span', { class: 'q-tip' }, el('span', { class: 'q-no', text: T('Soru {i} / {n}', { i: i + 1, n: nodes.length }) }), el('span', { class: 'q-text', text: text.length > 160 ? `${text.slice(0, 160)}…` : text })));
+    tick.onclick = () => {
+      node.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      node.classList.remove('q-flash');
+      void node.offsetWidth; // canlandırma yeniden başlasın
+      node.classList.add('q-flash');
+      tick.blur(); // özet kutusu tıklamadan sonra açık kalmasın
+    };
+    return { node, tick };
+  });
+  qnav.replaceChildren(...qnavItems.map((x) => x.tick));
+  markQnav();
+}
+// Ekranın üst kısmına en son geçen soru "şu an okunan" sayılır
+function markQnav() {
+  if (!qnavItems.length) return;
+  const top = dom.transcript.getBoundingClientRect().top + 140;
+  let current = 0;
+  qnavItems.forEach((x, i) => { if (x.node.getBoundingClientRect().top <= top) current = i; });
+  qnavItems.forEach((x, i) => x.tick.classList.toggle('on', i === current));
+}
+let qnavTimer = null;
+new MutationObserver(() => { clearTimeout(qnavTimer); qnavTimer = setTimeout(refreshQnav, 120); }).observe(dom.messages, { childList: true });
+let qnavFrame = 0;
+dom.transcript.addEventListener('scroll', () => { if (!qnavFrame) qnavFrame = requestAnimationFrame(() => { qnavFrame = 0; markQnav(); }); }, { passive: true });
+
 // ---------- Klasör seçici ----------
 const dlg = $('#folderDialog');
 const pathInput = $('#pathInput');
