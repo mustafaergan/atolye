@@ -380,9 +380,13 @@ export async function testLocal({ url, model, key, kind } = {}) {
 }
 
 // ---------- Skill klasörleri ----------
-// Eklenen skill, Claude Code'un (ve Copilot CLI'nin) kişisel skill klasörüne kopyalanır; yeni açılan oturumlarda
-// "/" komut listesinde görünür. Yalnızca Atölye'nin eklediği skill'ler kaldırılabilir.
+// Eklenen skill iki yere kopyalanır: Claude Code'un kişisel skill klasörü (~/.claude/skills; yerel LLM oturumları da
+// bunu kullanır) ve Copilot CLI'ninki (~/.copilot/skills; Copilot, Claude'un klasörüne bakmaz). Yeni açılan
+// oturumlarda "/" komut listesinde görünür. Yalnızca Atölye'nin eklediği skill'ler kaldırılabilir.
 const skillsDir = () => process.env.ATOLYE_SKILLS_DIR || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'skills');
+// Yalıtılmış denemelerde (ATOLYE_SKILLS_DIR verilmişse) gerçek ~/.copilot klasörüne dokunulmaz
+const copilotSkillsDir = () => process.env.ATOLYE_COPILOT_SKILLS_DIR
+  || (process.env.ATOLYE_SKILLS_DIR ? `${process.env.ATOLYE_SKILLS_DIR}-copilot` : path.join(process.env.COPILOT_HOME || path.join(os.homedir(), '.copilot'), 'skills'));
 const skillsFile = () => path.join(stateDir(), 'skiller.json');
 const readSkills = () => {
   try { const d = JSON.parse(fs.readFileSync(skillsFile(), 'utf8')); return Array.isArray(d?.skills) ? d.skills : []; } catch { return []; }
@@ -399,7 +403,62 @@ function skillInfo(dir) {
 }
 
 export function listSkills() {
-  return readSkills().map((s) => ({ ...s, description: skillInfo(path.join(skillsDir(), s.name))?.description || '', exists: fs.existsSync(path.join(skillsDir(), s.name, 'SKILL.md')) }));
+  return readSkills().map((s) => ({ ...s, copilot: Boolean(s.copilot), description: skillInfo(path.join(skillsDir(), s.name))?.description || '', exists: fs.existsSync(path.join(skillsDir(), s.name, 'SKILL.md')) }));
+}
+
+/**
+ * Skill'in Copilot klasöründeki kopyası. Orada aynı adla kullanıcının kendi koyduğu bir skill varsa dokunulmaz.
+ * Kopya oluştuysa kayıt "copilot" olarak işaretlenir (kaldırırken yalnızca kendi kopyamız silinsin diye).
+ */
+function mirrorToCopilot(entry) {
+  const src = path.join(skillsDir(), entry.name);
+  const dest = path.join(copilotSkillsDir(), entry.name);
+  if (!fs.existsSync(path.join(src, 'SKILL.md'))) return false;
+  if (fs.existsSync(dest) && !entry.copilot) return false;
+  try {
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.cpSync(src, dest, { recursive: true });
+    entry.copilot = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Eski sürümle eklenmiş (yalnızca Claude klasörüne kopyalanmış) skill'leri Copilot klasörüne de kopyalar */
+export function syncSkills() {
+  const tracked = readSkills();
+  let changed = 0;
+  for (const s of tracked) if (!s.copilot && mirrorToCopilot(s)) changed += 1;
+  if (changed) writeSkills(tracked);
+  return changed;
+}
+
+/** Copilot oturumunun "/" listesine eklenecek skill'ler (Copilot'un kendi bildirdiği komutlar hariç) */
+export function skillCommands(native = []) {
+  const known = new Set(native.map((c) => c.name));
+  return listSkills().filter((s) => s.exists && !known.has(s.name)).map((s) => ({ name: s.name, description: s.description }));
+}
+
+/**
+ * Copilot oturumunda "/skill-adı istek" yazıldıysa ve Copilot bu komutu kendisi tanımıyorsa mesaj düz isteğe çevrilir:
+ * { text: gönderilecek metin, note: yapay zekâya gizli yönerge }. Skill değilse ya da Copilot tanıyorsa null.
+ */
+export function skillPrompt(text, native = []) {
+  const m = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/i.exec(String(text || '').trim());
+  if (!m) return null;
+  const name = m[1].toLowerCase();
+  if (native.some((c) => c.name === name)) return null;
+  const skill = readSkills().find((s) => s.name === name);
+  if (!skill) return null;
+  const dir = [copilotSkillsDir(), skillsDir()].map((d) => path.join(d, name)).find((d) => fs.existsSync(path.join(d, 'SKILL.md')));
+  if (!dir) return null;
+  const rest = (m[2] || '').trim();
+  return {
+    name,
+    rest,
+    note: `The user invoked the skill "${name}". Use that skill for this request. If it is not already loaded, first read its instructions in ${path.join(dir, 'SKILL.md')} and follow them; the skill's other files are in the same folder.`,
+  };
 }
 
 /** Klasördeki skill'i (ya da alt klasörlerindeki skill'leri) ekler; eklenenlerin adlarını döndürür */
@@ -423,6 +482,7 @@ export function addSkill(dir) {
       fs.cpSync(src, dest, { recursive: true, filter: (p) => !/[\\/](node_modules|\.git)([\\/]|$)/.test(p) });
     }
     if (!ours) tracked.push({ name: info.name, source: src, added: new Date().toISOString() });
+    mirrorToCopilot(tracked.find((s) => s.name === info.name));
     added.push(info.name);
   }
   if (!added.length) throw fail('no-skill');
@@ -435,6 +495,7 @@ export function removeSkill(name) {
   const found = tracked.find((s) => s.name === name);
   if (!found) throw fail('not-found');
   fs.rmSync(path.join(skillsDir(), found.name), { recursive: true, force: true });
+  if (found.copilot) fs.rmSync(path.join(copilotSkillsDir(), found.name), { recursive: true, force: true });
   writeSkills(tracked.filter((s) => s.name !== name));
   return listSkills();
 }

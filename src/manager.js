@@ -12,7 +12,7 @@ import { AgentSession } from './session.js';
 import * as transcript from './transcript.js';
 import { CopilotSession } from './copilot.js';
 import { msg } from './messages.js';
-import { localConfig } from './settings.js';
+import { localConfig, skillPrompt } from './settings.js';
 import { aiTitle, shortTitle } from './title.js';
 import { validWork, workInstruction } from './workmode.js';
 import { attachmentPrompt } from './attachments.js';
@@ -129,8 +129,14 @@ export class SessionManager {
     // Ekli dosyaların yolu ve içeriğinin başı yalnızca yapay zekâya giden mesaja eklenir; ekranda dosya adları görünür.
     // Ask / Plan kipinin yönergesi de yalnızca yapay zekâya gider (geçmişte system-reminder olarak gizlenir).
     const extra = attachmentPrompt(files, lang);
-    const rule = text.startsWith('/') ? '' : workInstruction(entry.agent.work);
-    entry.agent.send(`${text}${extra ? `\n\n${extra}` : ''}${rule ? `\n\n<system-reminder>${rule}</system-reminder>` : ''}`, images);
+    // Copilot, Atölye ile eklenen skill'i "/ad" komutu olarak tanımıyorsa mesaj düz isteğe çevrilir ve skill'in yeri
+    // gizli yönergeyle bildirilir (Claude Code ve yerel LLM oturumlarında skill zaten komuttur)
+    let skill = null;
+    if (entry.engine === 'copilot') { try { skill = skillPrompt(text, entry.agent.commands || []); } catch { /* skill kaydı okunamadı: mesaj olduğu gibi gider */ } }
+    const body = skill ? (skill.rest || msg(lang, '"{name}" skill\'ini kullan.', { name: skill.name })) : text;
+    const rule = text.startsWith('/') && !skill ? '' : workInstruction(entry.agent.work);
+    const notes = [skill?.note, rule].filter(Boolean).map((n) => `\n\n<system-reminder>${n}</system-reminder>`).join('');
+    entry.agent.send(`${body}${extra ? `\n\n${extra}` : ''}${notes}`, images);
     entry.sent = true;
     // Başlık yalnızca kullanıcının yazdığından çıkarılır (Atölye'nin eklediği notlar ve getirilen veriler hariç)
     if (!entry.title) { entry.title = shortTitle(text) || msg(lang, 'Görsel'); entry.firstPrompt = text; entry.lang = lang; }

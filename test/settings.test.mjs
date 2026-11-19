@@ -198,15 +198,64 @@ test('skill klasörü eklenir (tek ya da üst klasör), listelenir ve kaldırıl
   const dest = path.join(process.env.ATOLYE_SKILLS_DIR, 'rapor-yaz');
   assert.ok(fs.existsSync(path.join(dest, 'sablon.txt')));
   assert.ok(!fs.existsSync(path.join(dest, 'node_modules')), 'node_modules kopyalanmaz');
+  // Copilot, Claude'un klasörüne bakmaz: skill onun kişisel klasörüne de kopyalanır
+  const copilotDir = `${process.env.ATOLYE_SKILLS_DIR}-copilot`;
+  assert.ok(fs.existsSync(path.join(copilotDir, 'rapor-yaz', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(copilotDir, 'rapor-yaz', 'sablon.txt')));
   assert.deepEqual(s.addSkill(src), ['ikinci', 'rapor-yaz'], 'üst klasör: içindeki bütün skill\'ler');
-  assert.deepEqual(s.listSkills().map((x) => [x.name, x.description, x.exists]), [['rapor-yaz', 'Haftalık rapor yazar', true], ['ikinci', '', true]]);
+  assert.deepEqual(s.listSkills().map((x) => [x.name, x.description, x.exists, x.copilot]), [['rapor-yaz', 'Haftalık rapor yazar', true, true], ['ikinci', '', true, true]]);
+  // Copilot oturumunun "/" listesi: Copilot'un kendi bildirdiği komut yinelenmez
+  assert.deepEqual(s.skillCommands([{ name: 'ikinci' }, { name: 'help' }]), [{ name: 'rapor-yaz', description: 'Haftalık rapor yazar' }]);
+  // "/skill istek": Copilot tanımıyorsa düz isteğe çevrilir ve skill'in yeri bildirilir
+  const call = s.skillPrompt('/rapor-yaz  bu haftayı özetle\nikinci satır', [{ name: 'help' }]);
+  assert.deepEqual([call.name, call.rest], ['rapor-yaz', 'bu haftayı özetle\nikinci satır']);
+  assert.ok(call.note.includes(path.join(copilotDir, 'rapor-yaz', 'SKILL.md')));
+  assert.equal(s.skillPrompt('/rapor-yaz x', [{ name: 'rapor-yaz' }]), null, 'Copilot komutu tanıyorsa dokunulmaz');
+  assert.equal(s.skillPrompt('/compact', []), null, 'skill olmayan komut');
+  assert.equal(s.skillPrompt('rapor-yaz bu haftayı özetle', []), null);
   mk(path.join(process.env.ATOLYE_SKILLS_DIR, 'elle'), 'kullanıcının kendi skill\'i');
   mk(path.join(tmp, 'baska', 'elle'), 'aynı adlı');
   assert.throws(() => s.addSkill(path.join(tmp, 'baska', 'elle')), { code: 'exists' });
   assert.throws(() => s.removeSkill('elle'), { code: 'not-found' });
   assert.deepEqual(s.removeSkill('rapor-yaz').map((x) => x.name), ['ikinci']);
   assert.ok(!fs.existsSync(dest));
+  assert.ok(!fs.existsSync(path.join(copilotDir, 'rapor-yaz')), 'Copilot kopyası da kaldırılır');
+
+  // Eski sürümle eklenmiş kayıt (Copilot kopyası yok) açılışta tamamlanır; kullanıcının Copilot'a kendi koyduğu ezilmez
+  const file = path.join(path.dirname(process.env.ATOLYE_STATE_FILE), 'skiller.json');
+  mk(path.join(process.env.ATOLYE_SKILLS_DIR, 'eski'), '---\nname: eski\n---\nAtölye kopyası');
+  mk(path.join(process.env.ATOLYE_SKILLS_DIR, 'cakisan'), 'Atölye kopyası');
+  mk(path.join(copilotDir, 'cakisan'), 'kullanıcının Copilot skill\'i');
+  fs.rmSync(path.join(copilotDir, 'ikinci'), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ skills: [{ name: 'ikinci' }, { name: 'eski' }, { name: 'cakisan' }] }));
+  assert.equal(s.syncSkills(), 2);
+  assert.equal(fs.readFileSync(path.join(copilotDir, 'eski', 'SKILL.md'), 'utf8'), '---\nname: eski\n---\nAtölye kopyası');
+  assert.equal(fs.readFileSync(path.join(copilotDir, 'cakisan', 'SKILL.md'), 'utf8'), 'kullanıcının Copilot skill\'i');
+  assert.equal(s.syncSkills(), 0, 'ikinci kez yapılacak iş yok');
+  s.removeSkill('cakisan');
+  assert.ok(fs.existsSync(path.join(copilotDir, 'cakisan', 'SKILL.md')), 'kullanıcının Copilot skill\'i silinmez');
+  s.removeSkill('eski');
   assert.ok(fs.existsSync(path.join(process.env.ATOLYE_SKILLS_DIR, 'elle', 'SKILL.md')), 'elle eklenen skill yerinde');
+});
+
+test('Copilot oturumunda "/skill" mesajı: düz istek ve gizli yönerge olarak gider; Claude oturumunda olduğu gibi kalır', async () => {
+  const { SessionManager } = await import('../src/manager.js');
+  const m = new SessionManager({});
+  const sent = [];
+  const copilot = { agent: { work: 'agent', commands: [{ name: 'help' }], send: (t) => sent.push(t) }, subs: new Set(), engine: 'copilot' };
+  const claude = { agent: { work: 'agent', send: (t) => sent.push(t) }, subs: new Set(), engine: 'claude' };
+  const go = (entry, text, work = 'agent') => { try { m.send(entry, text, [], 'tr', [], work); } catch { /* olay yayımı bu sahte kayıtta önemsiz */ } };
+  go(copilot, '/ikinci canlı 90 için hazırla');
+  assert.match(sent[0], /^canlı 90 için hazırla\n\n<system-reminder>The user invoked the skill "ikinci"\. /);
+  assert.ok(sent[0].includes(path.join(`${process.env.ATOLYE_SKILLS_DIR}-copilot`, 'ikinci', 'SKILL.md')));
+  go(copilot, '/ikinci');
+  assert.match(sent[1], /^"ikinci" skill'ini kullan\.\n\n<system-reminder>The user invoked/);
+  go(copilot, '/ikinci özetle', 'ask');
+  assert.match(sent[2], /<\/system-reminder>\n\n<system-reminder>Ask mode:/, 'Ask kipinin yönergesi de eklenir');
+  go(copilot, '/help', 'agent');
+  assert.equal(sent[3], '/help', 'Copilot\'un kendi komutu olduğu gibi gider');
+  go(claude, '/ikinci canlı 90 için hazırla');
+  assert.equal(sent[4], '/ikinci canlı 90 için hazırla', 'Claude Code\'da skill zaten komuttur');
 });
 
 test('eski oturumlar: gün ya da tarih sınırı; açık oturumlar seçilmez', () => {

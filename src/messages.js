@@ -33,6 +33,7 @@ export const EN = {
   'Bu yerel model bulunamadı; silinmiş olabilir': 'This local model was not found; it may have been deleted',
   'En fazla {n} yerel model eklenebilir': 'At most {n} local models can be added',
   'Dışa aktarılacak yerel model yok': 'There are no local models to export',
+  '"{name}" skill\'ini kullan.': 'Use the "{name}" skill.',
   'Bu dosya bir Atölye yerel model dosyası değil ya da bozuk': 'This file is not an Atölye local model file, or it is damaged',
   'Dosyadaki API anahtarları şifreli; şifreleme anahtarını yazın': 'The API keys in the file are encrypted; enter the encryption key',
   'Şifreleme anahtarı yanlış; dosyadaki API anahtarları çözülemedi': 'Wrong encryption key; the API keys in the file could not be decrypted',

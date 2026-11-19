@@ -15,6 +15,7 @@ import { msg } from './messages.js';
 import { copilotEnv } from './proxy.js';
 import { validWork } from './workmode.js';
 import { npmEnv } from './browser-check.js';
+import { skillCommands } from './settings.js';
 
 const PROTOCOL_VERSION = 1;
 const isWin = process.platform === 'win32';
@@ -473,7 +474,10 @@ export class CopilotSession {
   }
 
   #sendCapabilities() {
-    this.emit({ type: 'capabilities', models: this.models, commands: this.commands, effort: { current: this.effort.current, hasDefault: false, options: this.effort.options } });
+    // Atölye ile eklenen skill'ler, Copilot komut olarak bildirmese de "/" listesinde görünür (bkz. manager.js send)
+    let skills = [];
+    try { skills = skillCommands(this.commands); } catch { /* skill listesi okunamazsa yalnızca Copilot'un komutları */ }
+    this.emit({ type: 'capabilities', models: this.models, commands: [...this.commands, ...skills], effort: { current: this.effort.current, hasDefault: false, options: this.effort.options } });
   }
 
   #appendText(type, text) {
