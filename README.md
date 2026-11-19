@@ -207,6 +207,9 @@ başlıklarında ve mesaj metinlerinde arar; sonuçta eşleşen bölüm vurgulan
 aranmaz. **Sıralama:** kenar çubuğunda proje klasörleri ve bir klasörün içindeki sohbetler sürüklenip bırakılarak
 sıralanır (klasörsüz sohbet hep en üstte kalır).
 
+**Soru işaretleri:** konuşmanın sağ kenarında her sorunuz için küçük bir çizgi durur; üzerine gelince sorunun başı
+görünür, tıklayınca o soruya gidilir. Ekranda okunan bölümün sorusu vurgulanır (tek soruluk konuşmada gösterilmez).
+
 **Güncelleme denetimi:** Atölye açılır açılmaz ve her sabah 9'da depoya bakar; bilgisayar o saatte kapalı ya da
 uykudaysa açıldığında bakar (`ATOLYE_UPDATE_HOUR` saati değiştirir).
 
