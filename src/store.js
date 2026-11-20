@@ -35,10 +35,13 @@ function normalize(d = {}) {
   const role = typeof d.role === 'string' && /^[a-z]{2,24}$/.test(d.role) ? d.role : 'analist';
   // Yerel LLM ile açılmış oturumların kimlikleri (dosyaları Claude Code oturumlarıyla aynı yerdedir; listede ayırt edilsin diye)
   const localSessions = [...new Set(strings(d.localSessions))].slice(-2000);
+  // Her yerel oturumun açıldığı model: { <oturum kimliği>: <yerel model kimliği> } (motor seçicisindeki süzgeç ve simge için)
+  const localModels = {};
+  if (d.localModels && typeof d.localModels === 'object') for (const id of localSessions) { const m = str(d.localModels[id]); if (m && m.length <= 64) localModels[id] = m; }
   // Kullanıcının elle sıraladığı oturumlar: { <klasör anahtarı>: [oturum kimlikleri, üstten alta] }
   const sessionOrder = {};
   if (d.sessionOrder && typeof d.sessionOrder === 'object') for (const [k, v] of Object.entries(d.sessionOrder)) { const ids = strings(v).slice(0, 500); if (ids.length) sessionOrder[k] = ids; }
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, sessionOrder };
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, localModels, sessionOrder };
 }
 
 export class StateStore {
@@ -156,77 +159,26 @@ export class StateStore {
   }
 
   // ---------- Yerel LLM oturumları ve elle sıralama ----------
-  recordLocalSession(id) {
-    if (!str(id) || this.data.localSessions.includes(id)) return;
-    this.data.localSessions.push(id);
+  /** Oturumu yerel LLM oturumu olarak işaretler; hangi yerel modelle açıldığı da (biliniyorsa) saklanır */
+  recordLocalSession(id, model) {
+    if (!str(id)) return;
+    const known = this.data.localSessions.includes(id);
+    const m = str(model);
+    if (known && (!m || this.data.localModels[id] === m)) return;
+    if (!known) this.data.localSessions.push(id);
+    if (m) this.data.localModels[id] = m;
     this.#save(false);
   }
 
   isLocalSession(id) { return this.data.localSessions.includes(id); }
 
-  deleteLocalSession(id) {
-    if (!this.data.localSessions.includes(id)) return;
-    this.data.localSessions = this.data.localSessions.filter((x) => x !== id);
-    this.#save(false);
-  }
-
-  setSessionOrder(dir, ids) {
-    if (!str(dir)) return;
-    const list = strings(ids).slice(0, 500);
-    if (list.length) this.data.sessionOrder[key(dir)] = list; else delete this.data.sessionOrder[key(dir)];
-    this.#save(false);
-  }
-
-  /** Listeyi kullanıcının sırasına göre dizer: sıralanmamış (yeni) oturumlar tarihe göre üstte, sıralananlar kendi sırasında */
-  applySessionOrder(dir, sessions) {
-    const order = this.data.sessionOrder[key(dir)];
-    if (!order?.length) return sessions;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    return [...sessions.filter((s) => !rank.has(s.id)), ...sessions.filter((s) => rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id))];
-  }
-
-  // ---------- Yerel LLM oturumları ve elle sıralama ----------
-  recordLocalSession(id) {
-    if (!str(id) || this.data.localSessions.includes(id)) return;
-    this.data.localSessions.push(id);
-    this.#save(false);
-  }
-
-  isLocalSession(id) { return this.data.localSessions.includes(id); }
+  /** Oturumun açıldığı yerel modelin kimliği; bilinmiyorsa (eski sürümden kalan kayıt) null */
+  localModelOf(id) { return this.data.localModels[id] || null; }
 
   deleteLocalSession(id) {
     if (!this.data.localSessions.includes(id)) return;
     this.data.localSessions = this.data.localSessions.filter((x) => x !== id);
-    this.#save(false);
-  }
-
-  setSessionOrder(dir, ids) {
-    if (!str(dir)) return;
-    const list = strings(ids).slice(0, 500);
-    if (list.length) this.data.sessionOrder[key(dir)] = list; else delete this.data.sessionOrder[key(dir)];
-    this.#save(false);
-  }
-
-  /** Listeyi kullanıcının sırasına göre dizer: sıralanmamış (yeni) oturumlar tarihe göre üstte, sıralananlar kendi sırasında */
-  applySessionOrder(dir, sessions) {
-    const order = this.data.sessionOrder[key(dir)];
-    if (!order?.length) return sessions;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    return [...sessions.filter((s) => !rank.has(s.id)), ...sessions.filter((s) => rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id))];
-  }
-
-  // ---------- Yerel LLM oturumları ve elle sıralama ----------
-  recordLocalSession(id) {
-    if (!str(id) || this.data.localSessions.includes(id)) return;
-    this.data.localSessions.push(id);
-    this.#save(false);
-  }
-
-  isLocalSession(id) { return this.data.localSessions.includes(id); }
-
-  deleteLocalSession(id) {
-    if (!this.data.localSessions.includes(id)) return;
-    this.data.localSessions = this.data.localSessions.filter((x) => x !== id);
+    delete this.data.localModels[id];
     this.#save(false);
   }
 

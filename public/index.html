@@ -82,11 +82,14 @@
           <span data-i18n>Komutlar</span>
           <span class="links-count commands-count" id="commandsCount" hidden></span>
         </button>
-        <div class="select-wrap engine-wrap" title="Yeni oturumların çalışacağı yapay zekâ motoru" data-i18n-attr="title">
-          <select id="engineSelect" aria-label="Yapay zekâ motoru" data-i18n-attr="aria-label">
-            <option value="claude">Claude Code</option>
-            <option value="copilot">GitHub Copilot</option>
-          </select>
+        <div class="engine-wrap" id="engineWrap">
+          <button class="engine-btn" id="engineBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Yapay zekâ motoru: yeni oturumların motorunu ve listede hangi motorların oturumlarının görüneceğini seçin" data-i18n-attr="title">
+            <span class="engine-btn-icon" id="engineBtnIcon"></span>
+            <span class="engine-btn-text" id="engineBtnText">GitHub Copilot</span>
+            <span class="engine-more" id="engineMore" hidden></span>
+            <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="engine-menu" id="engineMenu" hidden></div>
         </div>
         <button class="links-btn" id="linksBtn" type="button" title="Jira, Confluence, Bitbucket ve Graylog bağlantıları" data-i18n-attr="title">
           <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>

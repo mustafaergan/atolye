@@ -302,8 +302,17 @@ test('durum: yerel oturumlar işaretlenir; elle sıralama yeni oturumları üstt
   store.recordLocalSession('y1');
   store.recordLocalSession('y1');
   assert.equal(store.isLocalSession('y1'), true);
+  // Hangi yerel modelle açıldığı da saklanır (motor seçicisindeki süzgeç ve simge için); eski kayıtta model yoktur
+  assert.equal(store.localModelOf('y1'), null);
+  store.recordLocalSession('y1', 'm1');
+  store.recordLocalSession('y2', 'm2');
+  assert.deepEqual([store.localModelOf('y1'), store.localModelOf('y2'), store.localModelOf('yok')], ['m1', 'm2', null]);
+  store.recordLocalSession('y1');
+  assert.equal(store.localModelOf('y1'), 'm1', 'modelsiz çağrı kaydı silmez');
   store.deleteLocalSession('y1');
   assert.equal(store.isLocalSession('y1'), false);
+  assert.equal(store.localModelOf('y1'), null);
+  assert.equal(store.localModelOf('y2'), 'm2');
   const list = [{ id: 'yeni' }, { id: 'a' }, { id: 'b' }, { id: 'c' }];
   assert.deepEqual(store.applySessionOrder('C:\\p', list), list);
   store.setSessionOrder('C:\\p', ['c', 'a', 'b', 'silinmis']);
