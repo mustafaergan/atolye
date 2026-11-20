@@ -143,7 +143,8 @@ export function status() {
       email: env[envKey(s, 'email')] || '',
       hasToken: Boolean(env[envKey(s, 'token')]),
       // Outlook'ta "bağlı" = kullanıcı etkinleştirmiş; araçları yine de yalnızca yerel LLM oturumlarında sunulur
-      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : Boolean(configFromEnv(s, env)),
+      // Teams de öyle; erişim anahtarının durumu sunucuda eklenir (bkz. server.js, teams.js)
+      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : Boolean(configFromEnv(s, env)),
     };
   }
   out.services[BROWSER_SERVER] = browserStatus();
@@ -157,6 +158,7 @@ const check = (service) => { if (!SERVICES.includes(service)) throw new Error('B
 
 export function save(service, { url, email, token }) {
   check(service);
+  if (['outlook', 'teams'].includes(service)) throw new Error('Bu bağlantı buradan kaydedilmez'); // kendi uçları var
   const env = readEnv();
   const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
   if (['oracle', 'postgres'].includes(service)) {
@@ -183,6 +185,15 @@ export function setOutlook(enabled) {
   const env = readEnv();
   if (enabled) env.OUTLOOK_ENABLED = '1';
   else delete env.OUTLOOK_ENABLED;
+  writeEnv(env);
+  return status();
+}
+
+/** Teams: araçlar açılır ya da kapatılır. Erişim anahtarı buraya (ayar dosyalarına) yazılmaz; bellekte tutulur (bkz. teams.js) */
+export function setTeams(enabled) {
+  const env = readEnv();
+  if (enabled) env.TEAMS_ENABLED = '1';
+  else delete env.TEAMS_ENABLED;
   writeEnv(env);
   return status();
 }

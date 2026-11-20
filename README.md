@@ -294,6 +294,19 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   içerik yalnızca o modele gider, Claude Code ve GitHub Copilot oturumlarına Outlook araçları hiç sunulmaz ("Veri
   getir" de kullanamaz). Erişim PowerShell üzerinden Outlook'un kendi arayüzüyle (COM) yapılır; "Yeni Outlook" ve
   Outlook web desteklenmez, güvenlik yazılımı PowerShell'i engelliyorsa bağlantı çalışmaz.
+- **Teams** (yalnızca **yerel LLM** oturumlarında; bütün modlarda, yalnızca okuma): Microsoft Graph üzerinden Teams
+  sohbetlerini ve kanal gönderilerini okur: `teams_list_chats`, `teams_get_messages`, `teams_list_channels`,
+  `teams_get_channel_messages`. Uygulama kaydı gerekmez: Microsoft'un
+  [Graph Explorer](https://developer.microsoft.com/graph/graph-explorer) aracında iş hesabınızla giriş yapıp
+  "Access token" sekmesindeki erişim anahtarını Bağlantılar penceresindeki Teams sekmesine yapıştırırsınız (sohbetler
+  için `Chat.Read`, kanal gönderileri için `ChannelMessage.Read.All` ya da `Group.Read.All` izni gerekir). Anahtar
+  kuruluşun ayarına göre bir saat ile bir gün arasında geçerlidir; süresi dolunca yenisi yapıştırılır, yeni oturum açmak
+  gerekmez. Anahtar **yalnızca Atölye'nin belleğinde** tutulur: diske, ayar dosyalarına ya da kayıtlara yazılmaz, arayüze
+  ve yapay zekâya geri verilmez, Atölye kapanınca silinir; Graph'in reddettiği anahtar saklanmaz. Araçlar Graph'e
+  kendileri gitmez; isteği Atölye sunucusuna iletirler ve bunu yalnızca yerel LLM oturumlarına verilen iç anahtarla
+  yapabilirler, bu yüzden Claude Code ve GitHub Copilot oturumları Teams'e ulaşamaz. İnternete proxy üzerinden çıkılıyorsa
+  Bağlantılar > Proxy'deki ayar kullanılır. Anahtar hesabınıza erişim sağlar: başka hiçbir yere yapıştırmayın ve
+  kuruluşunuzun kurallarına uyun.
 - Yerel LLM oturumlarında bağlantı araçları modele doğrudan tanımlanır (Claude Code'un araçları sonradan yükleyen
   "araç araması" kapatılır; yerel modeller ertelenmiş araçları çağıramaz).
 - Geliştirici modundaki bağlantılar:
