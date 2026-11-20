@@ -92,7 +92,12 @@ const dom = {
   sendBtn: $('#sendBtn'),
   modeSelect: $('#modeSelect'),
   modelSelect: $('#modelSelect'),
-  engineSelect: $('#engineSelect'),
+  engineWrap: $('#engineWrap'),
+  engineBtn: $('#engineBtn'),
+  engineBtnIcon: $('#engineBtnIcon'),
+  engineBtnText: $('#engineBtnText'),
+  engineMore: $('#engineMore'),
+  engineMenu: $('#engineMenu'),
   sessionList: $('#sessionList'),
   sessionTitle: $('#sessionTitle'),
   sessionCwd: $('#sessionCwd'),
@@ -332,7 +337,7 @@ function connect() {
     state.connected = true;
     setConn('ok', T('Bağlı'));
     // Sayfa yenilense ya da bağlantı kopsa da sunucudaki oturuma geri bağlan
-    openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId, engine: state.sessionEngine || state.engine });
+    openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId, engine: state.sessionEngine || state.engine, local: state.sessionLocal });
   };
   ws.onclose = () => {
     state.connected = false;
@@ -360,8 +365,8 @@ function wsSend(obj) {
 // Bekçi: oturum belirli sürede açılmazsa sonsuz "açılıyor…" yerine uyarı ve "Tekrar dene"
 let openWatch = null;
 const OPEN_WATCH_MS = 30_000;
-function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd, engine = state.engine }) {
-  const args = { liveId, sessionId, isNew, cwd, engine };
+function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.cwd, engine = state.engine, local = null }) {
+  const args = { liveId, sessionId, isNew, cwd, engine, local };
   clearTimeout(openWatch);
   openWatch = setTimeout(() => {
     $('.working', dom.messages)?.remove();
@@ -375,42 +380,159 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, work: state.work, lang: getLang(), engine, local: engine === 'yerel' ? state.localId : null });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, work: state.work, lang: getLang(), engine, local: engine === 'yerel' ? local || state.localId : null });
 }
 
-// ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot) ----------
-// Sağ üstteki seçici açık oturumun motorunu gösterir; değiştirmek o klasörde seçilen motorla
-// yeni bir oturum açar (açık oturum kendi motoruyla listede çalışmaya devam eder).
+// ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot / yerel modeller) ----------
+// Sağ üstteki seçici açık oturumun motorunu gösterir. Menüde ada tıklamak o klasörde seçilen motorla yeni bir oturum
+// açar (açık oturum kendi motoruyla listede çalışmaya devam eder); onay kutuları oturum listesinde hangi motorların
+// oturumlarının görüneceğini belirler. Birden çok motor listeleniyorsa oturumların başında motor simgesi çıkar.
 state.engine = 'copilot';       // yeni oturumlar için seçilen. Sayfa her açıldığında Copilot'tur; seçim saklanmaz
 state.sessionEngine = null;     // açık oturumun motoru
 state.localId = null;           // yeni oturumlar için seçili yerel model
 state.sessionLocal = null;      // açık oturumun yerel modeli
 state.engines = { claude: { available: true }, copilot: { available: false } };
+// Listede gösterilmek üzere işaretlenen motorlar (anahtarlar: "claude", "copilot", "yerel:<model kimliği>"). Boşsa süzgeç
+// teklidir: liste açık oturumun motorunu izler. Bu tarayıcıda saklanır.
+state.listEngines = new Set((() => {
+  try { const v = JSON.parse(store.get('atolye:listEngines', '[]')); return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []; } catch { return []; }
+})());
 
 const engineLabel = (e) => (e === 'copilot' ? 'Copilot' : e === 'yerel' ? T('Yerel') : 'Claude');
+const engineKey = (engine, local) => (engine === 'yerel' ? `yerel:${local || ''}` : engine || 'claude');
+const localModels = () => state.engines.yerel?.models || [];
+const activeEngineKey = () => {
+  const e = state.sessionEngine || state.engine;
+  return engineKey(e, e === 'yerel' ? state.sessionLocal || state.localId : null);
+};
+/** Seçicideki satırlar: Claude Code, GitHub Copilot ve Ayarlar'da tanımlı her yerel model */
+function engineOptions() {
+  const cp = state.engines.copilot || {};
+  return [
+    { key: 'claude', engine: 'claude', name: 'Claude Code', label: 'Claude Code' },
+    // Kurulu değilken de seçilebilir: seçilince kurulum önerilir (terminale dönmek gerekmez)
+    { key: 'copilot', engine: 'copilot', name: 'GitHub Copilot', label: cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil: kur…)'), title: cp.available ? `Copilot CLI ${cp.version || ''}` : cp.error || '' },
+    ...localModels().map((m) => ({ key: `yerel:${m.id}`, engine: 'yerel', local: m.id, name: T('Yerel: {name}', { name: m.name }), label: T('Yerel: {name}', { name: m.name }), title: m.model })),
+  ];
+}
+
+/** Oturum listesinde gösterilen motorlar: işaretlenenler ve (her zaman) açık oturumun motoru */
+function shownEngines() {
+  const valid = new Set(['claude', 'copilot', ...localModels().map((m) => `yerel:${m.id}`)]);
+  const shown = new Set([...state.listEngines].filter((k) => valid.has(k)));
+  shown.add(activeEngineKey());
+  return shown;
+}
+/** Bu motorun (yerelde: bu modelin) oturumları listede gösteriliyor mu? */
+function engineShown(engine, local, shown = shownEngines()) {
+  if (engine !== 'yerel') return shown.has(engine || 'claude');
+  // Hangi modelle açıldığı bilinmeyen (eski sürümden kalan ya da modeli silinmiş) yerel oturum, herhangi bir yerel
+  // model listeleniyorsa görünür
+  if (local && localModels().some((m) => m.id === local)) return shown.has(`yerel:${local}`);
+  return [...shown].some((k) => k.startsWith('yerel:'));
+}
+
+const ENGINE_ICONS = {
+  claude: ICONS.spark,
+  copilot: ICONS.bot,
+  yerel: '<rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+};
+/** Motorun küçük simgesi: Claude ve Copilot için çizim, yerel model için adının baş harfi (model bilinmiyorsa çip) */
+function engineIcon(engine, local) {
+  const e = ENGINE_ICONS[engine] ? engine : 'claude';
+  const model = e === 'yerel' ? localModels().find((m) => m.id === local) : null;
+  const title = e === 'copilot' ? 'GitHub Copilot' : e === 'yerel' ? (model ? T('Yerel: {name}', { name: model.name }) : T('Yerel')) : 'Claude Code';
+  if (model) return el('span', { class: 'e-icon e-yerel letter', title, text: (/[\p{L}\p{N}]/u.exec(model.name)?.[0] || '?').toUpperCase() });
+  return el('span', { class: `e-icon e-${e}`, title }, icon(ENGINE_ICONS[e]));
+}
+
 async function loadEngines(refresh = false) {
   state.engines = await fetch(`/api/engines${refresh ? '?refresh=1' : ''}`).then((r) => r.json()).catch(() => state.engines);
-  const opt = dom.engineSelect.querySelector('option[value="copilot"]');
-  const cp = state.engines.copilot || {};
-  // Kurulu değilken de seçilebilir: seçilince kurulum önerilir (terminale dönmek gerekmez)
-  opt.disabled = false;
-  opt.textContent = cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil: kur…)');
-  opt.title = cp.available ? `Copilot CLI ${cp.version || ''}` : cp.error || '';
-  if (!cp.available && state.engine === 'copilot') state.engine = 'claude';
-  // Yerel modeller Ayarlar'da tanımlıysa her biri ayrı bir seçenek olarak çıkar
-  const locals = state.engines.yerel?.models || [];
-  dom.engineSelect.querySelectorAll('option[value^="yerel:"]').forEach((o) => o.remove());
-  for (const m of locals) dom.engineSelect.append(el('option', { value: `yerel:${m.id}`, text: T('Yerel: {name}', { name: m.name }), title: m.model }));
+  if (!state.engines.copilot?.available && state.engine === 'copilot') state.engine = 'claude';
+  // Yerel modeller Ayarlar'da tanımlıysa her biri seçicide ayrı bir satır olarak çıkar
+  const locals = localModels();
   if (!locals.some((m) => m.id === state.localId)) state.localId = locals[0]?.id || null;
   if (!locals.length && state.engine === 'yerel') state.engine = 'claude';
   applyEngineUi();
 }
 
+/** Seçici düğmesi: açık oturumun motoru; listede başka motorlar da gösteriliyorsa sayısı ("+2") */
+function renderEngineButton() {
+  const engine = state.sessionEngine || state.engine;
+  const opt = engineOptions().find((o) => o.key === activeEngineKey());
+  dom.engineBtnText.textContent = opt ? opt.name : engineLabel(engine);
+  dom.engineBtnIcon.replaceChildren(engineIcon(engine, opt?.local));
+  const more = shownEngines().size - 1;
+  dom.engineMore.hidden = more < 1;
+  dom.engineMore.textContent = `+${more}`;
+  dom.engineMore.title = T('Oturum listesinde {n} motor daha gösteriliyor', { n: more });
+  dom.engineWrap.classList.toggle('copilot', engine === 'copilot');
+  if (!dom.engineMenu.hidden) renderEngineMenu();
+}
+
+function renderEngineMenu() {
+  const opts = engineOptions();
+  const shown = shownEngines();
+  const active = activeEngineKey();
+  // Yeniden çizimde klavye odağı aynı onay kutusunda kalsın
+  const focused = [...dom.engineMenu.querySelectorAll('input')].indexOf(document.activeElement);
+  dom.engineMenu.replaceChildren(
+    el('div', { class: 'engine-menu-head', text: T('Ada tıklayınca o motorla yeni oturum açılır. İşaretli motorların oturumları listede görünür.') }),
+    ...opts.map((o) => el('div', { class: `engine-row ${o.key === active ? 'active' : ''}` },
+      el('input', { type: 'checkbox', checked: shown.has(o.key), disabled: o.key === active,
+        title: o.key === active ? T('Açık oturumun motoru her zaman listelenir') : T('Oturumlarını listede göster'),
+        'aria-label': T('{name}: oturumlarını listede göster', { name: o.name }),
+        onchange: (e) => toggleListEngine(o.key, e.target.checked) }),
+      el('button', { class: 'engine-pick', type: 'button', title: o.title || null, onclick: () => pickEngine(o) },
+        engineIcon(o.engine, o.local), el('span', { class: 'engine-name', text: o.label })))),
+    el('label', { class: 'engine-row engine-all' },
+      el('input', { type: 'checkbox', checked: opts.every((o) => shown.has(o.key)), onchange: (e) => setListEngines(e.target.checked ? opts.map((o) => o.key) : []) }),
+      el('span', { text: T('Tümünün oturumlarını listele') })));
+  if (focused >= 0) dom.engineMenu.querySelectorAll('input')[focused]?.focus();
+}
+
+function setListEngines(keys) {
+  const set = new Set(keys);
+  set.add(activeEngineKey());
+  // Yalnızca açık oturumun motoru kaldıysa süzgeç teklidir: kayıt tutulmaz, liste seçilen motoru izler
+  state.listEngines = set.size > 1 ? set : new Set();
+  store.set('atolye:listEngines', JSON.stringify([...state.listEngines]));
+  renderEngineButton();
+  renderSessions();
+}
+function toggleListEngine(key, on) {
+  const next = shownEngines();
+  if (on) next.add(key); else next.delete(key);
+  setListEngines(next);
+}
+
+function toggleEngineMenu(open = dom.engineMenu.hidden) {
+  dom.engineMenu.hidden = !open;
+  dom.engineBtn.setAttribute('aria-expanded', String(open));
+  if (!open) return;
+  renderEngineMenu();
+  // Dar ekranda menü sağdan taşmasın
+  dom.engineMenu.style.left = '0px';
+  const box = dom.engineMenu.getBoundingClientRect();
+  const over = box.right - (document.documentElement.clientWidth - 8);
+  if (over > 0) dom.engineMenu.style.left = `${-Math.min(over, Math.max(0, box.left - 8))}px`;
+  // Copilot "kurulu değil" görünüyorsa menü açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
+  if (!state.engines.copilot?.available) loadEngines(true);
+}
+
+/** Menüde ada tıklandı: yeni oturumlar bu motorla açılır; açık oturum başka motordaysa hemen yeni oturum açılır */
+function pickEngine(o) {
+  toggleEngineMenu(false);
+  if (o.engine === 'copilot' && !state.engines.copilot?.available) return offerCopilotInstall(true);
+  state.engine = o.engine; // yalnızca bu sayfa açıkken geçerli; bir sonraki açılışta yine Copilot gelir
+  const changed = o.engine !== state.sessionEngine || (o.engine === 'yerel' && o.local !== state.sessionLocal);
+  if (o.local) state.localId = o.local;
+  if (changed) newSession(state.cwd);
+}
+
 function applyEngineUi() {
   const engine = state.sessionEngine || state.engine;
-  dom.engineSelect.value = engine === 'yerel' ? `yerel:${state.sessionLocal || state.localId}` : engine;
-  if (engine === 'yerel' && dom.engineSelect.selectedIndex < 0) dom.engineSelect.value = `yerel:${state.localId}`;
-  dom.engineSelect.parentElement.classList.toggle('copilot', engine === 'copilot');
+  renderEngineButton();
   const copilot = engine === 'copilot';
   // Model listesi seçili motorun kendi listesidir; Copilot model bildirmiyorsa seçici gizlenir (/model komutu kullanılır)
   // Yerel LLM'de model Ayarlar'da seçilir
@@ -430,18 +552,10 @@ function applyEngineUi() {
   renderLinksBadge();
 }
 
-// Copilot "kurulu değil" görünüyorsa seçici açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
-dom.engineSelect.addEventListener('pointerdown', () => { if (!state.engines.copilot?.available) loadEngines(true); });
-dom.engineSelect.addEventListener('change', () => {
-  const raw = dom.engineSelect.value;
-  const engine = raw.startsWith('yerel:') ? 'yerel' : raw;
-  const localId = engine === 'yerel' ? raw.slice(6) : null;
-  if (engine === 'copilot' && !state.engines.copilot?.available) { applyEngineUi(); return offerCopilotInstall(true); }
-  state.engine = engine; // yalnızca bu sayfa açıkken geçerli; bir sonraki açılışta yine Copilot gelir
-  const changed = engine !== state.sessionEngine || (engine === 'yerel' && localId !== state.sessionLocal);
-  if (localId) state.localId = localId;
-  if (changed) newSession(state.cwd);
-});
+dom.engineBtn.addEventListener('click', () => toggleEngineMenu());
+// composedPath: menü yeniden çizilince tıklanan öğe belgeden kopmuş olabilir
+document.addEventListener('click', (e) => { if (!dom.engineMenu.hidden && !e.composedPath().includes(dom.engineWrap)) toggleEngineMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !dom.engineMenu.hidden) { toggleEngineMenu(false); dom.engineBtn.focus(); } });
 
 function rememberOpen() {
   remember({ open: { liveId: state.liveId, sessionId: state.sessionId, cwd: state.cwd, engine: state.sessionEngine } });
@@ -1579,14 +1693,15 @@ function sessionRows(dir) {
   const rows = [];
   for (const r of running) {
     if (r.sessionId && diskIds.has(r.sessionId)) continue;
-    rows.push({ id: r.sessionId, liveId: r.liveId, engine: r.engine, title: r.title || T('Yeni oturum'), lastModified: r.lastActivity, run: r, cwd: dir });
+    rows.push({ id: r.sessionId, liveId: r.liveId, engine: r.engine, local: r.local, title: r.title || T('Yeni oturum'), lastModified: r.lastActivity, run: r, cwd: dir });
   }
   for (const s of disk) rows.push({ ...s, run: runningBySession.get(s.id), cwd: dir });
-  // Liste seçili motorun oturumlarını gösterir; diğer motorda hâlâ çalışan/onay bekleyen oturum gizlenmez
-  const engine = currentEngine();
+  // Liste, motor seçicisinde işaretli motorların oturumlarını gösterir (bkz. shownEngines); listelenmeyen bir motorda
+  // hâlâ çalışan/onay bekleyen oturum gizlenmez
+  const shown = shownEngines();
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i];
-    const other = (r.engine || r.run?.engine || 'claude') !== engine;
+    const other = !engineShown(r.engine || r.run?.engine || 'claude', r.local || r.run?.local, shown);
     if (other && !(r.run && (r.run.busy || r.run.waiting))) rows.splice(i, 1);
   }
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
@@ -1594,7 +1709,7 @@ function sessionRows(dir) {
   // Henüz mesaj yazılmamış yeni oturum da listede hemen görünsün
   if (samePath(dir, state.cwd) && !state.sessionId) {
     const listed = rows.some((r) => state.liveId && (r.liveId === state.liveId || r.run?.liveId === state.liveId));
-    if (!listed) rows.unshift({ id: null, liveId: state.liveId, title: T('Yeni oturum'), lastModified: Date.now(), cwd: dir, draft: true });
+    if (!listed) rows.unshift({ id: null, liveId: state.liveId, engine: currentEngine(), local: state.sessionLocal || state.localId, title: T('Yeni oturum'), lastModified: Date.now(), cwd: dir, draft: true });
   }
   return rows;
 }
@@ -1608,19 +1723,25 @@ function sessionRow(s) {
         ? el('span', { class: 's-badge run', title: T('Çalışıyor') }, el('span', { class: 'spin' }))
         : null
     : null;
+  const engine = s.engine || s.run?.engine || 'claude';
+  const local = s.local || s.run?.local || null;
+  const shown = shownEngines();
+  const multi = shown.size > 1;
   const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
+    // Birden çok motor listeleniyorsa hangisinin oturumu olduğu baştaki simgeden anlaşılır; tek motorda simge çıkmaz
+    multi ? engineIcon(engine, local) : null,
     status,
     el('span', { class: 's-title', text: s.title }),
-    // Liste zaten seçili motorun oturumlarını gösterir; etiket yalnızca diğer motorda hâlâ çalışan oturumda çıkar
-    !s.draft && (s.engine || s.run?.engine || 'claude') !== currentEngine()
-      ? el('span', { class: 's-engine', text: engineLabel(s.engine || s.run?.engine) })
+    // Tek motor listelenirken etiket yalnızca diğer motorda hâlâ çalışan oturumda çıkar
+    !multi && !s.draft && !engineShown(engine, local, shown)
+      ? el('span', { class: 's-engine', text: engineLabel(engine) })
       : null,
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
     s.id && !s.run?.busy ? el('span', { class: 's-actions' },
       el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
       el('span', { title: T('Sil'), onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
   if (s.id && !s.draft) makeDraggable(item, { kind: 'session', dir: s.cwd, id: s.id }, (from, side) => dropSession(from, s, side));
-  item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd, engine: s.engine || s.run?.engine }));
+  item.onclick = () => (s.draft ? dom.input.focus() : openSession({ sessionId: s.id, liveId: s.run?.liveId || s.liveId, cwd: s.cwd, engine, local }));
   return item;
 }
 
@@ -1738,7 +1859,7 @@ function resetSessionParams() {
   clearActiveLink();
 }
 
-function openSession({ sessionId, liveId, cwd, engine = 'claude' }) {
+function openSession({ sessionId, liveId, cwd, engine = 'claude', local = null }) {
   closeMenu();
   if ((liveId && liveId === state.liveId) || (!liveId && sessionId && sessionId === state.sessionId)) return;
   // Seçimi hemen göster; sunucudan "opened" gelince ekran doldurulur
@@ -1749,9 +1870,12 @@ function openSession({ sessionId, liveId, cwd, engine = 'claude' }) {
   renderSessions();
   setWorking(T('Oturum açılıyor…'));
   state.sessionEngine = engine;
+  // Yerel oturum açıldığı modelle sürer; o model silinmişse (ya da bilinmiyorsa) seçili yerel modelle
+  const model = engine === 'yerel' && localModels().some((m) => m.id === local) ? local : null;
+  state.sessionLocal = engine === 'yerel' ? model || state.localId : null;
   applyEngineUi();
   clearActiveLink();
-  openLive({ sessionId, liveId, cwd: state.cwd, engine });
+  openLive({ sessionId, liveId, cwd: state.cwd, engine, local: model });
 }
 
 $('#newSessionBtn').onclick = () => newSession(state.selectedProject || state.cwd);

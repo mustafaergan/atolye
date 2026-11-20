@@ -452,6 +452,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const claude = sessions.map((s) => ({
       id: s.sessionId,
       engine: store.isLocalSession(s.sessionId) ? 'yerel' : 'claude',
+      local: store.localModelOf(s.sessionId),
       title: s.customTitle || shortTitle(s.summary) || shortTitle(s.firstPrompt) || msg(req.query.lang, 'Adsız oturum'),
       lastModified: s.lastModified,
       gitBranch: s.gitBranch,

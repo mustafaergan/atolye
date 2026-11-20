@@ -161,6 +161,7 @@ export class SessionManager {
       .map((e) => ({
         liveId: e.liveId,
         engine: e.engine,
+        local: e.local?.id || null,
         sessionId: e.agent.sessionId,
         title: e.title,
         cwd: e.cwd,
@@ -178,7 +179,7 @@ export class SessionManager {
   #onEvent(entry, ev) {
     entry.lastActivity = Date.now();
     if (ev.type === 'error') console.warn(`[oturum] ${entry.engine}: ${ev.message}`);
-    if (entry.engine === 'yerel' && entry.sent && entry.agent.sessionId) this.store?.recordLocalSession(entry.agent.sessionId);
+    if (entry.engine === 'yerel' && entry.sent && entry.agent.sessionId) this.store?.recordLocalSession(entry.agent.sessionId, entry.local?.id);
     if (entry.engine === 'copilot') {
       this.#recordCopilot(entry, ev);
       if (transcript.shouldKeep(ev)) entry.unsaved.push(ev);
