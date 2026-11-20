@@ -8,6 +8,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { bridge, looksOpenAI, openaiEndpoint, openaiModelsUrl, upstreamHeaders } from './kopru.js';
+import { gate as teamsGate } from './teams.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fail = (code, extra = {}) => Object.assign(new Error(code), { code, ...extra });
@@ -276,6 +277,9 @@ export function localEnv(cfg, env = process.env) {
     ENABLE_TOOL_SEARCH: 'false',
     // Araç sunucusuna "bu oturum yerel modelle çalışıyor" işareti: Outlook araçları yalnızca bununla sunulur
     ATOLYE_YEREL_OTURUM: '1',
+    // Teams araçlarının Atölye sunucusuna ulaştığı iç kapı (bkz. teams.js): yalnızca yerel LLM oturumlarına verilir
+    ATOLYE_TEAMS_URL: teamsGate.origin ? `${teamsGate.origin}/ic/teams` : '',
+    ATOLYE_TEAMS_ANAHTAR: teamsGate.secret,
     NO_PROXY: noProxy,
     no_proxy: noProxy,
   };

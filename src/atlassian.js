@@ -4,6 +4,7 @@
 //   - Verilmemişse: Bearer (kişisel erişim anahtarı) — şirket içi
 import tls from 'node:tls';
 import { outlook } from './outlook.js';
+import { teamsClient } from './teams-client.js';
 import { oracle, postgres } from './database.js';
 
 let systemCaAdded = false;
@@ -17,7 +18,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'graylogprod', 'oracle', 'postgres'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -26,6 +27,12 @@ export function configFromEnv(service, env = process.env) {
   // E-postalar yalnızca yerel modele okutulur: araçlar, Atölye'nin yalnızca yerel LLM oturumlarına verdiği
   // ATOLYE_YEREL_OTURUM=1 işareti (bkz. settings.js localEnv) olmadan sunulmaz; Claude ve Copilot oturumlarında yoktur.
   if (service === 'outlook') return env.ATOLYE_YEREL_OTURUM === '1' && env.OUTLOOK_ENABLED === '1' ? { url: 'outlook', token: '', email: '' } : null;
+  // Teams de yalnızca yerel LLM oturumlarında vardır. Erişim anahtarı burada yoktur: Atölye sunucusunun belleğindedir
+  // ve istekler ona iletilir (bkz. teams.js, teams-client.js). url/token = Atölye'nin iç adresi ve oturuma verdiği iç anahtar.
+  if (service === 'teams') {
+    return env.ATOLYE_YEREL_OTURUM === '1' && env.TEAMS_ENABLED === '1' && env.ATOLYE_TEAMS_URL && env.ATOLYE_TEAMS_ANAHTAR
+      ? { url: env.ATOLYE_TEAMS_URL, token: env.ATOLYE_TEAMS_ANAHTAR, email: '' } : null;
+  }
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
   if (!url || !token) return null;
@@ -753,4 +760,4 @@ export const reportportal = {
 };
 
 // Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
-export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, oracle, postgres };
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres };

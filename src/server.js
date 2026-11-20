@@ -30,6 +30,7 @@ import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
 import * as commands from './commands.js';
 import * as settings from './settings.js';
+import * as teams from './teams.js';
 import { bridge, bridgeHandlers } from './kopru.js';
 import { searchSessions } from './search.js';
 import { validWork } from './workmode.js';
@@ -50,6 +51,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Bu işaret yalnızca yerel LLM oturumlarına verilir (bkz. settings.js localEnv); dışarıdan gelmişse yok sayılır ki
   // Outlook araçları Claude ya da Copilot oturumlarına hiçbir koşulda sunulmasın
   delete process.env.ATOLYE_YEREL_OTURUM;
+  for (const k of ['ATOLYE_TEAMS_URL', 'ATOLYE_TEAMS_ANAHTAR']) delete process.env[k];
   // Eski sürümle eklenmiş skill'ler Copilot'un klasörüne de kopyalanır (bkz. settings.js syncSkills)
   try { const n = settings.syncSkills(); if (n) console.log(`[ayarlar] ${n} skill Copilot klasörüne kopyalandı`); } catch (err) { console.error(`[ayarlar] skill eşitlenemedi: ${err?.message || err}`); }
   const app = express();
@@ -409,11 +411,43 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       st.services.tarayici.library = playwrightLibrary(mcp?.cli);
     }
     st.services.testotomasyon = testauto.status();
+    // Teams: araçlar açık mı (ayar dosyasında) ve bellekteki erişim anahtarının durumu
+    const tk = teams.status();
+    st.services.teams = { ...st.services.teams, ...tk, enabled: st.services.teams.connected, connected: st.services.teams.connected && tk.hasToken && !tk.expired };
     res.json(st);
   }));
   // Outlook: bilgisayardaki Outlook'un araçları açılır/kapatılır (adres ya da anahtar gerekmez)
   app.post('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook etkinleştirildi'); res.json(integrations.setOutlook(true)); }));
   app.delete('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook kapatıldı'); res.json(integrations.setOutlook(false)); }));
+  // Teams: Graph Explorer'dan alınan erişim anahtarı yalnızca bellekte tutulur (diske ve kayıtlara yazılmaz); araçlar
+  // yalnızca yerel LLM oturumlarına sunulur ve isteklerini aşağıdaki iç kapıdan geçirir (bkz. teams.js)
+  teams.gate.origin = `http://127.0.0.1:${port}`;
+  const teamsError = (lang, err) => ({
+    'no-token': msg(lang, 'Erişim anahtarını yapıştırın'),
+    'bad-token': msg(lang, 'Bu metin bir erişim anahtarına benzemiyor. Graph Explorer\'daki "Access token" sekmesindeki değerin tamamını kopyalayın.'),
+    expired: msg(lang, 'Bu erişim anahtarının süresi dolmuş. Graph Explorer\'da sayfayı yenileyip yeni anahtarı kopyalayın.'),
+    'wrong-audience': msg(lang, 'Bu anahtar Microsoft Graph için değil. Anahtarı Graph Explorer\'daki "Access token" sekmesinden alın.'),
+  }[err.code] || err.message);
+  app.post('/api/teams', wrap(async (req, res) => {
+    let st;
+    try { st = teams.setToken(req.body?.token); } catch (err) { return res.status(400).json({ ok: false, error: teamsError(req.query.lang, err) }); }
+    integrations.setTeams(true);
+    const r = await teams.test();
+    if (r.code === 401) teams.clearToken(); // Graph'in reddettiği anahtar saklanmaz
+    console.log(`[bağlantı] teams anahtarı alındı (${st.minutesLeft ?? '?'} dk geçerli); sınama: ${r.ok ? 'başarılı' : r.error}`);
+    res.json({ ...r, status: teams.status() });
+  }));
+  app.post('/api/teams/test', wrap(async (_req, res) => {
+    const r = await teams.test();
+    console.log(`[bağlantı] teams sınaması: ${r.ok ? 'başarılı' : r.error}`);
+    res.json({ ...r, status: teams.status() });
+  }));
+  app.delete('/api/teams', wrap(async (_req, res) => { teams.clearToken(); console.log('[bağlantı] teams kapatıldı, anahtar bellekten silindi'); res.json(integrations.setTeams(false)); }));
+  app.post('/ic/teams', wrap(async (req, res) => {
+    const r = await teams.gateRequest(req.headers.authorization, req.body);
+    if (r.status === 200) console.log(`[bağlantı] teams ${req.body?.op}: ${r.body.error ? r.body.error.slice(0, 160) : `tamam (${r.body.text.length} karakter)`}`);
+    res.status(r.status).json(r.body);
+  }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
     try {
       const st = integrations.save(req.params.service, req.body || {});

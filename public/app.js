@@ -2893,8 +2893,9 @@ const ROLES = {
 ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi') };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
-// Outlook her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar yalnızca yerel modele okutulur)
-const withOutlook = (tabs) => { const at = tabs.indexOf('tarayici'); return at < 0 ? [...tabs, 'outlook'] : [...tabs.slice(0, at), 'outlook', ...tabs.slice(at)]; };
+// Outlook ve Teams her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar ve mesajlar yalnızca yerel modele okutulur)
+const LOCAL_ONLY_TABS = ['outlook', 'teams'];
+const withOutlook = (tabs) => { const at = tabs.indexOf('tarayici'); return at < 0 ? [...tabs, ...LOCAL_ONLY_TABS] : [...tabs.slice(0, at), ...LOCAL_ONLY_TABS, ...tabs.slice(at)]; };
 const roleTabs = () => (currentEngine() === 'yerel' ? withOutlook(currentRole().tabs) : currentRole().tabs);
 function applyRole() {
   const sel = $('#roleSelect');
@@ -3082,6 +3083,7 @@ function renderLinks() {
   if (links.tab === 'tarayici') return renderBrowserTab();
   if (links.tab === 'testotomasyon') return renderTestTab();
   if (links.tab === 'outlook') return renderOutlookTab();
+  if (links.tab === 'teams') return renderTeamsTab();
 
   const id = links.tab;
   const def = LINKS[id];
@@ -3169,6 +3171,7 @@ const HELP_PROMPTS = {
   graylogprod: () => T('Graylog canlı (prod) ortam bağlantısını kurmak istiyorum ama teknik biri değilim. Canlı Graylog adresini nereden bulurum, erişim belirtecini (API token) nasıl oluştururum ve yalnızca okuma yetkisi olan bir belirteç nasıl alırım? Adım adım, sade bir dille anlat.'),
   graylog: () => T('Graylog bağlantısını kurmak istiyorum ama teknik biri değilim. Graylog adresimi nereden bulurum ve erişim belirtecini (API token) nasıl oluştururum? Adım adım, sade bir dille anlat; takıldığım yerde soracağım.'),
   reportportal: () => T('ReportPortal bağlantısını kurmak istiyorum ama teknik biri değilim. ReportPortal adresimi ve proje adımı nereden bulurum, API anahtarını nasıl oluştururum? Adım adım, sade bir dille anlat.'),
+  teams: () => T('Teams bağlantısını kurmak istiyorum ama teknik biri değilim. Microsoft Graph Explorer\'da şirket hesabımla nasıl giriş yaparım, Chat.Read iznine nasıl onay veririm ve erişim anahtarını (access token) nereden kopyalarım? "Yönetici onayı gerekiyor" uyarısı çıkarsa ne yapmalıyım? Adım adım anlat.'),
   outlook: () => T('Outlook bağlantısını kurmak istiyorum ama teknik biri değilim. Klasik Outlook ile Yeni Outlook arasındaki farkı nasıl anlarım, hangisini kullandığımı nereden görürüm ve klasik Outlook\'a nasıl geçerim? Adım adım, sade bir dille anlat.'),
   testotomasyon: () => T('Test otomasyonu bağlantısını kurmak istiyorum ama teknik biri değilim. Test otomasyon deposunu bilgisayarıma nasıl indiririm, testleri çalıştıran komutu nereden öğrenirim ve çalıştırmak için bilgisayarımda neler kurulu olmalı? Adım adım, sade bir dille anlat.'),
   tarayici: () => T('Yapay zekânın tarayıcıda gezinmesini (Playwright) kurmak istiyorum ve teknik biri değilim. Bu ne işe yarar, hangi tarayıcıyı seçmeliyim ve kurulumda nelere dikkat etmeliyim? Adım adım, sade bir dille anlat.'),
@@ -3391,6 +3394,71 @@ async function renderProxyTab() {
   ].filter(Boolean));
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
+}
+
+// ---------- Teams bağlantısı ----------
+// Microsoft Graph üzerinden Teams sohbetlerini okuma. Kullanıcı Graph Explorer'dan aldığı erişim anahtarını yapıştırır;
+// anahtar yalnızca Atölye sunucusunun belleğinde tutulur (kuruluşa göre bir saat ile bir gün arasında geçerlidir; süresi
+// dolunca yenisi yapıştırılır).
+// Sekmesi ve araçları yalnızca yerel LLM oturumunda vardır (bkz. roleTabs ve src/teams.js)
+LINKS.teams = { name: 'Teams' };
+LINK_TOOLS.teams = 'teams_list_chats, teams_get_messages, teams_list_channels, teams_get_channel_messages';
+const teamsUi = { result: null };
+// Gösterilen izinler ve onları kapsayan daha geniş izinler (Graph belgelerindeki "higher privileged" izinler)
+const TEAMS_SCOPES = { 'Chat.Read': ['Chat.ReadWrite'], 'ChannelMessage.Read.All': ['Group.Read.All', 'Group.ReadWrite.All'] };
+function renderTeamsTab() {
+  const st = links.status?.services?.teams || {};
+  const result = el('div', { class: 'links-result' });
+  const show = (r) => { teamsUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(el('span', { text: r.text }), r.ok === false ? askErrorButton('Teams', r.text) : null); } };
+  const token = el('input', { type: 'password', placeholder: T('Graph Explorer > Access token sekmesindeki değeri buraya yapıştırın'), spellcheck: 'false', autocomplete: 'off' });
+  const finish = async (r) => {
+    await loadLinks();
+    if (links.tab === 'teams') renderLinks();
+    teamsUi.result = r.ok ? { ok: true, text: T('Teams bağlantısı çalışıyor: {user}', { user: r.user }) } : { ok: false, text: r.error || '?' };
+    if (links.tab === 'teams') renderLinks();
+  };
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet ve sına'), onclick: async () => {
+    saveBtn.disabled = true;
+    show({ text: T('Teams\'e bağlanılıyor…') });
+    const r = await fetch(`/api/teams?lang=${getLang()}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: token.value }) }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    await finish(r);
+  } });
+  token.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); });
+  const testBtn = el('button', { class: 'btn', type: 'button', text: T('Sına'), onclick: async () => {
+    testBtn.disabled = true;
+    show({ text: T('Teams\'e bağlanılıyor…') });
+    await finish(await fetch('/api/teams/test', { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message })));
+  } });
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Bağlantıyı kaldır'), onclick: async () => {
+    await fetch('/api/teams', { method: 'DELETE' }).catch(() => {});
+    teamsUi.result = null;
+    await loadLinks();
+    if (links.tab === 'teams') renderLinks();
+  } });
+  // Anahtarın durumu: ne kadar daha geçerli ve hangi izinleri taşıyor
+  const state = !st.hasToken
+    ? (st.enabled ? T('Kayıtlı anahtar yok (Atölye yeniden başlatıldıysa ya da kaldırdıysanız anahtar silinir). Yeni bir anahtar yapıştırın.') : null)
+    : st.expired ? T('Anahtarın süresi doldu. Graph Explorer\'dan yenisini alıp yapıştırın.')
+      : st.minutesLeft == null ? T('Anahtar kayıtlı (geçerlilik süresi okunamadı).')
+        : st.minutesLeft >= 120 ? T('Anahtar kayıtlı: yaklaşık {n} saat daha geçerli.', { n: Math.floor(st.minutesLeft / 60) })
+          : T('Anahtar kayıtlı: {n} dakika daha geçerli.', { n: st.minutesLeft });
+  const has = (s) => [s, ...TEAMS_SCOPES[s]].some((x) => st.scopes.includes(x));
+  const list = st.hasToken && st.scopes?.length ? Object.keys(TEAMS_SCOPES).map((s) => `${s} ${has(s) ? '✓' : '✗'}`).join(', ') : '';
+  const scopes = list ? T('İzinler: {list}', { list }) : null;
+  $('#linksBody').replaceChildren(...[
+    el('ol', { class: 'links-steps' },
+      el('li', { text: T('Bu bağlantı Teams sohbetlerinizi yapay zekâya okutur: sohbetleri listeleme, bir sohbetin mesajlarını okuma, ekip ve kanalları listeleme, kanal gönderilerini okuma. Yalnızca okuma yapılır; mesaj gönderilmez.') }),
+      el('li', {}, el('span', { text: T('Erişim anahtarını Microsoft\'un Graph Explorer aracından alın: ') }), el('a', { href: 'https://developer.microsoft.com/graph/graph-explorer', target: '_blank', rel: 'noopener noreferrer', text: 'developer.microsoft.com/graph/graph-explorer' }), el('span', { text: T(' adresinde şirket hesabınızla giriş yapın, "Modify permissions" sekmesinden Chat.Read iznine onay verin, sonra "Access token" sekmesindeki değeri kopyalayıp aşağıya yapıştırın.') })),
+      el('li', { text: T('Anahtar kuruluşunuzun ayarına göre bir saat ile bir gün arasında geçerlidir (kalan süre aşağıda görünür); süresi dolunca Graph Explorer\'da sayfayı yenileyip yeni anahtarı buraya yapıştırmanız yeterlidir (yeni oturum açmak gerekmez). Anahtar yalnızca Atölye\'nin belleğinde tutulur: diske ya da ayar dosyalarına yazılmaz, Atölye kapanınca silinir. Anahtar hesabınıza erişim sağlar; başka hiçbir yere yapıştırmayın.') }),
+      el('li', { text: T('Mesajlar müşteri, kişisel ya da gizli bilgi içerebilir. Bu yüzden Teams yalnızca yerel LLM oturumlarında kullanılabilir: okunan içerik yalnızca seçtiğiniz yerel modele gider; Claude Code ve GitHub Copilot oturumlarında Teams araçları bulunmaz. Kuruluşunuzun bu konudaki kurallarına uyun.') })),
+    el('label', { class: 'links-field' }, el('span', { text: T('Erişim anahtarı (access token)') }), token),
+    state ? el('p', { class: 'links-intro', text: scopes ? `${state} ${scopes}` : state }) : null,
+    el('div', { class: 'links-actions' }, saveBtn, st.hasToken ? testBtn : null, st.enabled || st.hasToken ? removeBtn : null, helpButton('teams')),
+    result,
+    el('p', { class: 'links-intro', text: T('Örnek: "Teams\'te Ayşe ile son yazışmamı özetle" ya da "proje grubunda bugün neler konuşuldu?". İlk etkinleştirmeden sonra yeni bir yerel LLM oturumu açın.') })].filter(Boolean));
+  show(teamsUi.result);
+  const f = links.status?.files;
+  $('#linksNote').textContent = f ? T('Yalnızca "Teams açık" bilgisi Claude Code ve Copilot CLI ayar dosyalarına yazılır: {claude} ve {copilot}. Erişim anahtarı ve mesajlar hiçbir yere kaydedilmez.', f) : '';
 }
 
 // ---------- Outlook bağlantısı ----------
