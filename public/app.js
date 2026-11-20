@@ -477,17 +477,23 @@ function renderEngineMenu() {
   // Yeniden çizimde klavye odağı aynı onay kutusunda kalsın
   const focused = [...dom.engineMenu.querySelectorAll('input')].indexOf(document.activeElement);
   dom.engineMenu.replaceChildren(
-    el('div', { class: 'engine-menu-head', text: T('Ada tıklayınca o motorla yeni oturum açılır. İşaretli motorların oturumları listede görünür.') }),
+    // İki ayrı iş, iki ayrı sütun: solda motor seçimi (satıra tıklamak o motora geçer ve yeni oturum açar; seçili olan
+    // yuvarlak işaretle görünür), sağda yalnızca oturum listesini süzen onay kutuları
+    el('div', { class: 'engine-menu-head' },
+      el('span', { text: T('Motor seç (yeni oturum açar)') }),
+      el('span', { title: T('İşaretli motorların oturumları oturum listesinde görünür'), text: T('Listede') })),
     ...opts.map((o) => el('div', { class: `engine-row ${o.key === active ? 'active' : ''}` },
-      el('input', { type: 'checkbox', checked: shown.has(o.key), disabled: o.key === active,
-        title: o.key === active ? T('Açık oturumun motoru her zaman listelenir') : T('Oturumlarını listede göster'),
-        'aria-label': T('{name}: oturumlarını listede göster', { name: o.name }),
-        onchange: (e) => toggleListEngine(o.key, e.target.checked) }),
-      el('button', { class: 'engine-pick', type: 'button', title: o.title || null, onclick: () => pickEngine(o) },
-        engineIcon(o.engine, o.local), el('span', { class: 'engine-name', text: o.label })))),
+      el('button', { class: 'engine-pick', type: 'button', 'aria-current': o.key === active ? 'true' : null,
+        title: [o.key === active ? T('Açık oturumun motoru') : T('Bu motora geç: yeni oturum açılır'), o.title].filter(Boolean).join('\n'), onclick: () => pickEngine(o) },
+        el('span', { class: 'engine-radio' }), engineIcon(o.engine, o.local), el('span', { class: 'engine-name', text: o.label })),
+      el('label', { class: 'engine-check', title: o.key === active ? T('Açık oturumun motoru her zaman listelenir') : T('Oturumlarını listede göster') },
+        el('input', { type: 'checkbox', checked: shown.has(o.key), disabled: o.key === active,
+          'aria-label': T('{name}: oturumlarını listede göster', { name: o.name }),
+          onchange: (e) => toggleListEngine(o.key, e.target.checked) })))),
     el('label', { class: 'engine-row engine-all' },
-      el('input', { type: 'checkbox', checked: opts.every((o) => shown.has(o.key)), onchange: (e) => setListEngines(e.target.checked ? opts.map((o) => o.key) : []) }),
-      el('span', { text: T('Tümünün oturumlarını listele') })));
+      el('span', { text: T('Tümünün oturumlarını listele') }),
+      el('span', { class: 'engine-check' },
+        el('input', { type: 'checkbox', checked: opts.every((o) => shown.has(o.key)), onchange: (e) => setListEngines(e.target.checked ? opts.map((o) => o.key) : []) }))));
   if (focused >= 0) dom.engineMenu.querySelectorAll('input')[focused]?.focus();
 }
 
