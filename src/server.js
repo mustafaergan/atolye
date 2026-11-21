@@ -20,6 +20,7 @@ import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
 import { detectCopilot, startLogin, loginStatus, cancelLogin, startInstall, installStatus } from './copilot.js';
 import * as integrations from './integrations.js';
+import * as fikirhane from './fikirhane.js';
 import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
@@ -416,8 +417,15 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     // Teams: araçlar açık mı (ayar dosyasında) ve bellekteki erişim anahtarının durumu
     const tk = teams.status();
     st.services.teams = { ...st.services.teams, ...tk, enabled: st.services.teams.connected, connected: st.services.teams.connected && tk.hasToken && !tk.expired };
+    // Fikirhane açıksa dinlediği port da bildirilir (araçların kullanılamadığı oturumlarda adresi yönergeye yazmak için)
+    if (st.services.fikirhane?.connected) { try { st.services.fikirhane.port = fikirhane.door(fikirhane.fikirhaneConfig({ FIKIRHANE_ENABLED: '1' })).port; } catch { /* Fikirhane çalışmıyor */ } }
     res.json(st);
   }));
+  // Fikirhane: bu bilgisayarda çalışan ayrı uygulama (gezilmiş sitelerin ekranları ve senaryoları). Araçları açılır/kapatılır;
+  // durum ucu Fikirhane'nin çalışıp çalışmadığını ve gezilmiş siteleri bildirir (bkz. fikirhane.js)
+  app.get('/api/fikirhane', wrap(async (_req, res) => res.json(await fikirhane.probe(fikirhane.fikirhaneConfig({ FIKIRHANE_ENABLED: '1' })))));
+  app.post('/api/fikirhane', wrap(async (_req, res) => { console.log('[bağlantı] fikirhane etkinleştirildi'); res.json(integrations.setFikirhane(true)); }));
+  app.delete('/api/fikirhane', wrap(async (_req, res) => { console.log('[bağlantı] fikirhane kapatıldı'); res.json(integrations.setFikirhane(false)); }));
   // Outlook: bilgisayardaki Outlook'un araçları açılır/kapatılır (adres ya da anahtar gerekmez)
   app.post('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook etkinleştirildi'); res.json(integrations.setOutlook(true)); }));
   app.delete('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook kapatıldı'); res.json(integrations.setOutlook(false)); }));

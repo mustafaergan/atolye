@@ -216,6 +216,15 @@ export function remove(service) {
   return status();
 }
 
+/** Fikirhane: adres ya da anahtar yok (bu bilgisayarda çalışan ayrı uygulama); araçlar açılır ya da kapatılır (bkz. fikirhane.js) */
+export function setFikirhane(enabled) {
+  const env = readEnv();
+  if (enabled) env.FIKIRHANE_ENABLED = '1';
+  else delete env.FIKIRHANE_ENABLED;
+  writeEnv(env);
+  return status();
+}
+
 // Oracle sürücüsünün kipi (istemcili / istemcisiz) süreç başına bir kez, ilk bağlantıdan önce belirlenir ve sonradan
 // değişmez. İstemci Atölye çalışırken indirilebildiği için Oracle işlemleri bu süreçte değil, her seferinde yeni bir
 // alt süreçte çalıştırılır (bkz. mcp-server.js runOnce); böylece indirilen istemci hemen kullanılır.

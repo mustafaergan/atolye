@@ -271,6 +271,28 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   (eksikse ne indirileceği bildirilir ve yalnızca onay verilirse `npm install -g` ile kurulur). Kurulu Chrome ya da Edge
   seçildiğinde tarayıcı da indirilmez. Ayar CLI dosyalarına `tarayici` adıyla yazılır. Açılan tarayıcı ayrı ve boş bir
   profildir; yapay zekâ açtığı sayfalardaki metinlerden etkilenebileceği için gerçek sistemlerde dikkatli kullanılmalıdır.
+- **Fikirhane** sekmesi (bütün modlarda), tarayıcı testlerini kısaltmak ve ucuzlatmak içindir.
+  [Fikirhane](https://github.com/mustafaergan/fikirhane) bu bilgisayarda çalışan ayrı bir uygulamadır: bir web
+  uygulamasını bir kez gezer; ekranlarını, alan ve düğmelerin Playwright seçicilerini, ekranlara gidiş yollarını ve
+  kaydedilen senaryoları saklar. Bağlantı açıkken yapay zekâ ekranı her seferinde sayfa dökümüyle baştan keşfetmek
+  yerine Fikirhane'ye sorar; birden çok adımlı işi senaryo olarak kaydeder ve sonraki seferlerde tek bir araç çağrısıyla
+  çalıştırır (sonuç birkaç satırdır: geçti / hangi adımda kaldı / ekran kayıtlı hâline göre değişmiş mi).
+  - Adres ya da anahtar gerekmez: **Etkinleştir** demek yeterli. Fikirhane 0.7.0 ya da yenisi çalışıyor olmalıdır;
+    sekme çalışıp çalışmadığını ve gezilmiş siteleri gösterir. Tarayıcı bağlantısı seçildiğinde yönerge mesaja
+    kendiliğinden eklenir; Fikirhane tek başına da seçilebilir ("üye ekleme hangi ekranda yapılıyor?").
+  - Araçlar: `fikirhane_site`, `fikirhane_find`, `fikirhane_screen`, `fikirhane_scenario` (okuma),
+    `fikirhane_save_scenario`, `fikirhane_run_scenario` (izin sorulur). Senaryo, Tarayıcı bağlantısıyla gelen Playwright
+    ve orada seçilen tarayıcıyla çalışır; bu yüzden senaryo çalıştırmak için Tarayıcı bağlantısı da kurulu olmalıdır.
+  - Giriş gerektiren uygulamalarda yapay zekâ aracı `login` ile çağırır: tarayıcı açılır, girişi **siz** yaparsınız ve
+    pencereyi kapatırsınız. Oturum `~/.atolye/fikirhane/profil-<site>` altındaki ayrı bir tarayıcı profilinde saklanır;
+    parolanızı yapay zekâya yazmanız gerekmez. Senaryolara parola sabit değer olarak kaydedilemez.
+  - Güven: Fikirhane yalnızca `127.0.0.1` üzerinde dinler. Atölye onu Fikirhane'nin kendi klasörüne yazdığı kapı
+    dosyasından (`~/.fikirhane/kapi.json`) bulur ve her yanıtın oradaki anahtarla imzalandığını denetler; aynı porta
+    oturmuş başka bir programın yanıtı kullanılmaz, betiği çalıştırılmaz. Betiğe Atölye'nin bağlantı anahtarları ve
+    yapay zekâ sağlayıcısının bilgileri (ortam değişkenleri) verilmez. Fikirhane'den gelen metinler gezilen sayfalardan
+    alınmıştır: yapay zekâya veri olarak verilir, yönerge olarak değil.
+  - Fikirhane çalışmıyorsa ya da uygulama gezilmemişse araç bunu söyler ve tarayıcı işi eskisi gibi sürer. Copilot
+    oturumunda araçlar kuruluş politikasıyla kapalıysa okuma işlemleri **Veri getir** ile yapılır.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
   işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner ve ayrı ayrı proje
   olarak eklenir; aynı klasörde birden fazla depo olunca o kök klasör de proje olarak eklenir (depoların tümü hakkında oradan soru sorulur).
