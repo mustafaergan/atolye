@@ -226,6 +226,7 @@ export const EN = {
   "OpenAI uyumlu": "OpenAI-compatible",
   "Anthropic uyumlu": "Anthropic-compatible",
   "Sunucu türü": "Server type",
+  "Güncelleme denetlenemedi: GitHub'a ulaşılamadı{reason}. Şirket ağındaysanız Bağlantılar > Proxy bölümünde proxy ayarını girin; Atölye denetimi onun üzerinden yapar. Olmazsa yeni paketi elle indirip içindeki Kur.bat ile kurabilirsiniz.": "Could not check for updates: GitHub could not be reached{reason}. On a company network, enter the proxy under Connections > Proxy; Atölye then checks through it. Otherwise download the new package by hand and install it with the Kur.bat inside.",
   "{name} ile devam": "Continue with {name}",
   "Bu konuşmada yazışma var. {name} ile nasıl devam etmek istersiniz?": "This conversation has messages. How do you want to continue with {name}?",
   "Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.": "Continue with this conversation: the current AI writes a summary of the conversation, you review and edit it, and the summary you approve is carried over to the {name} session.",
