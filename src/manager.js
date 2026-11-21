@@ -19,6 +19,9 @@ import { attachmentPrompt } from './attachments.js';
 
 const IDLE_CLOSE_MS = 30_000;
 
+// Başka bir oturumdan aktarılan özetin en fazla uzunluğu (karakter)
+export const HANDOFF_MAX = 20_000;
+
 export class SessionManager {
   /** @param {{ store?: import('./store.js').StateStore }} [opts] store: Copilot oturumlarını listelemek için */
   constructor({ store, aiTitles = false, onTitle = null } = {}) {
@@ -124,7 +127,11 @@ export class SessionManager {
     };
   }
 
-  send(entry, text, images, lang = 'tr', files = [], work) {
+  /**
+   * handoff: başka bir motordaki oturumdan aktarılan, kullanıcının onayladığı özet. Yalnızca yapay zekâya gider (gizli
+   * yönerge olarak); ekrandaki mesaj balonunda ve oturum başlığında yer almaz.
+   */
+  send(entry, text, images, lang = 'tr', files = [], work, handoff = '') {
     if (work) entry.agent.work = validWork(work);
     // Ekli dosyaların yolu ve içeriğinin başı yalnızca yapay zekâya giden mesaja eklenir; ekranda dosya adları görünür.
     // Ask / Plan kipinin yönergesi de yalnızca yapay zekâya gider (geçmişte system-reminder olarak gizlenir).
@@ -135,7 +142,9 @@ export class SessionManager {
     if (entry.engine === 'copilot') { try { skill = skillPrompt(text, entry.agent.commands || []); } catch { /* skill kaydı okunamadı: mesaj olduğu gibi gider */ } }
     const body = skill ? (skill.rest || msg(lang, '"{name}" skill\'ini kullan.', { name: skill.name })) : text;
     const rule = text.startsWith('/') && !skill ? '' : workInstruction(entry.agent.work);
-    const notes = [skill?.note, rule].filter(Boolean).map((n) => `\n\n<system-reminder>${n}</system-reminder>`).join('');
+    const carried = String(handoff || '').trim().slice(0, HANDOFF_MAX).replace(/<\/?system-reminder>/gi, '');
+    const context = carried ? `The user is continuing a conversation that started in another AI session. Summary of that session, reviewed and approved by the user:\n\n${carried}\n\n(End of the summary.) Treat it as context for this conversation; do not repeat it back.` : '';
+    const notes = [context, skill?.note, rule].filter(Boolean).map((n) => `\n\n<system-reminder>${n}</system-reminder>`).join('');
     entry.agent.send(`${body}${extra ? `\n\n${extra}` : ''}${notes}`, images);
     entry.sent = true;
     // Başlık yalnızca kullanıcının yazdığından çıkarılır (Atölye'nin eklediği notlar ve getirilen veriler hariç)

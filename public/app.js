@@ -526,14 +526,23 @@ function toggleEngineMenu(open = dom.engineMenu.hidden) {
   if (!state.engines.copilot?.available) loadEngines(true);
 }
 
-/** Menüde ada tıklandı: yeni oturumlar bu motorla açılır; açık oturum başka motordaysa hemen yeni oturum açılır */
+/**
+ * Menüde ada tıklandı: yeni oturumlar bu motorla açılır. Açık oturum başka motordaysa ve içinde yazışma varsa önce
+ * "bu konuşmayla mı devam, yeni oturum mu" diye sorulur (bkz. offerHandoff); boşsa hemen yeni oturum açılır.
+ */
 function pickEngine(o) {
   toggleEngineMenu(false);
   if (o.engine === 'copilot' && !state.engines.copilot?.available) return offerCopilotInstall(true);
+  const changed = o.engine !== state.sessionEngine || (o.engine === 'yerel' && o.local !== state.sessionLocal);
+  if (changed && hasConversation()) return offerHandoff(o);
+  switchEngine(o);
+}
+/** Seçilen motora geçer; açık oturum başka motordaysa (ya da zorla) yeni oturum açar */
+function switchEngine(o, force = false) {
   state.engine = o.engine; // yalnızca bu sayfa açıkken geçerli; bir sonraki açılışta yine Copilot gelir
   const changed = o.engine !== state.sessionEngine || (o.engine === 'yerel' && o.local !== state.sessionLocal);
   if (o.local) state.localId = o.local;
-  if (changed) newSession(state.cwd);
+  if (changed || force) newSession(state.cwd);
 }
 
 function applyEngineUi() {
@@ -593,6 +602,9 @@ function applyOpened(ev) {
   if (ev.engine === 'copilot' && ev.ready === false) append(el('div', { class: 'notice info boot-notice', text: T("Copilot'a bağlanılıyor… Hazır olunca mesajınız gönderilir; bu, şirket ağında bir dakikaya kadar sürebilir.") }));
   requestContext();
   setBusy(ev.busy);
+  // Başka bir motordan aktarılan özet: açılan ilk (boş) oturuma bağlanır, o oturuma dönüldüğünde kartı yeniden çizilir
+  if (state.handoff && !state.handoff.liveId && !ev.sessionId && !(ev.history || []).length) state.handoff.liveId = ev.liveId;
+  if (state.handoff && state.handoff.liveId === ev.liveId) renderHandoffCard();
 
   const s = sessionsOf(state.cwd).find((x) => x.id === state.sessionId);
   dom.sessionTitle.textContent = s?.title || ev.title || T(state.sessionId ? 'Oturum' : 'Yeni oturum');
@@ -736,6 +748,8 @@ function thinkingEl(text, open = false) {
 function renderAssistant(msg, fromHistory) {
   const message = msg.message || {};
   const content = Array.isArray(message.content) ? message.content : [];
+  // Son yanıtın düz metni: konuşma başka bir motora aktarılırken özet buradan alınır
+  if (!fromHistory && !msg.parent_tool_use_id) { const said = content.filter((x) => x.type === 'text' && x.text).map((x) => x.text).join('\n\n').trim(); if (said) state.lastReply = said; }
 
   if (msg.parent_tool_use_id) {
     // Alt ajanın adımları, ana Task kartının içinde gösterilir
@@ -1289,7 +1303,9 @@ function activePrompt() {
 
 // ---------- Meşguliyet / çalışıyor göstergesi ----------
 function setBusy(busy) {
+  const ended = state.busy && !busy;
   state.busy = busy;
+  if (ended && handoffUi.waiting) setTimeout(handoffTurnEnded, 0);
   if (busy) setWorking(T('Çalışıyor…'));
   else $('.working', dom.messages)?.remove();
   updateSendBtn();
@@ -1395,7 +1411,10 @@ function send() {
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
   warnIfLinkUnavailable();
   const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? `${withFetchProtocol(text)}${activeLinks.filter((id) => !fetchLinks().includes(id)).map((id) => `\n${withOneLinkHint('', id).trim()}`).join('')}` : withLinkHint(text || (files.length ? T('Ekteki dosyaya bak.') : T('Bu görsele bak.')));
-  wsSend({ type: 'send', text: outgoing, images, work: state.work, ...(files.length ? { files } : {}) });
+  // Başka bir motordan aktarılan özet, bu oturumun ilk mesajıyla birlikte (gizli bağlam olarak) gider
+  const carried = state.handoff && state.handoff.liveId === state.liveId && !text.startsWith('/') ? state.handoff : null;
+  wsSend({ type: 'send', text: outgoing, images, work: state.work, ...(files.length ? { files } : {}), ...(carried ? { handoff: carried.text } : {}) });
+  if (carried) { state.handoff = null; $('.handoff-card', dom.messages)?.remove(); notice(T('{from} konuşmasının özeti bu mesajla birlikte gönderildi.', { from: carried.from }), 'info'); }
   dom.input.value = '';
   state.attachments = [];
   renderAttachments();
@@ -3397,6 +3416,112 @@ async function renderProxyTab() {
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
 }
+
+// ---------- Konuşmayı başka bir motora aktarma ----------
+// Konuşma sürerken motor değiştirilirse iki yol sunulur: yeni oturum ya da "bu konuşmayla devam et". Devamda o anki motor
+// konuşmanın özetini yazar, kullanıcı özeti görüp düzenler ve onaylar; hedef motorda açılan yeni oturumun ilk mesajıyla
+// birlikte (gizli bağlam olarak) gönderilir. Konuşmanın kendisi taşınmaz: motorlar birbirinin kaydını okuyamaz, ayrıca
+// yerel modelin gördüğü içerik (Outlook, Teams, veritabanı) kullanıcının onayı olmadan buluta gitmemelidir.
+const handoffUi = { target: null, waiting: false, timer: null };
+state.handoff = null;   // { text, liveId, from }: yeni oturumun ilk mesajıyla gönderilecek özet
+state.lastReply = '';   // son yapay zekâ yanıtının düz metni (özet buradan alınır)
+const HANDOFF_WAIT_MS = 180_000;
+const LOCAL_ONLY_TOOL = /\b(outlook|teams)_[a-z_]+/;
+const hasConversation = () => Boolean(dom.messages.querySelector('.msg-user'));
+const handoffDlg = () => $('#handoffDialog');
+const engineNameOf = (o) => o.name;
+
+function handoffStage(title, ...children) {
+  $('#handoffTitle').textContent = title;
+  $('#handoffBody').replaceChildren(...children.flat().filter(Boolean));
+  if (!handoffDlg().open) handoffDlg().showModal();
+}
+
+/** Motor menüsünde başka bir motor seçildi ve açık konuşmada mesaj var: nasıl devam edileceği sorulur */
+function offerHandoff(o) {
+  handoffUi.target = o;
+  const name = engineNameOf(o);
+  handoffStage(T('{name} ile devam', { name }), [
+    el('p', { class: 'links-intro', text: T('Bu konuşmada yazışma var. {name} ile nasıl devam etmek istersiniz?', { name }) }),
+    el('ol', { class: 'links-steps' },
+      el('li', { text: T('Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { name }) }),
+      el('li', { text: T('Yeni oturum: {name} ile boş bir oturum açılır; bu konuşma listede kalır.', { name }) })),
+    state.busy ? el('p', { class: 'links-intro', text: T('Şu an bir işlem sürüyor; özet için bitmesini bekleyin ya da yeni oturum açın.') }) : null,
+    el('div', { class: 'links-actions' },
+      el('button', { class: 'btn primary', type: 'button', text: T('Bu konuşmayla devam et'), disabled: state.busy, onclick: startHandoffSummary }),
+      el('button', { class: 'btn', type: 'button', text: T('Yeni oturum'), onclick: () => { handoffDlg().close(); switchEngine(o); } }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
+  ]);
+}
+
+/** Şimdiki oturumdan aktarım özeti istenir; yanıt bitince düzenleme ekranı açılır */
+function startHandoffSummary() {
+  handoffUi.waiting = true;
+  state.lastReply = '';
+  handoffStage(T('Özet hazırlanıyor…'), [
+    el('p', { class: 'links-intro', text: T('Şimdiki yapay zekâ konuşmanın özetini yazıyor. Özet bu konuşmanın sonuna da eklenir; bitince düzenlemeniz için burada açılır.') }),
+    el('div', { class: 'links-actions' },
+      el('button', { class: 'btn', type: 'button', text: T('Özeti kendim yazacağım'), onclick: () => reviewHandoff('') }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
+  ]);
+  sendToAi(T('Bu konuşmayı başka bir yapay zekâ oturumuna devredeceğim. Onun kaldığımız yerden devam edebilmesi için bir aktarım özeti yaz: amaç, şimdiye kadar öğrenilenler ve alınan kararlar (gerekli kimlikler, dosya yolları ve sayılarla), yapılanlar ve sıradaki adım. Araç kullanma; yalnızca özeti yaz, giriş ya da kapanış cümlesi ekleme.'));
+  clearTimeout(handoffUi.timer);
+  handoffUi.timer = setTimeout(() => { if (handoffUi.waiting) reviewHandoff(state.lastReply); }, HANDOFF_WAIT_MS);
+}
+
+/** Yanıt bittiğinde (setBusy(false)) çağrılır: özet bekleniyorsa düzenleme ekranını açar */
+function handoffTurnEnded() {
+  if (!handoffUi.waiting || !handoffDlg().open) { handoffUi.waiting = false; return; }
+  reviewHandoff(state.lastReply);
+}
+
+function reviewHandoff(summary) {
+  handoffUi.waiting = false;
+  clearTimeout(handoffUi.timer);
+  const o = handoffUi.target;
+  const name = engineNameOf(o);
+  const fromLocal = currentEngine() === 'yerel';
+  const toCloud = o.engine !== 'yerel';
+  const usedPrivate = [...dom.messages.querySelectorAll('.tool')].some((n) => LOCAL_ONLY_TOOL.test(n.textContent));
+  const box = el('textarea', { class: 'handoff-text', rows: '14', spellcheck: 'false' });
+  box.value = summary || '';
+  const go = el('button', { class: 'btn primary', type: 'button', text: T('Aktar ve {name} ile devam et', { name }), onclick: () => {
+    const text = box.value.trim();
+    if (!text) { box.focus(); return; }
+    handoffDlg().close();
+    const from = engineOptions().find((x) => x.key === activeEngineKey())?.name || engineLabel(currentEngine());
+    switchEngine(o, true);
+    state.handoff = { text, liveId: null, from };
+  } });
+  handoffStage(T('Aktarılacak özet'), [
+    summary ? null : el('p', { class: 'links-intro', text: T('Özet alınamadı. Yeni oturumun bilmesi gerekenleri aşağıya kendiniz yazabilirsiniz.') }),
+    fromLocal && toCloud
+      ? el('div', { class: 'links-result err' }, el('span', { text: usedPrivate
+        ? T('Dikkat: bu konuşmada Outlook ya da Teams verisi okundu. Aşağıdaki özet {name} hizmetine (buluta) gönderilecek; e-posta ve mesaj içeriklerinden paylaşmak istemediklerinizi silin.', { name })
+        : T('Dikkat: bu konuşma yerel modelle yapıldı. Aşağıdaki özet {name} hizmetine (buluta) gönderilecek; paylaşmak istemediklerinizi silin.', { name }) }))
+      : el('p', { class: 'links-intro', text: T('Özeti gözden geçirip düzenleyin. Yalnızca burada yazanlar aktarılır; konuşmanın kendisi taşınmaz.') }),
+    box,
+    el('p', { class: 'links-note', text: T('Özet, {name} oturumunda yazacağınız ilk mesajla birlikte gönderilir. Bu konuşma listede kalır; istediğiniz zaman geri dönebilirsiniz.', { name }) }),
+    el('div', { class: 'links-actions' }, go, el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
+  ]);
+  box.focus();
+}
+
+/** Yeni oturumun başında görünen kart: aktarılacak özet ilk mesajı bekliyor */
+function renderHandoffCard() {
+  const h = state.handoff;
+  if (!h) return;
+  $('.handoff-card', dom.messages)?.remove();
+  const card = el('div', { class: 'notice info handoff-card' },
+    el('div', {}, el('b', { text: T('{from} konuşmasının özeti hazır', { from: h.from }) }),
+      el('span', { text: ` ${T('İlk mesajınızla birlikte gönderilecek; ne yapmak istediğinizi yazın.')}` })),
+    el('details', {}, el('summary', { text: T('Özeti göster') }), el('pre', { class: 'handoff-preview', text: h.text })),
+    el('button', { class: 'btn ghost', type: 'button', text: T('Aktarmaktan vazgeç'), onclick: () => { state.handoff = null; card.remove(); if (!dom.messages.children.length) dom.empty.hidden = false; } }));
+  dom.empty.hidden = true;
+  dom.messages.prepend(card);
+}
+handoffDlg().addEventListener('close', () => { handoffUi.waiting = false; clearTimeout(handoffUi.timer); });
+$('#handoffClose').onclick = () => handoffDlg().close();
 
 // ---------- Oracle istemcisi (Oracle sekmesinin altında) ----------
 // Bağlantı "NJS-116" (eski parola biçimi) ya da "NJS-138" (eski veritabanı) hatası veriyorsa Oracle Instant Client gerekir.

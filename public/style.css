@@ -707,6 +707,11 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .links-steps { margin: 0; padding: 10px 12px 10px 30px; border-radius: 10px; background: var(--surface-2); font-size: 13px; line-height: 1.55; color: var(--text-2); }
 .links-steps li + li { margin-top: 4px; }
 .links-steps.oracle-client { padding-left: 12px; display: flex; flex-direction: column; gap: 8px; }
+/* Konuşmayı başka bir motora aktarma: özet kutusu ve yeni oturumdaki kart */
+.handoff-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 180px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 13.5px; line-height: 1.5; }
+.handoff-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.handoff-card summary { cursor: pointer; font-size: 12.5px; color: var(--text-2); }
+.handoff-preview { margin: 6px 0 0; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
 .links-steps.oracle-client .links-actions { align-items: center; }
 .links-steps a { color: var(--accent); overflow-wrap: anywhere; }
 .links-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-2); }
