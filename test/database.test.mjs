@@ -2,7 +2,10 @@
 // (gerçek veritabanına bağlanılmaz; sürücüler sahtedir)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReadOnly, skeleton, formatRows, validDbUrl, setDriver, oracle, postgres } from '../src/database.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { checkReadOnly, skeleton, formatRows, validDbUrl, setDriver, oracle, postgres, findOracleClient, oracleConnectError, resetOracleMode } from '../src/database.js';
 import { availableTools, callTool } from '../src/mcp-server.js';
 
 test('yalnızca tek bir SELECT / WITH sorgusu kabul edilir', () => {
@@ -110,4 +113,69 @@ test('veritabanı araçları yalnızca bağlantı kuruluysa sunulur ve hepsi oku
   const r = await callTool('postgres_query', { sql: 'drop table t' }, env);
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /^postgres: Yalnızca SELECT/);
+});
+
+test('Oracle istemcisi: kitaplık elle gösterilen klasörde, ORACLE_HOME ve PATH içinde aranır', () => {
+  const has = (...files) => (f) => files.includes(f);
+  const j = path.join;
+  assert.equal(findOracleClient({ PATH: 'C:\\a;"C:\\ora\\ic";C:\\b' }, has(j('C:\\ora\\ic', 'oci.dll')), 'win32'), 'C:\\ora\\ic');
+  assert.equal(findOracleClient({ Path: 'C:\\x', ORACLE_HOME: 'C:\\oracle' }, has(j('C:\\oracle', 'bin', 'oci.dll')), 'win32'), j('C:\\oracle', 'bin'));
+  assert.equal(findOracleClient({ ORACLE_CLIENT_LIB_DIR: 'D:\\ic', PATH: 'C:\\ora' }, has(j('D:\\ic', 'oci.dll'), j('C:\\ora', 'oci.dll')), 'win32'), 'D:\\ic', 'elle gösterilen önce gelir');
+  assert.equal(findOracleClient({ PATH: 'C:\\a;C:\\b' }, has(), 'win32'), null);
+  assert.equal(findOracleClient({ LD_LIBRARY_PATH: '/opt/a:/opt/ic' }, has(j('/opt/ic', 'libclntsh.so')), 'linux'), '/opt/ic');
+});
+
+test('Oracle: istemci kitaplığı varsa onunla (thick), yoksa ya da yüklenemezse istemcisiz (thin) bağlanılır', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-oci-'));
+  fs.writeFileSync(path.join(dir, process.platform === 'win32' ? 'oci.dll' : process.platform === 'darwin' ? 'libclntsh.dylib' : 'libclntsh.so'), '');
+  const inits = [];
+  const driver = (initFails, connect) => async () => ({
+    OUT_FORMAT_ARRAY: 4001,
+    initOracleClient(opt) { inits.push(opt.libDir); if (initFails) throw new Error('DPI-1047: Cannot locate a 64-bit Oracle Client library'); },
+    getConnection: connect || (async () => ({
+      oracleServerVersionString: '11.2.0.4.0',
+      set callTimeout(v) { throw new Error('DPI-1050: Oracle Client library is at version 12.1 but version 18.1 or higher is needed'); },
+      async execute(sql) { return /sys_context/.test(sql) ? { rows: [['UYGULAMA', 'ESKI']] } : { rows: [] }; },
+      async rollback() {}, async close() {},
+    })),
+  });
+  const cfg = { url: 'db.example.com:1521/ESKI', email: 'uygulama', token: 'gizli' };
+  const saved = { ...process.env };
+  const quiet = console.error;
+  try {
+    process.env.ORACLE_CLIENT_LIB_DIR = dir;
+    delete process.env.ORACLE_THIN;
+    resetOracleMode();
+    setDriver('oracle', driver(false));
+    // Eski istemcide süre sınırı ayarlanamaması bağlantıyı bozmaz
+    assert.equal(await oracle.whoami(cfg), 'UYGULAMA @ ESKI (Oracle 11.2.0.4.0) · Oracle istemcisiyle');
+    await oracle.whoami(cfg);
+    assert.deepEqual(inits, [dir], 'kip süreç başına bir kez belirlenir');
+
+    resetOracleMode(); inits.length = 0;
+    console.error = () => {};
+    setDriver('oracle', driver(true));
+    assert.equal(await oracle.whoami(cfg), 'UYGULAMA @ ESKI (Oracle 11.2.0.4.0)', 'kitaplık yüklenemezse thin');
+    console.error = quiet;
+
+    resetOracleMode(); inits.length = 0;
+    process.env.ORACLE_THIN = '1';
+    setDriver('oracle', driver(false));
+    await oracle.whoami(cfg);
+    assert.deepEqual(inits, [], 'ORACLE_THIN=1 her durumda thin');
+
+    // Eski parola biçimi: ne olduğu ve ne yapılacağı söylenir
+    delete process.env.ORACLE_CLIENT_LIB_DIR;
+    resetOracleMode();
+    setDriver('oracle', driver(false, async () => { throw new Error('NJS-116: password verifier type 0x939 is not supported by node-oracledb in Thin mode'); }));
+    await assert.rejects(oracle.whoami(cfg), /parolası eski \(10G\) biçimde.*NJS-116.*yeniden tanımlamasını.*ORACLE_CLIENT_LIB_DIR/s);
+  } finally {
+    console.error = quiet;
+    for (const k of ['ORACLE_CLIENT_LIB_DIR', 'ORACLE_THIN']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    resetOracleMode();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(oracleConnectError('ORA-01017: invalid username/password; logon denied'), 'kullanıcı adı ya da parola hatalı');
+  assert.match(oracleConnectError('NJS-138: connections to this database server version are not supported by node-oracledb in Thin mode'), /12\.1 ve üstü gerekir.*Oracle istemcisi/s);
+  assert.equal(oracleConnectError('ORA-12170: TNS:Connect timeout occurred\nHelp: x', 'thick'), 'ORA-12170: TNS:Connect timeout occurred (Oracle istemcisiyle bağlanıldı)');
 });
