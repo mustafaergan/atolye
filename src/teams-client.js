@@ -4,8 +4,6 @@
 import http from 'node:http';
 
 const OPS = ['listChats', 'getMessages', 'listChannels', 'getChannelMessages'];
-// Masaüstü uygulaması araçları da aynı yolla Atölye sunucusuna iletilir (bkz. launcher.js)
-const APP_OPS = ['status', 'setUrl', 'open', 'close', 'logs', 'readLog', 'network', 'networkDetail', 'page'];
 
 /** Atölye bu bilgisayardadır: istek doğrudan (proxy'siz) node:http ile yapılır */
 function post(url, token, body) {
@@ -37,6 +35,4 @@ async function forward(cfg, op, args) {
   return j.text;
 }
 
-const client = (ops) => Object.fromEntries(ops.map((op) => [op, (cfg, args) => forward(cfg, op, args)]));
-export const teamsClient = client(OPS);
-export const appClient = client(APP_OPS);
+export const teamsClient = Object.fromEntries(OPS.map((op) => [op, (cfg, args) => forward(cfg, op, args)]));

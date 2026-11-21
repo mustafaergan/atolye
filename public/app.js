@@ -2603,7 +2603,7 @@ let browseReq = 0;
 async function browse(p) {
   const req = ++browseReq;
   try {
-    const res = await fetch(`/api/fs/list?path=${encodeURIComponent(p)}${filePick ? `&file=${encodeURIComponent(filePick)}` : ''}`).then((r) => r.json());
+    const res = await fetch(`/api/fs/list?path=${encodeURIComponent(p)}`).then((r) => r.json());
     if (req !== browseReq) return; // daha yeni bir istek var, eski cevabı yazma
     if (res.error) throw new Error(res.error);
     pathInput.value = res.path;
@@ -2611,8 +2611,6 @@ async function browse(p) {
     if (res.parent !== null && res.parent !== undefined)
       items.push(el('button', { class: 'dir-item', type: 'button', onclick: () => browse(res.parent) }, icon(ICONS.up), '..'));
     for (const d of res.dirs) items.push(el('button', { class: 'dir-item', type: 'button', ondblclick: () => browse(d.path), onclick: () => browse(d.path) }, icon(ICONS.folder), d.name));
-    // Dosya seçme kipinde aranan dosya en üstte gösterilir; tıklanınca yolu seçilir
-    for (const f of res.files || []) items.unshift(el('button', { class: 'dir-item file-item', type: 'button', onclick: (e) => { pathInput.value = f.path; for (const n of dirList.querySelectorAll('.file-item')) n.classList.toggle('selected', n === e.currentTarget); } }, icon(ICONS.file), f.name));
     dirList.replaceChildren(...items);
   } catch (err) {
     if (req !== browseReq) return;
@@ -2621,17 +2619,15 @@ async function browse(p) {
 }
 // Pencere iki işte kullanılır: proje klasörü eklemek (varsayılan) ve başka bir ekran için yalnızca klasör seçmek
 let folderPick = null; // seçim bekleniyorsa sonucu alacak işlev
-let filePick = '';     // dosya seçme kipi: aranan dosyanın adı (boşsa klasör seçilir)
 function folderDialogText(title, ok) {
   dlg.querySelector('h2').textContent = title;
   $('#folderChoose').textContent = ok;
 }
-function openFolderDialog() { folderPick = null; filePick = ''; folderDialogText(T('Proje klasörü ekle'), T('Ekle ve yeni oturum aç')); browse(state.cwd); dlg.showModal(); }
+function openFolderDialog() { folderPick = null; folderDialogText(T('Proje klasörü ekle'), T('Ekle ve yeni oturum aç')); browse(state.cwd); dlg.showModal(); }
 /** Klasör seçtirir; seçilen yolu, vazgeçilirse null döndürür */
-function pickFolder({ start = '', title, ok, file = '' }) {
+function pickFolder({ start = '', title, ok }) {
   return new Promise((resolve) => {
     folderPick = resolve;
-    filePick = file; // doluysa klasörlerin yanında yalnızca bu adlı dosya listelenir
     folderDialogText(title, ok);
     browse(start);
     dlg.showModal();
@@ -3001,8 +2997,7 @@ const multiLink = () => true;
 const linkNames = (list) => list.map((id) => LINKS[id].name).join(' + ');
 function renderLinkSelect() {
   const sel = $('#linkSelect');
-  // Masaüstü uygulaması her modda seçilebilir (kullanıcı panelden yapay zekâ iznini açtıysa)
-  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && (roleTabs().includes(id) || id === 'uygulama')).map(([id]) => id);
+  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && roleTabs().includes(id)).map(([id]) => id);
   linkConnected = connected;
   activeLinks = activeLinks.filter((id) => connected.includes(id)).slice(0, multiLink() ? MAX_LINKS : 1);
   activeLink = activeLinks[0] || '';
@@ -3082,11 +3077,8 @@ function withOneLinkHint(text, activeLink) {
 }
 const linksDlg = $('#linksDialog');
 
-// Masaüstü uygulaması panelinin durumu (bkz. renderLauncherTab). loadLinks sayfa açılırken çağrıldığı için burada tanımlıdır.
-const launcherUi = { status: null, result: null, draft: null, busy: false };
 async function loadLinks() {
-  // Masaüstü uygulaması sekmesinin başlığı ve noktası da baştan doğru görünsün diye durumu birlikte okunur
-  [links.status] = await Promise.all([fetch('/api/integrations').then((r) => r.json()).catch(() => null), loadLauncher()]);
+  links.status = await fetch('/api/integrations').then((r) => r.json()).catch(() => null);
   renderLinksBadge();
   renderLinkSelect();
 }
@@ -3109,7 +3101,7 @@ const LINK_GROUPS = [
   [() => T('Veritabanı'), ['oracle', 'postgres']],
   [() => T('Test'), ['reportportal', 'testotomasyon', 'tarayici', 'fikirhane']],
   [() => T('İletişim'), ['outlook', 'teams']],
-  [() => T('Bu bilgisayar'), ['repo', 'proxy', 'uygulama']],
+  [() => T('Bu bilgisayar'), ['repo', 'proxy']],
 ];
 links.filter = '';
 const linkName = (id) => (id === 'repo' ? T('İlk repom') : id === 'proxy' ? 'Proxy' : LINKS[id].name);
@@ -3117,11 +3109,10 @@ const linkName = (id) => (id === 'repo' ? T('İlk repom') : id === 'proxy' ? 'Pr
 function linkState(id) {
   if (id === 'repo') return null;
   if (id === 'proxy') return Boolean(proxyUi.status?.configured);
-  if (id === 'uygulama') return Boolean(launcherUi.status?.exe && !launcherUi.status?.exeError);
   return Boolean(links.status?.services?.[id]?.connected);
 }
-// Bu modda görünen bağlantılar. Masaüstü uygulaması her modda vardır.
-const visibleLinks = () => [...roleTabs().filter((id) => id === 'repo' || id === 'proxy' || LINKS[id]), 'uygulama'];
+// Bu modda görünen bağlantılar
+const visibleLinks = () => roleTabs().filter((id) => id === 'repo' || id === 'proxy' || LINKS[id]);
 function linkGroups() {
   const visible = visibleLinks();
   const groups = LINK_GROUPS.map(([name, ids]) => [name(), ids.filter((id) => visible.includes(id))]);
@@ -3131,8 +3122,6 @@ function linkGroups() {
 }
 function selectLink(id) {
   links.tab = id;
-  // Masaüstü uygulaması: yarım kalan taslak ve eski sonuç atılır, durum yeniden okunur
-  if (id === 'uygulama') { launcherUi.result = null; launcherUi.draft = null; loadLauncher().then(() => { if (links.tab === 'uygulama') renderLinks(); }); }
   renderLinks();
   $('#linksBody').scrollTop = 0;
   $('#linksTabs [aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -3202,7 +3191,6 @@ function renderLinks() {
   renderLinksHead();
   if (links.tab === 'repo') return renderRepoTab();
   if (links.tab === 'proxy') return renderProxyTab();
-  if (links.tab === 'uygulama') return renderLauncherTab();
   if (links.tab === 'tarayici') return renderBrowserTab();
   if (links.tab === 'fikirhane') return renderFikirhaneTab();
   if (links.tab === 'testotomasyon') return renderTestTab();
@@ -3523,171 +3511,6 @@ async function renderProxyTab() {
   ].filter(Boolean));
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
-}
-
-// ---------- Masaüstü uygulaması bağlantısı ----------
-// Bilgisayardaki bir uygulamayı (EXE) seçer, ayar dosyasındaki başlangıç adresini düzenler ve uygulamayı kendi penceresinde
-// açar (bkz. src/launcher.js). Hangi uygulama ve hangi adresler: kuruluşun tanım dosyasından gelir, kodda yer almaz.
-// Yapay zekâ araçları ve sohbetteki bağlantı seçeneği yalnızca kullanıcı paneldeki izni açarsa sunulur.
-const launcherTitle = () => launcherUi.status?.definition?.title || T('Masaüstü uygulaması');
-// Sohbetin bağlantı seçicisinde: yapay zekâ izni açıksa seçilip doğrudan bu uygulama hakkında soru sorulabilir
-LINKS.uygulama = { get name() { return launcherTitle(); } };
-LINK_TOOLS.uygulama = 'desktop_app_status, desktop_app_set_start_url, desktop_app_open, desktop_app_close, desktop_app_list_logs, desktop_app_read_log, desktop_app_network, desktop_app_network_detail, desktop_app_page';
-async function loadLauncher() {
-  launcherUi.status = await fetch('/api/launcher').then((r) => r.json()).catch(() => launcherUi.status);
-  return launcherUi.status;
-}
-async function launcherCall(pathname, method = 'POST', body) {
-  const r = await fetch(`${pathname}?lang=${getLang()}`, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
-    .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
-  if (r.status) launcherUi.status = r.status;
-  return r;
-}
-function renderLauncherTab() {
-  const body = $('#linksBody');
-  $('#linksNote').textContent = T('Seçilen dosyanın yolu ve tanım yalnızca bu bilgisayarda (~/.atolye/uygulama.json) saklanır. Ayar dosyasının içeriği, adresler ve uygulamada yaptıklarınız kayıtlara ya da yapay zekâya gönderilmez.');
-  const st = launcherUi.status;
-  if (!st) { body.replaceChildren(el('p', { class: 'links-intro', text: T('Yükleniyor…') })); loadLauncher().then(() => { if (links.tab === 'uygulama') renderLinks(); }); return; }
-  const result = el('div', { class: 'links-result' });
-  const show = (r) => { launcherUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : 'err'}`; result.textContent = r.text; } };
-  const redraw = (r) => { launcherUi.result = r === undefined ? launcherUi.result : r; if (links.tab === 'uygulama') renderLinks(); };
-  // Düğmeye art arda basılırsa ikinci istek gönderilmez
-  const once = (fn) => async () => { if (launcherUi.busy) return; launcherUi.busy = true; try { await fn(); } finally { launcherUi.busy = false; } };
-
-  if (!st.supported) { body.replaceChildren(el('p', { class: 'links-intro', text: T('Bu bağlantı bilgisayardaki bir Windows uygulamasını başlatır; yalnızca Windows\'ta çalışır.') })); return; }
-
-  const defInput = el('input', { type: 'file', accept: '.json,application/json', hidden: true });
-  defInput.onchange = async () => {
-    const file = defInput.files?.[0];
-    if (!file) return;
-    const r = await launcherCall('/api/launcher/definition', 'POST', { definition: await file.text().catch(() => '') });
-    launcherUi.draft = null;
-    redraw(r.ok ? { ok: true, text: T('Tanım yüklendi: {title}', { title: r.status.definition.title }) } : { ok: false, text: r.error || '?' });
-  };
-  const chooseDef = el('button', { class: st.definition ? 'btn ghost' : 'btn primary', type: 'button', text: st.definition ? T('Tanımı değiştir') : T('Tanım dosyası seç'), onclick: () => defInput.click() });
-
-  if (!st.definition) {
-    body.replaceChildren(
-      el('ol', { class: 'links-steps' },
-        el('li', { text: T('Bu bağlantı bilgisayarınızdaki bir masaüstü uygulamasını seçmenizi, ayar dosyasındaki başlangıç adresini değiştirmenizi ve uygulamayı açmanızı sağlar. Uygulama kendi penceresinde açılır; giriş ve diğer işlemler orada yapılır.') }),
-        el('li', { text: T('Hangi uygulamanın açılacağı ve hangi adreslere izin verildiği kuruluşunuzun tanım dosyasında yazar. Dosyayı ekibinizden alın; örneği Atölye belgelerinde (README) vardır.') }),
-        el('li', { text: T('Yapay zekâ bu uygulamayı yalnızca siz bu panelden izin verirseniz yönetebilir.') })),
-      el('div', { class: 'links-actions' }, chooseDef, defInput),
-      result);
-    show(launcherUi.result);
-    return;
-  }
-
-  const def = st.definition;
-  const target = st.target;
-  const onDisk = target && !target.error ? target.value : '';
-  const url = el('input', { type: 'text', value: launcherUi.draft ?? onDisk, spellcheck: 'false', autocomplete: 'off', disabled: !target || Boolean(target.error) });
-  url.addEventListener('input', () => { launcherUi.draft = url.value; });
-  const dirty = () => Boolean(target && !target.error) && url.value.trim() !== onDisk;
-
-  const pickBtn = el('button', { class: st.exe ? 'btn' : 'btn primary', type: 'button', text: T('{name} seç', { name: def.exeName }), onclick: once(async () => {
-    const start = st.exe ? st.exe.replace(/\\[^\\]*$/, '') : '';
-    const picked = await pickFolder({ start, title: T('{name} dosyasını seçin', { name: def.exeName }), ok: T('Bu dosyayı seç'), file: def.exeName });
-    if (!picked) return;
-    const r = await launcherCall('/api/launcher/exe', 'POST', { path: picked });
-    launcherUi.draft = null;
-    redraw(r.ok ? { ok: true, text: T('Uygulama seçildi. Uygulama başlatılmadı; ayar değiştirilmedi.') } : { ok: false, text: r.error || '?' });
-  }) });
-
-  const doSave = async () => launcherCall('/api/launcher/save', 'POST', { url: url.value, rev: target?.rev });
-  const doOpen = async (unverified) => launcherCall('/api/launcher/open', 'POST', { unverified });
-  // Adres dosyadan okunamıyorsa (ayar uygulamanın kendi arayüzündeyse) açmadan önce sorulur
-  const openChecked = async () => {
-    const unknown = Boolean(target?.error) && ['no-ini', 'no-key'].includes(target.error);
-    if (unknown && !confirm(T('Başlangıç adresi ayar dosyasından okunamıyor; uygulama kendi ayarıyla açılacak ve Atölye hedefi doğrulayamayacak. Yine de açılsın mı?'))) return null;
-    return doOpen(unknown);
-  };
-  const saveBtn = el('button', { class: 'btn', type: 'button', text: T('Kaydet'), onclick: once(async () => {
-    const r = await doSave();
-    launcherUi.draft = r.ok ? null : launcherUi.draft;
-    redraw(r.ok ? { ok: true, text: T('Ayar kaydedildi ve dosyadan geri okunarak doğrulandı. Uygulama başlatılmadı.') } : { ok: false, text: r.error || '?' });
-  }) });
-  const saveOpenBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet ve Aç'), onclick: once(async () => {
-    const s = await doSave();
-    if (!s.ok) return redraw({ ok: false, text: s.error || '?' });
-    launcherUi.draft = null;
-    const o = await doOpen(false);
-    redraw(o.ok ? { ok: true, text: T('Ayar kaydedildi ve uygulama başlatıldı. Giriş ve bağlantı durumu doğrulanmadı; uygulamanın kendi penceresinden denetleyin.') }
-      : { ok: false, text: T('Ayar kaydedildi; uygulama açılamadı: {error}', { error: o.error || '?' }) });
-  }) });
-  const openBtn = el('button', { class: 'btn', type: 'button', text: T('Uygulamayı Aç'), onclick: once(async () => {
-    if (dirty() && !confirm(T('Formda kaydedilmemiş bir değişiklik var. Uygulama dosyadaki mevcut adresle açılacak. Devam edilsin mi?'))) return;
-    const o = await openChecked();
-    if (!o) return;
-    redraw(o.ok ? { ok: true, text: T('Uygulama başlatıldı; ayar değiştirilmedi. Giriş ve bağlantı durumu doğrulanmadı; uygulamanın kendi penceresinden denetleyin.') } : { ok: false, text: o.error || '?' });
-  }) });
-  const reloadBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Yeniden yükle'), onclick: once(async () => { await loadLauncher(); launcherUi.draft = null; redraw(null); }) });
-  const forgetBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Seçimi kaldır'), onclick: once(async () => { await launcherCall('/api/launcher/exe', 'DELETE'); launcherUi.draft = null; redraw(null); }) });
-  // Çalışan uygulamayı kapatma: Atölye'nin başlattığı örnek; yoksa bu adla çalışan bütün örnekler (elle açılanlar dahil)
-  const closeBtn = el('button', { class: 'btn', type: 'button', text: T('Çalışan uygulamayı kapat'), onclick: once(async () => {
-    const all = st.process !== 'started';
-    if (!confirm(all ? T('Bu adla çalışan bütün uygulama örnekleri kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.') : T('Atölye\'nin başlattığı uygulama kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.'))) return;
-    const r = await launcherCall('/api/launcher/close', 'POST', { all });
-    redraw(r.ok ? { ok: true, text: T('Uygulama kapatıldı.') } : { ok: false, text: r.error || '?' });
-  }) });
-  const aiBox = el('input', { type: 'checkbox', checked: st.ai });
-  aiBox.onchange = once(async () => {
-    const r = await launcherCall('/api/launcher/ai', 'POST', { enabled: aiBox.checked });
-    await loadLinks(); // sohbetteki bağlantı seçicisi güncellensin
-    redraw(r.ok ? { ok: true, text: aiBox.checked ? T('Yapay zekâ izni açıldı. Yeni açılan oturumlarda geçerlidir.') : T('Yapay zekâ izni kapatıldı. Yeni açılan oturumlarda geçerlidir.') } : { ok: false, text: r.error || '?' });
-  });
-  const removeDef = el('button', { class: 'btn ghost', type: 'button', text: T('Tanımı kaldır'), onclick: once(async () => {
-    if (!confirm(T('Tanım ve uygulama seçimi bu bilgisayardan silinsin mi? Uygulamanın kendisine ve ayar dosyasına dokunulmaz.'))) return;
-    await launcherCall('/api/launcher/definition', 'DELETE'); launcherUi.draft = null; redraw(null);
-  }) });
-
-  const TARGET_NOTE = {
-    'no-ini': T('Uygulamanın yanında ayar dosyası yok: bu sürümde başlangıç adresini uygulamanın kendi arayüzünden yapın. Atölye dosya oluşturmaz.'),
-    'no-key': T('Ayar dosyasında başlangıç adresi yok: bu sürümde ayarı uygulamanın kendi arayüzünden yapın. Atölye dosyaya yeni ayar eklemez.'),
-    'many-keys': T('Ayar dosyasında başlangıç adresi birden fazla yerde geçiyor; Atölye bu dosyayı değiştirmez.'),
-    'bad-encoding': T('Ayar dosyasının kodlaması desteklenmiyor; Atölye bu dosyayı değiştirmez.'),
-    'ini-too-big': T('Ayar dosyası beklenenden büyük; Atölye bu dosyayı değiştirmez.'),
-  };
-  const allowed = [...def.allowedHosts.map((h) => `https://${h}`), ...(def.allowLoopbackHttp ? ['http://localhost'] : [])].join(', ');
-  // Durumlar ayrı ayrı gösterilir: seçim, kayıtlı ayar, süreç ve uygulamanın diğer bağlantıları aynı şey değildir
-  const rows = [
-    [T('Uygulama'), st.exe ? (st.exeError ? T('{path} (dosya artık yerinde değil; yeniden seçin)', { path: st.exe }) : st.exe) : T('seçilmedi')],
-    [T('Dosyadaki başlangıç adresi'), !st.exe || st.exeError ? '—' : target?.error ? (TARGET_NOTE[target.error] || target.error) : target.allowed ? onDisk : T('{url} (izinli adresler arasında değil; uygulama bu adresle açılmaz)', { url: onDisk })],
-    [T('Uygulama süreci'), st.process === 'started' ? T('Atölye başlattı ({time}); hâlâ çalışıyor (penceresi kapalı olsa da arka planda açık olabilir). Ayarı değiştirmek ya da yeniden açmak için önce kapatın.', { time: new Date(st.startedAt).toLocaleTimeString(locale()) })
-      : st.instances == null ? T('Atölye bu çalışmasında uygulamayı başlatmadı. Elle açılmış bir örnek olup olmadığı bilinmiyor.')
-        : st.instances > 0 ? T('Atölye başlatmadı, ama bu adla çalışan {n} süreç var (elle açılmış ya da önceki açılıştan kalmış olabilir).', { n: st.instances })
-          : T('Çalışmıyor (bu adla çalışan süreç yok).')],
-    [T('Ağ incelemesi'), !st.inspect?.enabled ? T('Kapalı. Tanım dosyasına "inspect": true eklenirse uygulama, içindeki sayfanın ağ trafiği izlenebilecek şekilde başlatılır.')
-      : !st.inspect.watching ? T('Uygulama Atölye\'den açıldığında başlar.')
-        : st.inspect.everAttached ? T('Açık: {n} istek kaydedildi. Yapay zekâ hangi servisin çağrıldığını ve dönen cevabı görebilir.', { n: st.inspect.requests })
-          : T('Uygulama inceleme kapısını (henüz) açmadı. Birkaç saniye içinde açılmazsa bu uygulama ağ incelemesini desteklemiyor demektir; logları yine okunabilir.')],
-    [T('Uygulamanın diğer bağlantıları'), T('Doğrulanmadı. Başlangıç adresi yalnızca uygulamanın açtığı sayfayı belirler; uygulamanın bağlandığı diğer sistemlerin (ör. çağrı tarafının) hangi ortama baktığını değiştirmez ve Atölye bunu göremez.')],
-  ];
-  body.replaceChildren(...[
-    def.note ? el('div', { class: 'links-result err launcher-note' }, el('span', { text: def.note })) : null,
-    el('ol', { class: 'links-steps' },
-      el('li', { text: T('"{name} seç" ile bilgisayarınızdaki uygulama dosyasını gösterin. Seçmek uygulamayı başlatmaz.', { name: def.exeName }) }),
-      el('li', { text: T('Başlangıç adresini yazıp "Kaydet" deyin: Atölye ayar dosyasında yalnızca bu değeri değiştirir, diğer satırlara dokunmaz. İzinli adresler: {allowed}', { allowed }) }),
-      el('li', { text: T('"Kaydet ve Aç" ayarı yazıp doğruladıktan sonra uygulamayı kendi penceresinde açar. Giriş ve diğer işlemleri orada siz yaparsınız.') })),
-    el('table', { class: 'launcher-status' }, ...rows.map(([k, v]) => el('tr', {}, el('th', { text: k }), el('td', { text: v })))),
-    el('div', { class: 'links-actions' }, pickBtn, st.exe ? forgetBtn : null, st.exe ? reloadBtn : null, st.process === 'started' || st.instances > 0 ? closeBtn : null),
-    st.exe && !st.exeError ? el('label', { class: 'links-field' }, el('span', { text: T('Başlangıç adresi (InitialPage)') }), url) : null,
-    st.exe && !st.exeError ? el('div', { class: 'links-actions' }, target && !target.error ? saveOpenBtn : null, target && !target.error ? saveBtn : null, openBtn) : null,
-    result,
-    el('label', { class: 'launcher-ai' }, aiBox, el('span', { text: T('Yapay zekâ bu uygulamayı yönetebilsin: durumunu görme, başlangıç adresini değiştirme, açma, kapatma, klasöründeki logları okuma ve (ağ incelemesi açıksa) çağrılan servisleri ve cevaplarını görme. Loglar ve cevaplar seçtiğiniz yapay zekâya gider; değişiklik yapan işlemler oturumun izin ayarına göre onayınızı ister.') })),
-    el('div', { class: 'links-actions' }, chooseDef, removeDef, defInput),
-  ].filter(Boolean));
-  show(launcherUi.result);
-  // Atölye'nin başlattığı uygulama açıkken durum birkaç saniyede bir yenilenir: uygulama kapanınca satır güncellenir
-  // (yalnızca durum değişince yeniden çizilir; yazarken form bozulmaz)
-  clearTimeout(launcherUi.timer);
-  const poll = () => { launcherUi.timer = setTimeout(async () => {
-    if (links.tab !== 'uygulama' || !linksDlg.open) return;
-    await loadLauncher();
-    if (links.tab !== 'uygulama' || !linksDlg.open) return;
-    if (launcherUi.status?.process === 'started') poll(); else renderLinks();
-  }, 3000); };
-  if (st.process === 'started') poll();
 }
 
 // ---------- Konuşmayı başka bir motora aktarma ----------

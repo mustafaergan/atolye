@@ -4,7 +4,7 @@
 //   - Verilmemişse: Bearer (kişisel erişim anahtarı) — şirket içi
 import tls from 'node:tls';
 import { outlook } from './outlook.js';
-import { appClient, teamsClient } from './teams-client.js';
+import { teamsClient } from './teams-client.js';
 import { oracle, postgres } from './database.js';
 import * as fikirhane from './fikirhane.js';
 
@@ -19,7 +19,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'uygulama', 'graylogprod', 'oracle', 'postgres', 'fikirhane'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -33,12 +33,6 @@ export function configFromEnv(service, env = process.env) {
   if (service === 'teams') {
     return env.ATOLYE_YEREL_OTURUM === '1' && env.TEAMS_ENABLED === '1' && env.ATOLYE_TEAMS_URL && env.ATOLYE_TEAMS_ANAHTAR
       ? { url: env.ATOLYE_TEAMS_URL, token: env.ATOLYE_TEAMS_ANAHTAR, email: '' } : null;
-  }
-  // Masaüstü uygulaması: kullanıcı panelden izin verdiyse (UYGULAMA_ENABLED) araçlar sunulur; istekler Atölye sunucusuna
-  // iletilir (bkz. launcher.js). İç adres ve anahtar Atölye'nin başlattığı oturumlara ortamdan gelir.
-  if (service === 'uygulama') {
-    return env.UYGULAMA_ENABLED === '1' && env.ATOLYE_UYGULAMA_URL && env.ATOLYE_UYGULAMA_ANAHTAR
-      ? { url: env.ATOLYE_UYGULAMA_URL, token: env.ATOLYE_UYGULAMA_ANAHTAR, email: '' } : null;
   }
   // Fikirhane bu bilgisayarda çalışan ayrı bir uygulamadır: adres ya da anahtar yoktur, yalnızca açık/kapalı (bkz. fikirhane.js)
   if (service === 'fikirhane') return fikirhane.fikirhaneConfig(env);
@@ -769,4 +763,4 @@ export const reportportal = {
 };
 
 // Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
-export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, uygulama: appClient, oracle, postgres, fikirhane };
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane };

@@ -33,7 +33,6 @@ import * as commands from './commands.js';
 import * as settings from './settings.js';
 import * as teams from './teams.js';
 import * as oracleClient from './oracle-client.js';
-import * as launcher from './launcher.js';
 import { bridge, bridgeHandlers } from './kopru.js';
 import { searchSessions } from './search.js';
 import { validWork } from './workmode.js';
@@ -429,69 +428,6 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Outlook: bilgisayardaki Outlook'un araçları açılır/kapatılır (adres ya da anahtar gerekmez)
   app.post('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook etkinleştirildi'); res.json(integrations.setOutlook(true)); }));
   app.delete('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook kapatıldı'); res.json(integrations.setOutlook(false)); }));
-  // Masaüstü uygulaması bağlantısı (yalnızca Windows): EXE seçimi, başlangıç adresi ve başlatma (bkz. launcher.js).
-  // Adresler ve dosya içeriği kayıtlara yazılmaz. Bu uçlar yalnızca arayüzden çağrılır; sohbet aracı olarak sunulmaz.
-  const launcherError = (lang, err) => {
-    const detail = err.detail ? ` (${err.detail})` : '';
-    const texts = {
-      "unsupported": msg(lang, 'Bu bağlantı yalnızca Windows\'ta çalışır'),
-      "no-definition": msg(lang, 'Önce kuruluşunuzun tanım dosyasını seçin'),
-      "bad-definition": msg(lang, 'Tanım dosyası geçersiz: başlık, .exe ile biten dosya adı ve en az bir izinli adres içermelidir'),
-      "bad-path": msg(lang, 'Bu bilgisayardaki bir dosyanın tam yolunu seçin (ağ yolları desteklenmez)'),
-      "not-exe": msg(lang, 'Seçilen dosya tanımdaki uygulama değil; "{name}" dosyasını seçin', { name: launcher.status().definition?.exeName || '' }),
-      "no-exe": msg(lang, 'Uygulama dosyası bulunamadı; yeniden seçin'),
-      "not-selected": msg(lang, 'Önce uygulama dosyasını seçin'),
-      "no-ini": msg(lang, 'Uygulamanın yanında ayar dosyası yok. Bu sürümde ayar uygulamanın kendi arayüzünden yapılıyor olabilir; Atölye dosya oluşturmaz.'),
-      "no-key": msg(lang, 'Ayar dosyasında başlangıç adresi (InitialPage) yok. Bu sürümde ayar uygulamanın kendi arayüzünden yapılıyor olabilir; Atölye dosyaya yeni ayar eklemez.'),
-      "many-keys": msg(lang, 'Ayar dosyasında başlangıç adresi (InitialPage) birden fazla yerde geçiyor; hangisinin geçerli olduğu bilinmediği için değiştirilmedi'),
-      "ini-too-big": msg(lang, 'Ayar dosyası beklenenden büyük; değiştirilmedi'),
-      "bad-encoding": msg(lang, 'Ayar dosyasının kodlaması desteklenmiyor; değiştirilmedi'),
-      "bad-url": msg(lang, 'Geçerli bir adres yazın (https://… biçiminde; boşluk ve özel karakter içermemeli)'),
-      "url-credentials": msg(lang, 'Adres kullanıcı adı ya da parola içeremez'),
-      "url-not-allowed": msg(lang, 'Bu adres tanımdaki izinli adresler arasında değil'),
-      "http-not-allowed": msg(lang, 'http adresi yalnızca tanım izin veriyorsa ve yalnızca bu bilgisayar (localhost) için kullanılabilir'),
-      "stale": msg(lang, 'Ayar dosyası bu ekran açıldıktan sonra değişmiş. Yeniden yükleyip tekrar deneyin.'),
-      "running": msg(lang, 'Atölye\'nin başlattığı uygulama hâlâ açık. Uygulamayı kendi penceresinden kapatıp yeniden deneyin; ayar değiştirilmedi.'),
-      "already-running": msg(lang, 'Atölye\'nin başlattığı uygulama hâlâ çalışıyor (penceresi kapalı olsa da arka planda açık olabilir). "Çalışan uygulamayı kapat" ile kapatıp yeniden açın.'),
-      "write-failed": msg(lang, 'Ayar dosyasına yazılamadı{detail}. Klasöre yazma izniniz olmayabilir.', { detail }),
-      "verify-failed": msg(lang, 'Ayar yazıldı ama dosyadan geri okunan değer doğrulanamadı{detail}', { detail }),
-      "launch-failed": msg(lang, 'Uygulama başlatılamadı{detail}', { detail }),
-      "close-failed": msg(lang, 'Uygulama kapatılamadı; Görev Yöneticisi\'nden kapatmayı deneyin'),
-      "exited-early": msg(lang, 'Uygulama açıldıktan hemen sonra kapandı. Uygulama kendi içinde bir hata vermiş olabilir; loglarına bakın.'),
-      "not-running": msg(lang, 'Çalışan bir uygulama bulunamadı'),
-    };
-    return texts[err.code] || String(err.message || err);
-  };
-  const launcherRoute = (fn, log) => wrap(async (req, res) => {
-    try {
-      const st = await fn(req);
-      if (log) console.log(`[uygulama] ${log}`);
-      res.json({ ok: true, status: st });
-    } catch (err) {
-      if (!err.code) throw err;
-      if (log) console.log(`[uygulama] ${log}: olmadı (${err.code}${err.detail ? `, ${err.detail}` : ''})`);
-      res.status(400).json({ ok: false, code: err.code, error: launcherError(req.query.lang, err), status: launcher.status() });
-    }
-  });
-  // Yapay zekâ araçlarının bu sürece ulaştığı iç kapı: adres ve anahtar Atölye'nin başlattığı oturumlara ortamdan geçer.
-  // Araçlar yalnızca kullanıcı panelden izin verdiyse sunulur ve çalışır (bkz. launcher.js gateRequest).
-  launcher.gate.origin = `http://127.0.0.1:${port}`;
-  process.env.ATOLYE_UYGULAMA_URL = `${launcher.gate.origin}/ic/uygulama`;
-  process.env.ATOLYE_UYGULAMA_ANAHTAR = launcher.gate.secret;
-  app.post('/ic/uygulama', wrap(async (req, res) => {
-    const r = await launcher.gateRequest(req.headers.authorization, req.body);
-    if (r.status === 200) console.log(`[uygulama] yapay zekâ: ${req.body?.op} ${r.body.error ? `olmadı (${r.body.error.slice(0, 120)})` : `tamam (${r.body.text.length} karakter)`}`);
-    res.status(r.status).json(r.body);
-  }));
-  app.get('/api/launcher', wrap(async (_req, res) => { await launcher.scan(); res.json(launcher.status()); }));
-  app.post('/api/launcher/ai', launcherRoute((req) => { const on = req.body?.enabled === true; integrations.setAppTools(on); return launcher.setAi(on); }, 'yapay zekâ izni değişti'));
-  app.post('/api/launcher/close', launcherRoute((req) => launcher.close({ all: req.body?.all === true }), 'uygulama kapatıldı'));
-  app.post('/api/launcher/definition', launcherRoute((req) => launcher.setDefinition(req.body?.definition), 'tanım yüklendi'));
-  app.delete('/api/launcher/definition', launcherRoute(() => launcher.clearDefinition(), 'tanım kaldırıldı'));
-  app.post('/api/launcher/exe', launcherRoute((req) => launcher.selectExe(req.body?.path), 'uygulama dosyası seçildi'));
-  app.delete('/api/launcher/exe', launcherRoute(() => launcher.clearExe(), 'uygulama seçimi kaldırıldı'));
-  app.post('/api/launcher/save', launcherRoute((req) => launcher.save({ url: req.body?.url, rev: req.body?.rev }), 'başlangıç adresi kaydedildi'));
-  app.post('/api/launcher/open', launcherRoute((req) => launcher.launch({ unverified: req.body?.unverified === true }), 'uygulama başlatıldı'));
   // Oracle istemcisi: thin kipin desteklemediği bağlantılar için Oracle Instant Client, kullanıcı istediğinde Oracle'ın
   // sitesinden indirilir (bkz. oracle-client.js). İndirme arka planda sürer; arayüz durumu aralıklarla sorar.
   app.get('/api/oracle-client', wrap(async (_req, res) => res.json(oracleClient.status())));
@@ -617,11 +553,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       .filter((e) => e.isDirectory() && !e.name.startsWith('$'))
       .map((e) => ({ name: e.name, path: path.join(dir, e.name) }))
       .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
-    // Dosya seçimi (ör. uygulama dosyası): yalnızca adı verilen dosya listelenir; dosya içeriği okunmaz
-    const wanted = String(req.query.file || '').toLowerCase();
-    const files = wanted ? entries.filter((e) => e.isFile() && e.name.toLowerCase() === wanted).map((e) => ({ name: e.name, path: path.join(dir, e.name) })) : undefined;
     const parent = path.dirname(dir);
-    res.json({ path: dir, parent: parent === dir ? (process.platform === 'win32' ? '' : null) : parent, dirs, ...(files ? { files } : {}) });
+    res.json({ path: dir, parent: parent === dir ? (process.platform === 'win32' ? '' : null) : parent, dirs });
   }));
 
   // @ ile dosya önerisi için hafif bir arama
