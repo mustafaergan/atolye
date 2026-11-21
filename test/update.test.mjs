@@ -18,10 +18,39 @@ test('yeni sürüm varsa bildirilir; eski/aynı sürümde ya da ağ hatasında b
   process.env.ATOLYE_UPDATE_URL = 'data:application/json,{"version":"0.0.1"}';
   assert.equal((await checkUpdate({ force: true })).available, false);
   process.env.ATOLYE_UPDATE_URL = 'http://127.0.0.1:9/yok';
-  assert.deepEqual({ ...(await checkUpdate({ force: true })), current: 'x', how: 'x', canApply: 'x' }, { current: 'x', latest: null, available: false, how: 'x', canApply: 'x' });
+  const down = await checkUpdate({ force: true });
+  assert.deepEqual([down.latest, down.available], [null, false]);
+  assert.match(down.reason, /^127\.0\.0\.1:9: \w+/, 'denetlenemediyse nedeni bildirilir');
   process.env.ATOLYE_UPDATE_CHECK = '0';
   process.env.ATOLYE_UPDATE_URL = 'data:application/json,{"version":"99.0.0"}';
   assert.equal((await checkUpdate({ force: true })).available, false);
+});
+
+test('doğrudan çıkış yoksa ve proxy ayarlıysa sürüm proxy üzerinden okunur', async () => {
+  const { setProxyGet } = await import('../src/update.js');
+  const { Readable } = await import('node:stream');
+  const saved = { url: process.env.ATOLYE_UPDATE_URL, check: process.env.ATOLYE_UPDATE_CHECK, proxy: process.env.COPILOT_PROXY };
+  const asked = [];
+  try {
+    delete process.env.ATOLYE_UPDATE_CHECK;
+    process.env.ATOLYE_UPDATE_URL = 'http://127.0.0.1:9/package.json'; // doğrudan ulaşılamaz
+    // Proxy ayarı yokken proxy denenmez
+    delete process.env.COPILOT_PROXY;
+    for (const k of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) delete process.env[k];
+    setProxyGet(async (url) => { asked.push(url); return Object.assign(Readable.from([Buffer.from('{"version":"99.1.0"}')]), { statusCode: 200, headers: {} }); });
+    assert.equal((await checkUpdate({ force: true })).latest, null);
+    assert.deepEqual(asked, []);
+    process.env.COPILOT_PROXY = 'http://proxy.example.com:8080';
+    const u = await checkUpdate({ force: true });
+    assert.deepEqual([u.latest, u.available, u.reason], ['99.1.0', true, undefined]);
+    assert.deepEqual(asked, ['http://127.0.0.1:9/package.json']);
+    // Proxy de ulaşamazsa iki neden birlikte bildirilir
+    setProxyGet(async () => { throw Object.assign(new Error('x'), { code: 'ECONNREFUSED' }); });
+    assert.match((await checkUpdate({ force: true })).reason, /; proxy: ECONNREFUSED/);
+  } finally {
+    setProxyGet(null);
+    for (const [k, v] of [['ATOLYE_UPDATE_URL', saved.url], ['ATOLYE_UPDATE_CHECK', saved.check], ['COPILOT_PROXY', saved.proxy]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
 });
 
 test('kayıtlar: son satırlar tutulur, anahtarlar gizlenir', async () => {

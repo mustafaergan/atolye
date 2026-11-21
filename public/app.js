@@ -4113,6 +4113,8 @@ $('#checkUpdateBtn').onclick = async () => {
     return;
   }
   btn.textContent = u?.latest ? T('Güncel (sürüm {current})', u) : T('Şu an denetlenemedi');
+  // Denetlenemediyse nedeni söylenir: şirket ağlarında GitHub'a çoğu zaman yalnızca proxy üzerinden çıkılır
+  if (!u?.latest) notice(T('Güncelleme denetlenemedi: GitHub\'a ulaşılamadı{reason}. Şirket ağındaysanız Bağlantılar > Proxy bölümünde proxy ayarını girin; Atölye denetimi onun üzerinden yapar. Olmazsa yeni paketi elle indirip içindeki Kur.bat ile kurabilirsiniz.', { reason: u?.reason ? ` (${u.reason})` : '' }));
   setTimeout(() => { btn.textContent = label; }, 5000);
 };
 

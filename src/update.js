@@ -7,6 +7,8 @@ import path from 'node:path';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { httpsGet } from './oracle-client.js';
+import { parseProxy } from './proxy.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_URL = 'https://raw.githubusercontent.com/mustafaergan/atolye/main/package.json';
@@ -39,6 +41,33 @@ export function applyUpdate() {
   return { started: true };
 }
 
+const hasProxy = (env) => Boolean(parseProxy(env.COPILOT_PROXY) || parseProxy(env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy));
+let proxyGet = httpsGet;
+/** Testler için: proxy üzerinden okuma yerine çağrılacak işlev */
+export function setProxyGet(fn) { proxyGet = fn || httpsGet; }
+
+/**
+ * Adresteki metni okur: önce doğrudan; ağ doğrudan çıkışa izin vermiyorsa ve bir proxy ayarlıysa (Bağlantılar > Proxy ya da
+ * bilgisayarın genel ayarı) proxy üzerinden. { text } ya da { error } döndürür.
+ */
+async function readText(url, accept, env = process.env) {
+  let error = '';
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { accept, 'user-agent': 'atolye' } });
+    if (res.ok) return { text: await res.text() };
+    return { error: `HTTP ${res.status}` }; // sunucu cevap verdi: proxy denemek sonucu değiştirmez
+  } catch (err) { error = String(err.cause?.code || err.name || err.message); }
+  if (!hasProxy(env)) return { error };
+  try {
+    const res = await proxyGet(url, env, 5, { accept });
+    if (res.statusCode !== 200) { res.resume?.(); return { error: `HTTP ${res.statusCode} (proxy)` }; }
+    const chunks = [];
+    let size = 0;
+    for await (const c of res) { size += c.length; if (size > 1_000_000) break; chunks.push(c); }
+    return { text: Buffer.concat(chunks).toString('utf8') };
+  } catch (err) { return { error: `${error}; proxy: ${String(err.cause?.code || err.code || err.message)}` }; }
+}
+
 export async function checkUpdate({ force = false } = {}) {
   const current = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
   // Git ile indirilmişse "atolye.ps1 guncelle", paketten kurulmuşsa yeni paket
@@ -57,17 +86,20 @@ export async function checkUpdate({ force = false } = {}) {
     // istek sınırı, ağ engeli) olağan adrese dönülür.
     const custom = process.env.ATOLYE_UPDATE_URL;
     const sources = custom ? [[custom, 'application/json']] : [...(force ? [[API_URL, 'application/vnd.github.raw+json']] : []), [DEFAULT_URL, 'application/json']];
+    const errors = [];
     for (const [url, accept] of sources) {
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { accept, 'user-agent': 'atolye' } });
-        if (!res.ok) continue;
-        const latest = String(JSON.parse(await res.text()).version || '');
+        const r = await readText(url, accept);
+        if (!r.text) { errors.push(`${new URL(url).host}: ${r.error}`); continue; }
+        const latest = String(JSON.parse(r.text).version || '');
         if (/^\d+\.\d+\.\d+/.test(latest)) { value = { latest, available: compareVersions(latest, current) > 0 }; break; }
-      } catch { /* sıradaki kaynak denenir */ }
+      } catch (err) { errors.push(`${new URL(url).host}: ${err.message}`); }
     }
+    // Okunamadıysa nedeni arayüze ve kayıtlara verilir (ör. şirket ağı GitHub'a doğrudan çıkışa izin vermiyor)
+    if (!value.latest && errors.length) value = { reason: errors.join(' | ').slice(0, 300) };
   } catch { /* ağ yok / engelli: bildirim gösterilmez */ }
   cache = { at: Date.now(), value };
-  console.log(`[güncelleme] kurulu ${current}, depodaki ${value.latest || 'okunamadı'}`);
+  console.log(`[güncelleme] kurulu ${current}, depodaki ${value.latest || `okunamadı${value.reason ? ` (${value.reason})` : ''}`}`);
   return { ...base, ...value };
 }
 

@@ -165,8 +165,8 @@ function openTunnel(proxy, target, timeoutMs = 30_000) {
   });
 }
 
-/** HTTPS GET; yönlendirmeleri izler ve cevabı akış olarak verir */
-export async function httpsGet(url, env = process.env, redirects = 5) {
+/** HTTPS GET; yönlendirmeleri izler ve cevabı akış olarak verir. Proxy ayarlıysa (Bağlantılar > Proxy ya da sistem) onu kullanır. */
+export async function httpsGet(url, env = process.env, redirects = 5, headers = {}) {
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new Error('yalnızca https adreslerinden indirilir');
   trustSystemCertificates();
@@ -175,7 +175,7 @@ export async function httpsGet(url, env = process.env, redirects = 5) {
   const res = await new Promise((resolve, reject) => {
     const req = https.request({
       host: u.hostname, port: u.port || 443, path: `${u.pathname}${u.search}`, method: 'GET', agent: false,
-      headers: { 'user-agent': 'atolye', accept: '*/*' },
+      headers: { 'user-agent': 'atolye', accept: '*/*', ...headers },
       ...(socket ? { createConnection: () => tls.connect({ socket, servername: u.hostname }) } : {}),
     }, resolve);
     req.setTimeout(60_000, () => req.destroy(new Error('sunucu cevap vermedi (zaman aşımı)')));
@@ -185,7 +185,7 @@ export async function httpsGet(url, env = process.env, redirects = 5) {
   if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
     res.resume();
     if (redirects <= 0) throw new Error('çok fazla yönlendirme');
-    return httpsGet(new URL(res.headers.location, url).href, env, redirects - 1);
+    return httpsGet(new URL(res.headers.location, url).href, env, redirects - 1, headers);
   }
   return res;
 }
