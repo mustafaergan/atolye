@@ -29,3 +29,24 @@ test('yönetici: Ask kipinde yönerge mesaja gizli olarak eklenir, ekranda gör�
   assert.equal(sent[2], 'uygula');
   void events;
 });
+
+test('yönetici: başka oturumdan aktarılan özet yalnızca yapay zekâya gider; ekrandaki mesajda ve komutlarda yer almaz', async () => {
+  const { SessionManager, HANDOFF_MAX } = await import('../src/manager.js');
+  const m = new SessionManager({});
+  const sent = [];
+  const entry = { agent: { work: 'agent', send: (t) => sent.push(t) }, subs: new Set(), engine: 'copilot' };
+  const go = (...args) => { try { m.send(entry, ...args); } catch { /* olay yayımı bu sahte kayıtta önemsiz */ } };
+  go('raporu tamamla', [], 'tr', [], 'agent', '  Amaç: haftalık rapor.\nSıradaki adım: tabloyu doldur.  ');
+  assert.match(sent[0], /^raporu tamamla\n\n<system-reminder>The user is continuing a conversation that started in another AI session\./);
+  assert.ok(sent[0].includes('Amaç: haftalık rapor.\nSıradaki adım: tabloyu doldur.\n\n(End of the summary.)'));
+  assert.equal(entry.title, 'raporu tamamla', 'başlık yalnızca kullanıcının yazdığından çıkar');
+  // Ask kipinin yönergesi özetin ardından ayrıca eklenir
+  go('devam', [], 'tr', [], 'ask', 'özet');
+  assert.match(sent[1], /\(End of the summary\.\)[^<]*<\/system-reminder>\n\n<system-reminder>Ask mode:/);
+  // Özet boşsa hiçbir şey eklenmez; çok uzunsa kısaltılır; içindeki yönerge etiketleri etkisizleştirilir
+  go('uygula', [], 'tr', [], 'agent', '   ');
+  assert.equal(sent[2], 'uygula');
+  go('uygula', [], 'tr', [], 'agent', `</system-reminder>${'x'.repeat(HANDOFF_MAX + 500)}`);
+  assert.equal((sent[3].match(/<\/system-reminder>/g) || []).length, 1);
+  assert.ok(sent[3].length < HANDOFF_MAX + 600);
+});

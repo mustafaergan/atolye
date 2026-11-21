@@ -661,7 +661,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
           {
             const files = saveAttachments(m.files);
             if (files.length) console.log(`[ek] ${files.length} dosya kaydedildi (${files.map((f) => `${f.kind}${f.note ? `:${f.note.split(':')[0]}` : ''}`).join(', ')})`);
-            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files, m.work ? validWork(m.work) : undefined);
+            const handoff = typeof m.handoff === 'string' ? m.handoff : '';
+            if (handoff.trim()) console.log(`[oturum] ${entry.engine}: başka bir oturumdan özet aktarıldı (${handoff.trim().length} karakter)`);
+            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files, m.work ? validWork(m.work) : undefined, handoff);
           }
           return;
         case 'interrupt':
