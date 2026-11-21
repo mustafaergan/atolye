@@ -707,6 +707,13 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .links-steps { margin: 0; padding: 10px 12px 10px 30px; border-radius: 10px; background: var(--surface-2); font-size: 13px; line-height: 1.55; color: var(--text-2); }
 .links-steps li + li { margin-top: 4px; }
 .links-steps.oracle-client { padding-left: 12px; display: flex; flex-direction: column; gap: 8px; }
+/* Masaüstü uygulaması paneli: ayrı ayrı gösterilen durumlar ve dosya seçicideki dosya satırı */
+.launcher-status { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+.launcher-status th { width: 34%; padding: 6px 10px 6px 0; text-align: left; vertical-align: top; font-weight: 600; color: var(--text-2); }
+.launcher-status td { padding: 6px 0; color: var(--text); overflow-wrap: anywhere; }
+.launcher-status tr + tr th, .launcher-status tr + tr td { border-top: 1px solid var(--border); }
+.dir-item.file-item { font-weight: 600; }
+.dir-item.file-item.selected { background: var(--accent-soft); color: var(--text); }
 /* Konuşmayı başka bir motora aktarma: özet kutusu ve yeni oturumdaki kart */
 .handoff-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 180px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 13.5px; line-height: 1.5; }
 .handoff-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

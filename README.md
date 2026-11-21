@@ -308,6 +308,43 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   yapabilirler, bu yüzden Claude Code ve GitHub Copilot oturumları Teams'e ulaşamaz. İnternete proxy üzerinden çıkılıyorsa
   Bağlantılar > Proxy'deki ayar kullanılır. Anahtar hesabınıza erişim sağlar: başka hiçbir yere yapıştırmayın ve
   kuruluşunuzun kurallarına uyun.
+- **Masaüstü uygulaması** (yalnızca Windows; veri bağlantısı değildir): bilgisayardaki bir uygulamayı seçmenizi, yanındaki
+  ayar dosyasında (INI) **yalnızca başlangıç adresini** (`InitialPage`) değiştirmenizi ve uygulamayı kendi penceresinde
+  açmanızı sağlar. Giriş ve diğer işlemler uygulamanın içinde yapılır; Atölye onlara karışmaz. Sohbetin bağlantı
+  seçicisinde, komutlarda ve yapay zekâ araçlarında yoktur: uygulamayı yalnızca siz, Bağlantılar penceresinden açarsınız.
+  Hangi uygulama ve hangi adresler olduğu kuruluşa özgüdür, bu yüzden kodda değil bir **tanım dosyasında** durur
+  (Bağlantılar > Masaüstü uygulaması > Tanım dosyası seç). Örnek:
+
+  ```json
+  {
+    "title": "Örnek Uygulama",
+    "exeName": "Ornek.exe",
+    "allowedHosts": ["uygulama.example.com", "test.example.com:8443"],
+    "allowLoopbackHttp": true,
+    "note": "Bu uygulamanın çağrı tarafı canlı sisteme bağlanır; başlangıç adresi bunu değiştirmez."
+  }
+  ```
+
+  `title` sekmenin adı, `exeName` seçilebilecek dosyanın adıdır (başka dosya seçilemez), `allowedHosts` başlangıç
+  adresinde izin verilen https sunucularıdır (port yazılmamışsa 443), `allowLoopbackHttp` yalnızca bu bilgisayara
+  (`localhost`) http adresine izin verir, `note` panelin üstünde gösterilen uyarıdır. Tanım ve seçilen dosyanın yolu
+  yalnızca bu bilgisayarda `~/.atolye/uygulama.json` içinde saklanır.
+  - **Seç**: dosya yolunu doğrular ve dosyadaki mevcut başlangıç adresini gösterir; uygulamayı başlatmaz, dosyayı değiştirmez.
+    Ağ (UNC) yolları desteklenmez. Ayar dosyasının yolu sunucuda, seçilen uygulamanın klasöründen türetilir.
+  - **Kaydet**: adresi doğrular, dosyada yalnızca o değeri değiştirir (diğer satırlar, yorumlar, satır sonları, tırnak ve
+    kodlama korunur), sonra dosyadan geri okuyarak doğrular; uygulamayı başlatmaz. Anahtar dosyada yoksa ya da birden fazla
+    yerde geçiyorsa, dosya yoksa, kodlaması desteklenmiyorsa ya da dosya ekran açıldıktan sonra değişmişse yazmaz ve nedenini
+    söyler; dosya ya da anahtar oluşturmaz (bazı sürümlerde ayar uygulamanın kendi arayüzünden yapılır).
+  - **Kaydet ve Aç**: kayıt doğrulandıktan sonra uygulamayı kendi klasöründe bir kez başlatır. Kayıt başarılı olup uygulama
+    açılamazsa ikisi ayrı bildirilir.
+  - **Uygulamayı Aç**: ayarı değiştirmeden, dosyadaki adres izinliyse açar. Atölye'nin başlattığı uygulama açıkken ayar
+    değiştirilmez ve ikinci kez başlatılmaz; uygulama zorla kapatılmaz.
+
+  Panel dört şeyi ayrı gösterir: seçilen uygulama, dosyadaki başlangıç adresi, uygulama süreci (yalnızca Atölye'nin
+  başlattığı örnek bilinir; elle açılmış bir örnek saptanamaz) ve uygulamanın diğer bağlantıları (**doğrulanmadı**).
+  Başlangıç adresi yalnızca uygulamanın açtığı sayfayı belirler: uygulamanın bağlandığı diğer sistemlerin (ör. çağrı
+  tarafının) test mi canlı mı olduğunu değiştirmez ve Atölye bunu göremez. Ayar dosyasının içeriği, adresler ve uygulamada
+  yapılanlar kayıtlara ya da yapay zekâya gönderilmez; uygulamanın dosyaları depoya ya da Atölye paketine eklenmez.
 - Yerel LLM oturumlarında bağlantı araçları modele doğrudan tanımlanır (Claude Code'un araçları sonradan yükleyen
   "araç araması" kapatılır; yerel modeller ertelenmiş araçları çağıramaz).
 - Geliştirici modundaki bağlantılar:
