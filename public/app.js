@@ -405,6 +405,13 @@ const activeEngineKey = () => {
   const e = state.sessionEngine || state.engine;
   return engineKey(e, e === 'yerel' ? state.sessionLocal || state.localId : null);
 };
+/** Açık oturumdaki yapay zekânın adı: Claude, Copilot ya da yerel modelin adı (soru ve onay metinlerinde geçer) */
+function aiName() {
+  const e = state.sessionEngine || state.engine;
+  if (e === 'copilot') return 'Copilot';
+  if (e === 'yerel') return localModels().find((m) => m.id === (state.sessionLocal || state.localId))?.name || T('Yerel model');
+  return 'Claude';
+}
 /** Seçicideki satırlar: Claude Code, GitHub Copilot ve Ayarlar'da tanımlı her yerel model */
 function engineOptions() {
   const cp = state.engines.copilot || {};
@@ -1271,7 +1278,7 @@ function renderQuestion(ev) {
     answer(id, { behavior: 'allow', answers });
   };
   put(card, 
-    el('h3', {}, icon(ICONS.question), T('Claude bir şey soruyor')),
+    el('h3', {}, icon(ICONS.question), T('{name} bir şey soruyor', { name: aiName() })),
     blocks.map((b) => b.node),
     el('div', { class: 'actions' },
       el('button', { class: 'btn primary', type: 'button', text: T('Cevapla'), onclick: submit }),
@@ -1388,7 +1395,7 @@ function setModelValue(model) {
 dom.modeSelect.addEventListener('change', () => {
   const mode = dom.modeSelect.value;
   if (state.work === 'agent') state.agentMode = mode;
-  if (mode === 'bypassPermissions' && !confirm(T('İzinleri atla modunda Claude dosya düzenleme ve komut çalıştırma işlemlerini SORMADAN yapar. Emin misiniz?'))) {
+  if (mode === 'bypassPermissions' && !confirm(T('İzinleri atla modunda {name} dosya düzenleme ve komut çalıştırma işlemlerini SORMADAN yapar. Emin misiniz?', { name: aiName() }))) {
     dom.modeSelect.value = state.mode;
     return;
   }
@@ -2653,19 +2660,35 @@ async function browse(p) {
     dirList.replaceChildren(el('div', { class: 'list-empty', text: err.message }));
   }
 }
+// Kısayollar: ev klasörü, Masaüstü, Belgeler, İndirilenler, sürücüler ve Atölye'deki proje klasörleri.
+// Yerleri sunucu bulur (Masaüstü ve Belgeler OneDrive'a ya da başka sürücüye taşınmış olabilir); bir kez okunur.
+let placesData = null;
+async function renderPlaces() {
+  const row = $('#placeRow');
+  if (!placesData) placesData = await fetch('/api/fs/places').then((r) => r.json()).catch(() => null);
+  const NAME = { home: () => T('Ev klasörü'), desktop: () => T('Masaüstü'), documents: () => T('Belgeler'), downloads: () => T('İndirilenler') };
+  const chip = (text, target, title) => el('button', { type: 'button', class: 'place-chip', title: title || target, onclick: () => browse(target) }, icon(ICONS.folder), el('span', { text }));
+  const items = (placesData?.places || []).filter((p) => NAME[p.id]).map((p) => chip(NAME[p.id](), p.path));
+  if (placesData?.drives) items.push(chip(T('Bu bilgisayar'), '', T('Sürücüler')));
+  const projects = state.projects.filter((p) => p && !isGeneral(p)).slice(0, 6);
+  if (projects.length) items.push(el('span', { class: 'place-sep', text: T('Projeler:') }), ...projects.map((p) => chip(folderOf(p), p)));
+  row.replaceChildren(...items);
+  row.hidden = !items.length;
+}
 // Pencere iki işte kullanılır: proje klasörü eklemek (varsayılan) ve başka bir ekran için yalnızca klasör seçmek
 let folderPick = null; // seçim bekleniyorsa sonucu alacak işlev
 function folderDialogText(title, ok) {
   dlg.querySelector('h2').textContent = title;
   $('#folderChoose').textContent = ok;
 }
-function openFolderDialog() { folderPick = null; folderDialogText(T('Proje klasörü ekle'), T('Ekle ve yeni oturum aç')); browse(state.cwd); dlg.showModal(); }
+function openFolderDialog() { folderPick = null; folderDialogText(T('Proje klasörü ekle'), T('Ekle ve yeni oturum aç')); browse(state.cwd); renderPlaces(); dlg.showModal(); }
 /** Klasör seçtirir; seçilen yolu, vazgeçilirse null döndürür */
 function pickFolder({ start = '', title, ok }) {
   return new Promise((resolve) => {
     folderPick = resolve;
     folderDialogText(title, ok);
     browse(start);
+    renderPlaces();
     dlg.showModal();
   });
 }
@@ -2946,6 +2969,9 @@ const ROLES = {
 // Project Owner analistten türetilir: analistte ne varsa (bağlantılar, öneriler) onda da vardır; analist değişince
 // o da değişir. Tek farkı, aynı soruda birden fazla bağlantının birlikte seçilebilmesidir.
 ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi') };
+// Test rolü de analistten türetilir: bağlantıları ve önerileri aynıdır; farkı yapay zekâya verilen anlatım yönergesidir
+// (test senaryosu, beklenen/gerçekleşen, yeniden üretme adımları; bkz. src/session.js ROLE_PROMPTS.test).
+ROLES.test = { ...ROLES.analist, name: () => T('Test') };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
 // Outlook ve Teams her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar ve mesajlar yalnızca yerel modele okutulur)
@@ -2954,7 +2980,7 @@ const withOutlook = (tabs) => { const at = tabs.indexOf('tarayici'); return at <
 const roleTabs = () => (currentEngine() === 'yerel' ? withOutlook(currentRole().tabs) : currentRole().tabs);
 function applyRole() {
   const sel = $('#roleSelect');
-  sel.replaceChildren(...['analist', 'sahip', 'gelistirici'].filter((id) => ROLES[id]).map((id) => el('option', { value: id, text: ROLES[id].name() })));
+  sel.replaceChildren(...['analist', 'sahip', 'test', 'gelistirici'].filter((id) => ROLES[id]).map((id) => el('option', { value: id, text: ROLES[id].name() })));
   if (!ROLES[state.role]) state.role = 'analist';
   sel.value = state.role;
   document.body.dataset.role = state.role;

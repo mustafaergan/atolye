@@ -27,6 +27,7 @@ import { recentLog } from './log.js';
 import { shortTitle } from './title.js';
 import { attachDir, KEEP_DAYS, saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
+import { userPlaces } from './places.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
 import * as commands from './commands.js';
@@ -551,6 +552,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     else { await deleteSession(req.params.id, { dir }); store.deleteLocalSession(req.params.id); }
     res.json({ ok: true });
   }));
+
+  // Klasör seçicideki kısayollar: ev klasörü, Masaüstü, Belgeler, İndirilenler (yalnızca var olanlar)
+  app.get('/api/fs/places', wrap(async (_req, res) => res.json({ places: await userPlaces(), drives: process.platform === 'win32' })));
 
   // Klasör seçici
   app.get('/api/fs/list', wrap(async (req, res) => {

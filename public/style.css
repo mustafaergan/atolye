@@ -448,6 +448,12 @@ input[type="text"]:focus { outline: 2px solid var(--accent-soft); border-color: 
 .dialog-head h2 { margin: 0; font-size: 16px; }
 .path-row { display: flex; gap: 8px; }
 .path-row input { flex: 1; font-family: var(--mono); font-size: 13px; }
+.place-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.place-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.place-chip:hover { color: var(--text); border-color: var(--text-3); }
+.place-chip svg { width: 14px; height: 14px; flex: none; color: var(--text-3); }
+.place-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-sep { align-self: center; font-size: 12px; color: var(--text-3); margin: 0 2px 0 6px; }
 .dir-list { height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
 .dir-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13.5px; width: 100%; border: 0; background: transparent; text-align: left; }
 .dir-item:hover { background: var(--surface-2); }

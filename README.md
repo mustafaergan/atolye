@@ -173,12 +173,13 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 |---|---|---|
 | **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog Test, Graylog Prod, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; birden fazla bağlantıyı birlikte ele alma yönergesiyle (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
+| **Test** | Analistle aynı | Analistle aynı öneriler; yapay zekâ test edilebilir davranışa odaklanır: test senaryoları, beklenen/gerçekleşen sonuç, yeniden üretme adımları, değişikliğin riskli alanları; hatayı doğrudan kayıt açılabilecek biçimde yazar ve istenmedikçe bir şeyi değiştirmez |
 | **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic, Oracle, PostgreSQL | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
 Mesaj kutusunun başındaki **Agent / Ask / Plan** seçicisi yapay zekânın çalışma kipini belirler (Shift+Tab ile değişir):
 **Agent** dosya değiştirebilir ve komut çalıştırabilir (yanındaki izin ayarına göre), **Ask** yalnızca yanıtlar, **Plan**
-hiçbir şeyi değiştirmeden plan çıkarır. Ask ve Plan'da dosya değiştiren araçları Atölye reddeder. Varsayılan: Analist ve
-Proje Sahibi'nde Ask, Geliştirici'de Agent; seçim mod başına saklanır.
+hiçbir şeyi değiştirmeden plan çıkarır. Ask ve Plan'da dosya değiştiren araçları Atölye reddeder. Varsayılan: Analist,
+Proje Sahibi ve Test'te Ask, Geliştirici'de Agent; seçim mod başına saklanır.
 
 Bütün modlarda mesaj kutusunun altındaki bağlantı seçicisinden aynı soru için **en fazla 4 bağlantı** birlikte seçilebilir
 (ör. Jira + Bitbucket + Confluence); yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır.
@@ -224,6 +225,10 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
   gelmez. Sekmenin başındaki **Disk kullanımı** özeti oturum kayıtlarının toplam boyutunu (motorlara göre), sohbete
   eklenen dosyaların (`~/.atolye/ekler`) ve klasörsüz sohbet dosyalarının (`~/.atolye/genel`) boyutunu ve en çok yer
   tutan oturumları gösterir; Atölye'nin kurulum klasörü bu sayılara dahil değildir.
+
+**Klasör seçimi:** proje klasörü eklerken ya da skill klasörü seçerken pencerenin üstünde kısayollar bulunur: Ev klasörü,
+Masaüstü, Belgeler, İndirilenler, Bu bilgisayar (sürücüler) ve Atölye'deki proje klasörleri. Masaüstü ve Belgeler OneDrive'a ya da
+başka bir sürücüye taşınmışsa gerçek yerleri açılır.
 
 **Sohbetlerde arama:** kenar çubuğundaki arama kutusu bütün proje klasörlerindeki sohbetlerin (Claude, Copilot, yerel)
 başlıklarında ve mesaj metinlerinde arar; sonuçta eşleşen bölüm vurgulanır, tıklayınca sohbet açılır. Araç çıktıları

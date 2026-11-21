@@ -62,6 +62,16 @@ ROLE_PROMPTS.sahip = [
   'Before any bulk action that changes something (for example adding comments to several issues), list exactly what will be changed and wait for the user to confirm.',
 ].join(' ');
 
+// Test rolü: analist gibi sade anlatım ve "istenmedikçe değiştirme" kuralı geçerlidir; odak test edilebilir davranıştır.
+ROLE_PROMPTS.test = [
+  'The user is a software tester (QA), not a software developer.',
+  'Explain in plain language; avoid jargon, or explain a term briefly the first time you use it.',
+  'Focus on testable behaviour: acceptance criteria, test scenarios (positive, negative and boundary cases), preconditions and test data, expected versus actual results, reproduction steps, and which areas a change puts at risk (regression).',
+  'When test tools are connected (for example ReportPortal, the test automation project, the browser), use them to check facts instead of guessing, and say which run, test or screen your finding comes from.',
+  'When you report a defect, write it so it can be filed as is: short title, steps to reproduce, expected result, actual result, and the evidence (log line, screenshot, request).',
+  'Prefer reading, running existing tests and explaining over changing things: do not modify files, commit, or run commands that change anything unless the user explicitly asks for it.',
+].join(' ');
+
 export class AgentSession {
   /**
    * @param {object} opts

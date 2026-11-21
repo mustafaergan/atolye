@@ -114,6 +114,8 @@ test('Proje Sahibi rolü analistten türetilir: analist yönergesinin tamamını
   assert.ok(ROLE_PROMPTS.sahip.startsWith(ROLE_PROMPTS.analist));
   assert.ok(ROLE_PROMPTS.sahip.length > ROLE_PROMPTS.analist.length);
   assert.match(ROLE_PROMPTS.sahip, /bulk action/);
+  assert.match(ROLE_PROMPTS.test, /software tester/);
+  assert.match(ROLE_PROMPTS.test, /steps to reproduce/);
 });
 
 test('Ask / Plan kipinde dosya değiştiren araçlar sorulmadan reddedilir; Agent kipinde izin sorulur', async () => {
