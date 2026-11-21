@@ -712,6 +712,8 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .launcher-status th { width: 34%; padding: 6px 10px 6px 0; text-align: left; vertical-align: top; font-weight: 600; color: var(--text-2); }
 .launcher-status td { padding: 6px 0; color: var(--text); overflow-wrap: anywhere; }
 .launcher-status tr + tr th, .launcher-status tr + tr td { border-top: 1px solid var(--border); }
+.launcher-ai { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; line-height: 1.5; color: var(--text-2); cursor: pointer; }
+.launcher-ai input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
 .dir-item.file-item { font-weight: 600; }
 .dir-item.file-item.selected { background: var(--accent-soft); color: var(--text); }
 /* Konuşmayı başka bir motora aktarma: özet kutusu ve yeni oturumdaki kart */

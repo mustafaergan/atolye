@@ -10,6 +10,11 @@ import path from 'node:path';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-uygulama-'));
 process.env.ATOLYE_LAUNCHER_FILE = path.join(tmp, 'kayit', 'uygulama.json');
 const L = await import('../src/launcher.js');
+// Sahte süreç araçları: gerçek süreç listesi okunmaz, hiçbir süreç sonlandırılmaz, beklenmez
+const live = new Set();
+const killed = [];
+L.setProcessTools({ alive: (pid) => live.has(pid), list: async () => [...live], kill: async (pid, force) => { killed.push([pid, force]); live.delete(pid); }, wait: async () => {} });
+const reset = () => { live.clear(); killed.length = 0; L.resetProcess(); };
 const WIN = { skip: process.platform !== 'win32' && 'yalnızca Windows' };
 
 const DEF = { title: 'Deneme Uygulaması', exeName: 'Ornek.exe', allowedHosts: ['uygulama.example.com', 'test.example.com:8443'], allowLoopbackHttp: true, note: 'Çağrı tarafı canlı olabilir.' };
@@ -26,18 +31,28 @@ function pack(name, ini, { enc = 'utf8', exe = 'Ornek.exe' } = {}) {
   return { dir, exe: path.join(dir, exe), ini: path.join(dir, 'Ornek.ini') };
 }
 /** Sahte başlatıcı: çağrıları kaydeder; "spawn" ya da "error" olayı yayar */
-function fakeSpawner({ failWith = null } = {}) {
+let nextPid = 4242;
+function fakeSpawner({ failWith = null, exitsAtOnce = false } = {}) {
   const calls = [];
   const children = [];
-  L.setSpawner((exe, cwd) => {
+  const args = [];
+  L.setSpawner((exe, cwd, extra = []) => {
     calls.push([exe, cwd]);
-    const child = Object.assign(new EventEmitter(), { pid: 4242, unref() {} });
+    args.push(extra);
+    const child = Object.assign(new EventEmitter(), { pid: (nextPid += 1), unref() {} });
     children.push(child);
-    setImmediate(() => (failWith ? child.emit('error', Object.assign(new Error('x'), { code: failWith })) : child.emit('spawn')));
+    setImmediate(() => {
+      if (failWith) return child.emit('error', Object.assign(new Error('x'), { code: failWith }));
+      if (!exitsAtOnce) live.add(child.pid);
+      child.emit('spawn');
+      if (exitsAtOnce) child.emit('exit', 0);
+    });
     return child;
   });
-  return { calls, children };
+  return { calls, children, args };
 }
+/** Uygulama kapandı: süreç listeden düşer ve çıkış olayı gelir */
+const exited = (child) => { live.delete(child.pid); child.emit('exit', 0); };
 
 test('tanım dosyası: başlık, .exe adı ve izinli adres zorunlu; yol ya da geçersiz sunucu adı kabul edilmez', () => {
   assert.deepEqual(L.parseDefinition(JSON.stringify(DEF)), DEF);
@@ -108,12 +123,12 @@ test('EXE seçimi: yalnızca tanımdaki adla, bu bilgisayardaki normal bir dosya
   assert.deepEqual(fs.readFileSync(p.ini), before);
   assert.deepEqual(calls, []);
   // Kayıt dosyasında yalnızca tanım ve seçilen yol durur
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(process.env.ATOLYE_LAUNCHER_FILE, 'utf8'))).sort(), ['definition', 'exe']);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(process.env.ATOLYE_LAUNCHER_FILE, 'utf8'))).sort(), ['ai', 'definition', 'exe']);
 });
 
 test('kaydet: yalnızca başlangıç adresi değişir; diğer satırlar, yorumlar, satır sonları, tırnak ve kodlama korunur; başlatmaz', WIN, () => {
   const { calls } = fakeSpawner();
-  L.resetProcess();
+  reset();
   L.setDefinition(DEF);
   const p = pack('kaydet', INI);
   let st = L.selectExe(p.exe);
@@ -151,7 +166,7 @@ test('kaydet: yalnızca başlangıç adresi değişir; diğer satırlar, yorumla
 
 test('kaydet reddedilir: izin dışı adres, belirsiz ya da eksik anahtar, eksik dosya, desteklenmeyen kodlama, dışarıdan değişmiş dosya', WIN, () => {
   fakeSpawner();
-  L.resetProcess();
+  reset();
   L.setDefinition(DEF);
   const good = pack('red', INI);
   const st = L.selectExe(good.exe);
@@ -186,7 +201,7 @@ test('kaydet reddedilir: izin dışı adres, belirsiz ya da eksik anahtar, eksik
 });
 
 test('başlat: doğrulanmış EXE, kendi klasöründe, bir kez; eşzamanlı istek ikinci kez başlatmaz; açıkken ayar değişmez', WIN, async () => {
-  L.resetProcess();
+  reset();
   L.setDefinition(DEF);
   const p = pack('baslat', INI);
   let st = L.selectExe(p.exe);
@@ -203,7 +218,7 @@ test('başlat: doğrulanmış EXE, kendi klasöründe, bir kez; eşzamanlı iste
   assert.equal(fs.readFileSync(p.ini, 'utf8'), INI);
   assert.equal(calls.length, 1);
   // Uygulama kapanınca durum "bilinmiyor"a döner (çalışmıyor diye kesin bir şey söylenmez) ve ayar yazılabilir
-  children[0].emit('exit', 0);
+  exited(children[0]);
   st = L.status();
   assert.equal(st.process, 'unknown');
   st = L.save({ url: 'https://uygulama.example.com/sonra', rev: st.target.rev });
@@ -211,7 +226,7 @@ test('başlat: doğrulanmış EXE, kendi klasöründe, bir kez; eşzamanlı iste
 });
 
 test('başlatılmaz: diskteki adres izinli değilse, EXE yerinde değilse; adres okunamıyorsa yalnızca açık onayla', WIN, async () => {
-  L.resetProcess();
+  reset();
   L.setDefinition(DEF);
   const { calls } = fakeSpawner();
   const bad = pack('izinsiz', INI.replace('http://localhost:1453/eski', 'https://baska.example.com/'));
@@ -228,7 +243,7 @@ test('başlatılmaz: diskteki adres izinli değilse, EXE yerinde değilse; adres
   assert.equal(st.process, 'started');
   assert.deepEqual(calls, [[noKey.exe, noKey.dir]]);
   assert.equal(fs.readFileSync(noKey.ini, 'utf8'), '[POPUP]\r\nField=1\r\n', 'anahtar eklenmez');
-  L.resetProcess();
+  reset();
 
   // Belirsiz anahtar onayla da açılmaz
   const two = pack('belirsiz', 'InitialPage=a\r\nInitialPage=b\r\n');
@@ -244,7 +259,7 @@ test('başlatılmaz: diskteki adres izinli değilse, EXE yerinde değilse; adres
 });
 
 test('ayar kaydedilir ama uygulama açılamazsa iki sonuç ayrıdır: kayıt yerinde kalır, hata ayrıca bildirilir', WIN, async () => {
-  L.resetProcess();
+  reset();
   L.setDefinition(DEF);
   const p = pack('acilamaz', INI);
   let st = L.selectExe(p.exe);
@@ -260,20 +275,199 @@ test('ayar kaydedilir ama uygulama açılamazsa iki sonuç ayrıdır: kayıt yer
   // Hatadan sonra yeniden denenebilir
   fakeSpawner();
   assert.equal((await L.launch()).process, 'started');
-  L.resetProcess();
+  reset();
 });
 
-test('tanım değişince başka uygulamaya ait seçim düşer; uygulama hiçbir sohbet aracında yer almaz', WIN, async () => {
+test('tanım değişince başka uygulamaya ait seçim düşer', WIN, async () => {
   L.setDefinition(DEF);
   const p = pack('tanim', INI);
   L.selectExe(p.exe);
   assert.equal(L.setDefinition({ ...DEF, title: 'Yeni Ad' }).exe, p.exe, 'aynı uygulama: seçim kalır');
   assert.equal(L.setDefinition({ ...DEF, exeName: 'Baska.exe' }).exe, '', 'başka uygulama: seçim düşer');
   assert.equal(L.clearDefinition().definition, null);
-  const { TOOLS } = await import('../src/mcp-server.js');
-  const { SERVICES } = await import('../src/atlassian.js');
-  assert.deepEqual(SERVICES.filter((s) => /launcher|uygulama/.test(s)), [], 'bağlantı listesinde (sohbette seçilebilir) yer almaz');
-  assert.deepEqual(Object.entries(TOOLS).filter(([n, t]) => /launcher|uygulama/.test(`${n} ${t.service} ${t.fn}`)), [], 'yapay zekâ aracı yoktur');
 });
 
-test.after(() => { L.setSpawner(null); L.resetProcess(); fs.rmSync(tmp, { recursive: true, force: true }); });
+test('kapatılıp yeniden açma: arka planda kalan süreç saptanır, kapatılır ve uygulama yeniden açılır', WIN, async () => {
+  reset();
+  L.setDefinition(DEF);
+  const p = pack('yeniden', INI);
+  L.selectExe(p.exe);
+  const { calls, children } = fakeSpawner();
+  let st = await L.launch();
+  assert.deepEqual([st.process, st.pid, st.instances], ['started', children[0].pid, 1]);
+  // Pencere kapandı ama süreç arka planda kaldı: ikinci kez başlatılmaz, nedeni söylenir
+  assert.equal(await rejects(L.launch()), 'already-running');
+  st = await L.close();
+  assert.deepEqual(killed, [[children[0].pid, false]], 'önce kapanma isteği gönderilir');
+  assert.deepEqual([st.process, st.instances], ['unknown', 0]);
+  st = await L.launch();
+  assert.equal(st.process, 'started');
+  assert.equal(calls.length, 2);
+
+  // Çıkış olayı gelmeden süreç ölmüşse (ör. Görev Yöneticisi'nden kapatıldı) durum kendiliğinden düzelir
+  live.delete(children[1].pid);
+  assert.equal(L.status().process, 'unknown');
+  assert.equal((await L.launch()).process, 'started');
+  assert.equal(calls.length, 3);
+
+  // Elle açılmış örnekler: Atölye başlatmadıysa yalnızca "hepsi" ile kapatılır
+  reset();
+  live.add(111); live.add(222);
+  assert.equal(await rejects(L.close()), 'not-running');
+  st = await L.close({ all: true });
+  assert.deepEqual(killed.map((k) => k[0]).sort(), [111, 222]);
+  assert.equal(st.instances, 0);
+});
+
+test('hemen kapanan uygulama: başka örnek yoksa hata, zaten çalışan bir örnek varsa ayrıca bildirilir', WIN, async () => {
+  reset();
+  L.setDefinition(DEF);
+  const p = pack('hemen', INI);
+  L.selectExe(p.exe);
+  fakeSpawner({ exitsAtOnce: true });
+  assert.equal(await rejects(L.launch()), 'exited-early');
+  live.add(999); // uygulama zaten açıkmış: yeni süreç ona devredip kapanır
+  const st = await L.launch();
+  assert.deepEqual([st.early, st.process, st.instances], [true, 'unknown', 1]);
+});
+
+test('loglar: yalnızca log dosyaları listelenir ve sondan okunur; ayar dosyası ve klasör dışı okunmaz', WIN, () => {
+  reset();
+  L.setDefinition(DEF);
+  const p = pack('loglu', INI);
+  L.selectExe(p.exe);
+  fs.mkdirSync(path.join(p.dir, 'Logs', 'eski'), { recursive: true });
+  fs.writeFileSync(path.join(p.dir, 'Logs', 'uygulama.log'), Array.from({ length: 500 }, (_, i) => `2026-11-21 10:00:${String(i % 60).padStart(2, '0')} INFO satır ${i} GET https://servis.example.com/api/${i % 3 ? 'veri' : 'giris'}`).join('\r\n'));
+  fs.writeFileSync(path.join(p.dir, 'Logs', 'eski', 'dun.log'), 'ERROR bağlantı koptu\n');
+  fs.writeFileSync(path.join(p.dir, 'Logs', 'iz'), 'uzantısız iz dosyası\n');
+  fs.writeFileSync(path.join(p.dir, 'Logs', 'ayar.config'), '<gizli/>');
+  fs.writeFileSync(path.join(p.dir, 'kitaplik.dll'), 'x');
+  fs.writeFileSync(path.join(p.dir, 'notlar.txt'), 'kurulum notu\n');
+  const names = L.listLogs().map((l) => l.file).sort();
+  assert.deepEqual(names, [path.join('Logs', 'eski', 'dun.log'), path.join('Logs', 'iz'), path.join('Logs', 'uygulama.log'), 'notlar.txt'].sort());
+  const r = L.readLog({ file: path.join('Logs', 'uygulama.log'), lines: 3 });
+  assert.deepEqual([r.total, r.lines.length], [500, 3]);
+  assert.match(r.lines[2], /satır 499 /);
+  const f = L.readLog({ file: path.join('Logs', 'uygulama.log'), search: 'API/GIRIS', lines: 1000 });
+  assert.equal(f.total, 167);
+  assert.ok(f.lines.every((l) => l.includes('/api/giris')));
+  for (const bad of ['Ornek.ini', path.join('..', 'loglu', 'Ornek.ini'), path.join('Logs', 'ayar.config'), 'kitaplik.dll', path.join(p.dir, 'Ornek.ini'), 'yok.log']) {
+    assert.equal(code(() => L.readLog({ file: bad })), 'no-log', bad);
+  }
+});
+
+test('yapay zekâ: yalnızca kullanıcı izin verdiyse; iç kapı anahtarsız ya da izinsiz çalışmaz', WIN, async () => {
+  reset();
+  L.setDefinition(DEF);
+  const p = pack('yz', INI);
+  L.selectExe(p.exe);
+  const { calls } = fakeSpawner();
+  const ok = `Bearer ${L.gate.secret}`;
+  assert.equal((await L.gateRequest('Bearer yanlis', { op: 'status' })).status, 401);
+  L.setAi(false);
+  assert.match((await L.gateRequest(ok, { op: 'open' })).body.error, /izin vermemiş/);
+  assert.deepEqual(calls, [], 'izin yokken hiçbir şey başlatılmaz');
+  assert.equal(L.setAi(true).ai, true);
+  assert.equal((await L.gateRequest(ok, { op: 'selectExe', args: { path: 'C:\\x' } })).status, 400, 'araç olmayan işlem çağrılamaz');
+  const text = async (op, args) => { const r = await L.gateRequest(ok, { op, args }); return r.body.text || `HATA: ${r.body.error}`; };
+  assert.match(await text('status'), /Başlangıç adresi \(dosyada\): http:\/\/localhost:1453\/eski\n.*İzinli adresler: https:\/\/uygulama\.example\.com/s);
+  assert.match(await text('setUrl', { url: 'https://baska.example.com/' }), /^HATA: Bu adres izinli adresler arasında değil/);
+  assert.match(await text('setUrl', { url: 'https://uygulama.example.com/yz' }), /kaydedildi ve dosyadan geri okunarak doğrulandı/);
+  assert.ok(fs.readFileSync(p.ini, 'utf8').includes('InitialPage="https://uygulama.example.com/yz"'));
+  assert.match(await text('open'), /^Uygulama başlatıldı\./);
+  assert.match(await text('setUrl', { url: 'https://uygulama.example.com/acikken' }), /^HATA: Uygulama açıkken ayar değiştirilmez/);
+  assert.match(await text('close'), /^Uygulama kapatıldı\./);
+  assert.match(await text('network'), /^HATA: Ağ trafiği izlenmiyor/);
+  fs.mkdirSync(path.join(p.dir, 'log'));
+  fs.writeFileSync(path.join(p.dir, 'log', 'a.log'), 'INFO başladı\nERROR servis cevap vermedi\n');
+  assert.match(await text('logs'), /^dosya \| boyut \| son değişiklik\nlog\\a\.log \| 1 KB/);
+  assert.match(await text('readLog', { search: 'error' }), /1 satırdan son 1:\nERROR servis cevap vermedi$/);
+  assert.equal(calls.length, 1);
+
+  // Araçlar yalnızca izin işareti ve Atölye'nin iç adresi varsa sunulur
+  const { availableTools } = await import('../src/mcp-server.js');
+  const env = { UYGULAMA_ENABLED: '1', ATOLYE_UYGULAMA_URL: 'http://127.0.0.1:1/ic/uygulama', ATOLYE_UYGULAMA_ANAHTAR: 'x' };
+  const names = (e) => availableTools(e).map((t) => t.name).filter((n) => n.startsWith('desktop_app_'));
+  assert.equal(names(env).length, 9);
+  assert.deepEqual(names({ ...env, UYGULAMA_ENABLED: undefined }), []);
+  assert.deepEqual(names({ UYGULAMA_ENABLED: '1' }), []);
+  const write = availableTools(env).filter((t) => t.name.startsWith('desktop_app_') && !t.annotations.readOnlyHint).map((t) => t.name).sort();
+  assert.deepEqual(write, ['desktop_app_close', 'desktop_app_open', 'desktop_app_set_start_url'], 'değişiklik yapan araçlar onay ister');
+  L.setAi(false);
+});
+
+test('ağ incelemesi: tanımda açıksa uygulama hata ayıklama kapısıyla başlatılır; istekler, cevaplar ve sayfa metni okunur', WIN, async () => {
+  const insp = await import('../src/inspector.js');
+  assert.equal(insp.mask('{"kullanici":"ayse","password":"gizli","pin":1234,"not":"pin yok"}'), '{"kullanici":"ayse","password":"***","pin":"***","not":"pin yok"}');
+  assert.equal(insp.mask('user=a&password=gizli&x=1'), 'user=a&password=***&x=1');
+
+  // Sahte hata ayıklama kapısı (Chromium yerine): /json/list ve bir sayfa soketi
+  const { WebSocketServer } = await import('ws');
+  const http = await import('node:http');
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify([{ id: 'S1', type: 'page', title: 'Deneme', url: 'http://localhost:1453/uygulama', webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/devtools/page/S1` },
+      { id: 'D1', type: 'page', title: 'Dış', url: 'x', webSocketDebuggerUrl: 'ws://kotu.example.com:9/devtools/page/D1' }]));
+  });
+  const wss = new WebSocketServer({ server });
+  let sock;
+  wss.on('connection', (ws) => {
+    sock = ws;
+    ws.on('message', (raw) => {
+      const m = JSON.parse(String(raw));
+      const result = m.method === 'Network.getResponseBody' ? { body: '{"ad":"Ayşe","token":"abc"}', base64Encoded: false }
+        : m.method === 'Runtime.evaluate' ? { result: { value: 'Hoş geldiniz' } } : {};
+      ws.send(JSON.stringify({ id: m.id, result }));
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  try {
+    assert.equal(code(() => insp.list()), 'not-watching');
+    insp.watch(port);
+    for (let i = 0; i < 100 && !sock; i += 1) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(sock, 'yalnızca bu bilgisayardaki sayfaya bağlanılır');
+    await new Promise((r) => setTimeout(r, 50));
+    const ev = (method, params) => sock.send(JSON.stringify({ method, params }));
+    ev('Network.requestWillBeSent', { requestId: 'r1', timestamp: 10, type: 'Fetch', request: { method: 'POST', url: 'https://servis.example.com/api/giris', postData: '{"password":"gizli"}', headers: { Authorization: 'Bearer çok-gizli' } } });
+    ev('Network.responseReceived', { requestId: 'r1', type: 'Fetch', response: { status: 200, mimeType: 'application/json' } });
+    ev('Network.loadingFinished', { requestId: 'r1', timestamp: 10.25 });
+    ev('Network.requestWillBeSent', { requestId: 'r2', timestamp: 11, type: 'XHR', request: { method: 'GET', url: 'https://servis.example.com/api/yok' } });
+    ev('Network.responseReceived', { requestId: 'r2', type: 'XHR', response: { status: 500, mimeType: 'text/plain' } });
+    ev('Network.requestWillBeSent', { requestId: 'r3', timestamp: 12, type: 'Fetch', request: { method: 'GET', url: 'https://baska.example.com/x' } });
+    ev('Network.loadingFailed', { requestId: 'r3', errorText: 'net::ERR_CONNECTION_REFUSED' });
+    ev('Network.requestWillBeSent', { requestId: 'r4', timestamp: 13, type: 'Image', request: { method: 'GET', url: 'data:image/png;base64,AAAA' } });
+    await new Promise((r) => setTimeout(r, 150));
+    const all = insp.list({});
+    assert.deepEqual(all.rows.map((e) => [e.n, e.method, e.status, e.failed, e.ms]), [[1, 'POST', 200, '', 250], [2, 'GET', 500, '', null], [3, 'GET', null, 'net::ERR_CONNECTION_REFUSED', null]]);
+    assert.deepEqual(insp.list({ failed: true }).rows.map((e) => e.n), [2, 3]);
+    assert.deepEqual(insp.list({ search: 'GIRIS' }).rows.map((e) => e.n), [1]);
+    const d = insp.detail(1);
+    assert.deepEqual([d.post, d.body], ['{"password":"***"}', '{"ad":"Ayşe","token":"***"}']);
+    assert.ok(!JSON.stringify(d).includes('çok-gizli'), 'başlıklar saklanmaz');
+    assert.equal(code(() => insp.detail(99)), 'no-request');
+    assert.deepEqual(await insp.pages(), [{ url: 'http://localhost:1453/uygulama', title: 'Deneme', text: 'Hoş geldiniz' }]);
+    assert.deepEqual([insp.info().attached, insp.info().requests], [1, 3]);
+  } finally { insp.stop(); wss.close(); server.closeAllConnections?.(); await new Promise((r) => server.close(r)); }
+  assert.equal(insp.info().watching, false);
+
+  // Tanımda "inspect" varsa başlatma argümanı sunucuda üretilir; yoksa argüman verilmez
+  reset();
+  L.setDefinition({ ...DEF, inspect: true });
+  const p = pack('incele', INI);
+  L.selectExe(p.exe);
+  const a = fakeSpawner();
+  const st = await L.launch();
+  assert.match(a.args[0].join(' '), /^--remote-debugging-port=\d{4,5}$/);
+  assert.deepEqual([st.inspect.enabled, st.inspect.watching], [true, true]);
+  await L.close();
+  assert.equal(L.status().inspect.watching, false, 'uygulama kapanınca izleme durur');
+  L.setDefinition(DEF);
+  L.selectExe(p.exe);
+  const b = fakeSpawner();
+  await L.launch();
+  assert.deepEqual(b.args[0], []);
+  reset();
+});
+
+test.after(() => { L.setSpawner(null); L.setProcessTools(null); L.resetProcess(); fs.rmSync(tmp, { recursive: true, force: true }); });

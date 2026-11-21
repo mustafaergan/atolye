@@ -310,8 +310,8 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   kuruluşunuzun kurallarına uyun.
 - **Masaüstü uygulaması** (yalnızca Windows; veri bağlantısı değildir): bilgisayardaki bir uygulamayı seçmenizi, yanındaki
   ayar dosyasında (INI) **yalnızca başlangıç adresini** (`InitialPage`) değiştirmenizi ve uygulamayı kendi penceresinde
-  açmanızı sağlar. Giriş ve diğer işlemler uygulamanın içinde yapılır; Atölye onlara karışmaz. Sohbetin bağlantı
-  seçicisinde, komutlarda ve yapay zekâ araçlarında yoktur: uygulamayı yalnızca siz, Bağlantılar penceresinden açarsınız.
+  açmanızı sağlar. Giriş ve diğer işlemler uygulamanın içinde yapılır; Atölye onlara karışmaz. Yapay zekâ bu bağlantıyı
+  yalnızca paneldeki **Yapay zekâ bu uygulamayı yönetebilsin** seçeneğini açarsanız kullanabilir (aşağıya bakın).
   Hangi uygulama ve hangi adresler olduğu kuruluşa özgüdür, bu yüzden kodda değil bir **tanım dosyasında** durur
   (Bağlantılar > Masaüstü uygulaması > Tanım dosyası seç). Örnek:
 
@@ -337,14 +337,32 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
     söyler; dosya ya da anahtar oluşturmaz (bazı sürümlerde ayar uygulamanın kendi arayüzünden yapılır).
   - **Kaydet ve Aç**: kayıt doğrulandıktan sonra uygulamayı kendi klasöründe bir kez başlatır. Kayıt başarılı olup uygulama
     açılamazsa ikisi ayrı bildirilir.
-  - **Uygulamayı Aç**: ayarı değiştirmeden, dosyadaki adres izinliyse açar. Atölye'nin başlattığı uygulama açıkken ayar
-    değiştirilmez ve ikinci kez başlatılmaz; uygulama zorla kapatılmaz.
+  - **Uygulamayı Aç**: ayarı değiştirmeden, dosyadaki adres izinliyse açar. Atölye'nin başlattığı uygulama çalışırken ayar
+    değiştirilmez ve ikinci kez başlatılmaz.
+  - **Çalışan uygulamayı kapat**: uygulamanın penceresi kapansa da süreci arka planda kalabilir; o zaman yeniden açılamaz.
+    Bu düğme önce kapanma isteği gönderir, uygulama birkaç saniyede kapanmazsa süreci sonlandırır. Atölye'nin başlattığı
+    örnek yoksa, onayınızla bu adla çalışan bütün örnekleri kapatır.
+  - **Yapay zekâ bu uygulamayı yönetebilsin** (varsayılan kapalı): açılırsa bağlantı sohbetteki bağlantı seçicisinde de
+    görünür ve yapay zekâ şu araçları kullanabilir: `desktop_app_status`, `desktop_app_set_start_url`, `desktop_app_open`,
+    `desktop_app_close`, `desktop_app_list_logs`, `desktop_app_read_log`, `desktop_app_network`,
+    `desktop_app_network_detail`, `desktop_app_page`. Adres değiştirme, açma ve kapatma oturumun izin ayarına göre onay
+    ister; aynı kurallar (izinli adresler, açıkken ayar değişmez) geçerlidir. Yapay zekâ uygulamanın penceresini göremez.
+  - **Loglar**: yapay zekâ uygulama klasöründeki log dosyalarını (`.log`, `.txt` ve "log" adlı klasörlerin içi) listeleyip
+    sondan okuyabilir, içinde arama yapabilir. Ayar dosyası, program dosyaları ve klasör dışındaki dosyalar okunmaz.
+  - **Ağ incelemesi** (tanım dosyasında `"inspect": true` ile): uygulama Chromium tabanlıysa Atölye onu yalnızca bu
+    bilgisayardan erişilen bir hata ayıklama kapısıyla (`--remote-debugging-port`) başlatır ve içindeki sayfanın isteklerini
+    kaydeder: hangi servis çağrıldı, durum kodu, süre, gönderilen gövde ve metin cevabın başı. Başlıklar (çerez, yetki
+    anahtarı) saklanmaz; parola, PIN, kart ve anahtar alanları gizlenir; kayıtlar yalnızca bellekte tutulur. Uygulama bu
+    kapıyı açmıyorsa inceleme yapılamaz ve panel bunu söyler. Yalnızca sayfanın istekleri görülür; uygulamanın sayfa
+    dışındaki bağlantıları (ör. çağrı tarafı) görülmez. Hata ayıklama kapısı açıkken bu bilgisayardaki başka programlar da
+    uygulamanın içindeki sayfaya erişebilir; yalnızca test ortamında kullanın.
 
   Panel dört şeyi ayrı gösterir: seçilen uygulama, dosyadaki başlangıç adresi, uygulama süreci (yalnızca Atölye'nin
   başlattığı örnek bilinir; elle açılmış bir örnek saptanamaz) ve uygulamanın diğer bağlantıları (**doğrulanmadı**).
   Başlangıç adresi yalnızca uygulamanın açtığı sayfayı belirler: uygulamanın bağlandığı diğer sistemlerin (ör. çağrı
-  tarafının) test mi canlı mı olduğunu değiştirmez ve Atölye bunu göremez. Ayar dosyasının içeriği, adresler ve uygulamada
-  yapılanlar kayıtlara ya da yapay zekâya gönderilmez; uygulamanın dosyaları depoya ya da Atölye paketine eklenmez.
+  tarafının) test mi canlı mı olduğunu değiştirmez ve Atölye bunu göremez. Ayar dosyasının içeriği ve adresler kayıtlara
+  yazılmaz; yapay zekâ izni kapalıyken yapay zekâya hiçbir şey gitmez, açıkken yalnızca araçlarla istediği (durum, loglar,
+  ağ kayıtları) gider. Uygulamanın dosyaları depoya ya da Atölye paketine eklenmez.
 - Yerel LLM oturumlarında bağlantı araçları modele doğrudan tanımlanır (Claude Code'un araçları sonradan yükleyen
   "araç araması" kapatılır; yerel modeller ertelenmiş araçları çağıramaz).
 - Geliştirici modundaki bağlantılar:

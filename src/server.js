@@ -444,10 +444,13 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       "http-not-allowed": msg(lang, 'http adresi yalnızca tanım izin veriyorsa ve yalnızca bu bilgisayar (localhost) için kullanılabilir'),
       "stale": msg(lang, 'Ayar dosyası bu ekran açıldıktan sonra değişmiş. Yeniden yükleyip tekrar deneyin.'),
       "running": msg(lang, 'Atölye\'nin başlattığı uygulama hâlâ açık. Uygulamayı kendi penceresinden kapatıp yeniden deneyin; ayar değiştirilmedi.'),
-      "already-running": msg(lang, 'Atölye\'nin başlattığı uygulama zaten açık; ikinci kez başlatılmadı'),
+      "already-running": msg(lang, 'Atölye\'nin başlattığı uygulama hâlâ çalışıyor (penceresi kapalı olsa da arka planda açık olabilir). "Çalışan uygulamayı kapat" ile kapatıp yeniden açın.'),
       "write-failed": msg(lang, 'Ayar dosyasına yazılamadı{detail}. Klasöre yazma izniniz olmayabilir.', { detail }),
       "verify-failed": msg(lang, 'Ayar yazıldı ama dosyadan geri okunan değer doğrulanamadı{detail}', { detail }),
       "launch-failed": msg(lang, 'Uygulama başlatılamadı{detail}', { detail }),
+      "close-failed": msg(lang, 'Uygulama kapatılamadı; Görev Yöneticisi\'nden kapatmayı deneyin'),
+      "exited-early": msg(lang, 'Uygulama açıldıktan hemen sonra kapandı. Uygulama kendi içinde bir hata vermiş olabilir; loglarına bakın.'),
+      "not-running": msg(lang, 'Çalışan bir uygulama bulunamadı'),
     };
     return texts[err.code] || String(err.message || err);
   };
@@ -462,7 +465,19 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       res.status(400).json({ ok: false, code: err.code, error: launcherError(req.query.lang, err), status: launcher.status() });
     }
   });
-  app.get('/api/launcher', wrap(async (_req, res) => res.json(launcher.status())));
+  // Yapay zekâ araçlarının bu sürece ulaştığı iç kapı: adres ve anahtar Atölye'nin başlattığı oturumlara ortamdan geçer.
+  // Araçlar yalnızca kullanıcı panelden izin verdiyse sunulur ve çalışır (bkz. launcher.js gateRequest).
+  launcher.gate.origin = `http://127.0.0.1:${port}`;
+  process.env.ATOLYE_UYGULAMA_URL = `${launcher.gate.origin}/ic/uygulama`;
+  process.env.ATOLYE_UYGULAMA_ANAHTAR = launcher.gate.secret;
+  app.post('/ic/uygulama', wrap(async (req, res) => {
+    const r = await launcher.gateRequest(req.headers.authorization, req.body);
+    if (r.status === 200) console.log(`[uygulama] yapay zekâ: ${req.body?.op} ${r.body.error ? `olmadı (${r.body.error.slice(0, 120)})` : `tamam (${r.body.text.length} karakter)`}`);
+    res.status(r.status).json(r.body);
+  }));
+  app.get('/api/launcher', wrap(async (_req, res) => { await launcher.scan(); res.json(launcher.status()); }));
+  app.post('/api/launcher/ai', launcherRoute((req) => { const on = req.body?.enabled === true; integrations.setAppTools(on); return launcher.setAi(on); }, 'yapay zekâ izni değişti'));
+  app.post('/api/launcher/close', launcherRoute((req) => launcher.close({ all: req.body?.all === true }), 'uygulama kapatıldı'));
   app.post('/api/launcher/definition', launcherRoute((req) => launcher.setDefinition(req.body?.definition), 'tanım yüklendi'));
   app.delete('/api/launcher/definition', launcherRoute(() => launcher.clearDefinition(), 'tanım kaldırıldı'));
   app.post('/api/launcher/exe', launcherRoute((req) => launcher.selectExe(req.body?.path), 'uygulama dosyası seçildi'));

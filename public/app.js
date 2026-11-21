@@ -3001,7 +3001,8 @@ const multiLink = () => true;
 const linkNames = (list) => list.map((id) => LINKS[id].name).join(' + ');
 function renderLinkSelect() {
   const sel = $('#linkSelect');
-  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && roleTabs().includes(id)).map(([id]) => id);
+  // Masaüstü uygulaması her modda seçilebilir (kullanıcı panelden yapay zekâ iznini açtıysa)
+  const connected = Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && (roleTabs().includes(id) || id === 'uygulama')).map(([id]) => id);
   linkConnected = connected;
   activeLinks = activeLinks.filter((id) => connected.includes(id)).slice(0, multiLink() ? MAX_LINKS : 1);
   activeLink = activeLinks[0] || '';
@@ -3079,6 +3080,8 @@ function withOneLinkHint(text, activeLink) {
 }
 const linksDlg = $('#linksDialog');
 
+// Masaüstü uygulaması panelinin durumu (bkz. renderLauncherTab). loadLinks sayfa açılırken çağrıldığı için burada tanımlıdır.
+const launcherUi = { status: null, result: null, draft: null, busy: false };
 async function loadLinks() {
   // Masaüstü uygulaması sekmesinin başlığı ve noktası da baştan doğru görünsün diye durumu birlikte okunur
   [links.status] = await Promise.all([fetch('/api/integrations').then((r) => r.json()).catch(() => null), loadLauncher()]);
@@ -3429,8 +3432,7 @@ async function renderProxyTab() {
 // ---------- Masaüstü uygulaması bağlantısı ----------
 // Bilgisayardaki bir uygulamayı (EXE) seçer, ayar dosyasındaki başlangıç adresini düzenler ve uygulamayı kendi penceresinde
 // açar (bkz. src/launcher.js). Hangi uygulama ve hangi adresler: kuruluşun tanım dosyasından gelir, kodda yer almaz.
-// Sohbetin bağlantı seçicisinde, komutlarda ve yapay zekâ araçlarında yoktur: yalnızca bu panelden kullanılır.
-const launcherUi = { status: null, result: null, draft: null, busy: false };
+// Yapay zekâ araçları ve sohbetteki bağlantı seçeneği yalnızca kullanıcı paneldeki izni açarsa sunulur.
 const launcherTitle = () => launcherUi.status?.definition?.title || T('Masaüstü uygulaması');
 async function loadLauncher() {
   launcherUi.status = await fetch('/api/launcher').then((r) => r.json()).catch(() => launcherUi.status);
@@ -3470,7 +3472,7 @@ function renderLauncherTab() {
       el('ol', { class: 'links-steps' },
         el('li', { text: T('Bu bağlantı bilgisayarınızdaki bir masaüstü uygulamasını seçmenizi, ayar dosyasındaki başlangıç adresini değiştirmenizi ve uygulamayı açmanızı sağlar. Uygulama kendi penceresinde açılır; giriş ve diğer işlemler orada yapılır.') }),
         el('li', { text: T('Hangi uygulamanın açılacağı ve hangi adreslere izin verildiği kuruluşunuzun tanım dosyasında yazar. Dosyayı ekibinizden alın; örneği Atölye belgelerinde (README) vardır.') }),
-        el('li', { text: T('Yapay zekâ bu uygulamayı açamaz ya da yönetemez; yalnızca siz, bu panelden.') })),
+        el('li', { text: T('Yapay zekâ bu uygulamayı yalnızca siz bu panelden izin verirseniz yönetebilir.') })),
       el('div', { class: 'links-actions' }, chooseDef, defInput),
       result);
     show(launcherUi.result);
@@ -3525,6 +3527,9 @@ function renderLauncherTab() {
   const removeDef = el('button', { class: 'btn ghost', type: 'button', text: T('Tanımı kaldır'), onclick: once(async () => {
     if (!confirm(T('Tanım ve uygulama seçimi bu bilgisayardan silinsin mi? Uygulamanın kendisine ve ayar dosyasına dokunulmaz.'))) return;
     await launcherCall('/api/launcher/definition', 'DELETE'); launcherUi.draft = null; redraw(null);
+// Sohbetin bağlantı seçicisinde: yapay zekâ izni açıksa seçilip doğrudan bu uygulama hakkında soru sorulabilir
+LINKS.uygulama = { get name() { return launcherTitle(); } };
+LINK_TOOLS.uygulama = 'desktop_app_status, desktop_app_set_start_url, desktop_app_open, desktop_app_close, desktop_app_list_logs, desktop_app_read_log, desktop_app_network, desktop_app_network_detail, desktop_app_page';
   }) });
 
   const TARGET_NOTE = {
@@ -3539,7 +3544,14 @@ function renderLauncherTab() {
   const rows = [
     [T('Uygulama'), st.exe ? (st.exeError ? T('{path} (dosya artık yerinde değil; yeniden seçin)', { path: st.exe }) : st.exe) : T('seçilmedi')],
     [T('Dosyadaki başlangıç adresi'), !st.exe || st.exeError ? '—' : target?.error ? (TARGET_NOTE[target.error] || target.error) : target.allowed ? onDisk : T('{url} (izinli adresler arasında değil; uygulama bu adresle açılmaz)', { url: onDisk })],
-    [T('Uygulama süreci'), st.process === 'started' ? T('Atölye başlattı ({time}); hâlâ açık. Ayarı değiştirmek için uygulamayı kendi penceresinden kapatın.', { time: new Date(st.startedAt).toLocaleTimeString(locale()) }) : T('Atölye bu çalışmasında uygulamayı başlatmadı. Elle açılmış bir örnek olup olmadığı bilinmiyor.')],
+    [T('Uygulama süreci'), st.process === 'started' ? T('Atölye başlattı ({time}); hâlâ çalışıyor (penceresi kapalı olsa da arka planda açık olabilir). Ayarı değiştirmek ya da yeniden açmak için önce kapatın.', { time: new Date(st.startedAt).toLocaleTimeString(locale()) })
+      : st.instances == null ? T('Atölye bu çalışmasında uygulamayı başlatmadı. Elle açılmış bir örnek olup olmadığı bilinmiyor.')
+        : st.instances > 0 ? T('Atölye başlatmadı, ama bu adla çalışan {n} süreç var (elle açılmış ya da önceki açılıştan kalmış olabilir).', { n: st.instances })
+          : T('Çalışmıyor (bu adla çalışan süreç yok).')],
+    [T('Ağ incelemesi'), !st.inspect?.enabled ? T('Kapalı. Tanım dosyasına "inspect": true eklenirse uygulama, içindeki sayfanın ağ trafiği izlenebilecek şekilde başlatılır.')
+      : !st.inspect.watching ? T('Uygulama Atölye\'den açıldığında başlar.')
+        : st.inspect.everAttached ? T('Açık: {n} istek kaydedildi. Yapay zekâ hangi servisin çağrıldığını ve dönen cevabı görebilir.', { n: st.inspect.requests })
+          : T('Uygulama inceleme kapısını (henüz) açmadı. Birkaç saniye içinde açılmazsa bu uygulama ağ incelemesini desteklemiyor demektir; logları yine okunabilir.')],
     [T('Uygulamanın diğer bağlantıları'), T('Doğrulanmadı. Başlangıç adresi yalnızca uygulamanın açtığı sayfayı belirler; uygulamanın bağlandığı diğer sistemlerin (ör. çağrı tarafının) hangi ortama baktığını değiştirmez ve Atölye bunu göremez.')],
   ];
   body.replaceChildren(...[
@@ -3547,9 +3559,9 @@ function renderLauncherTab() {
     el('ol', { class: 'links-steps' },
       el('li', { text: T('"{name} seç" ile bilgisayarınızdaki uygulama dosyasını gösterin. Seçmek uygulamayı başlatmaz.', { name: def.exeName }) }),
       el('li', { text: T('Başlangıç adresini yazıp "Kaydet" deyin: Atölye ayar dosyasında yalnızca bu değeri değiştirir, diğer satırlara dokunmaz. İzinli adresler: {allowed}', { allowed }) }),
-      el('li', { text: T('"Kaydet ve Aç" ayarı yazıp doğruladıktan sonra uygulamayı kendi penceresinde açar. Giriş ve diğer işlemleri orada siz yaparsınız; yapay zekâ bu uygulamayı açamaz ya da yönetemez.') })),
+      el('li', { text: T('"Kaydet ve Aç" ayarı yazıp doğruladıktan sonra uygulamayı kendi penceresinde açar. Giriş ve diğer işlemleri orada siz yaparsınız.') })),
     el('table', { class: 'launcher-status' }, ...rows.map(([k, v]) => el('tr', {}, el('th', { text: k }), el('td', { text: v })))),
-    el('div', { class: 'links-actions' }, pickBtn, st.exe ? forgetBtn : null, st.exe ? reloadBtn : null),
+    el('div', { class: 'links-actions' }, pickBtn, st.exe ? forgetBtn : null, st.exe ? reloadBtn : null, st.process === 'started' || st.instances > 0 ? closeBtn : null),
     st.exe && !st.exeError ? el('label', { class: 'links-field' }, el('span', { text: T('Başlangıç adresi (InitialPage)') }), url) : null,
     st.exe && !st.exeError ? el('div', { class: 'links-actions' }, target && !target.error ? saveOpenBtn : null, target && !target.error ? saveBtn : null, openBtn) : null,
     result,
@@ -3615,6 +3627,19 @@ function startHandoffSummary() {
       el('button', { class: 'btn', type: 'button', text: T('Özeti kendim yazacağım'), onclick: () => reviewHandoff('') }),
       el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
   ]);
+  // Çalışan uygulamayı kapatma: Atölye'nin başlattığı örnek; yoksa bu adla çalışan bütün örnekler (elle açılanlar dahil)
+  const closeBtn = el('button', { class: 'btn', type: 'button', text: T('Çalışan uygulamayı kapat'), onclick: once(async () => {
+    const all = st.process !== 'started';
+    if (!confirm(all ? T('Bu adla çalışan bütün uygulama örnekleri kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.') : T('Atölye\'nin başlattığı uygulama kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.'))) return;
+    const r = await launcherCall('/api/launcher/close', 'POST', { all });
+    redraw(r.ok ? { ok: true, text: T('Uygulama kapatıldı.') } : { ok: false, text: r.error || '?' });
+  }) });
+  const aiBox = el('input', { type: 'checkbox', checked: st.ai });
+  aiBox.onchange = once(async () => {
+    const r = await launcherCall('/api/launcher/ai', 'POST', { enabled: aiBox.checked });
+    await loadLinks(); // sohbetteki bağlantı seçicisi güncellensin
+    redraw(r.ok ? { ok: true, text: aiBox.checked ? T('Yapay zekâ izni açıldı. Yeni açılan oturumlarda geçerlidir.') : T('Yapay zekâ izni kapatıldı. Yeni açılan oturumlarda geçerlidir.') } : { ok: false, text: r.error || '?' });
+  });
   sendToAi(T('Bu konuşmayı başka bir yapay zekâ oturumuna devredeceğim. Onun kaldığımız yerden devam edebilmesi için bir aktarım özeti yaz: amaç, şimdiye kadar öğrenilenler ve alınan kararlar (gerekli kimlikler, dosya yolları ve sayılarla), yapılanlar ve sıradaki adım. Araç kullanma; yalnızca özeti yaz, giriş ya da kapanış cümlesi ekleme.'));
   clearTimeout(handoffUi.timer);
   handoffUi.timer = setTimeout(() => { if (handoffUi.waiting) reviewHandoff(state.lastReply); }, HANDOFF_WAIT_MS);
@@ -3646,6 +3671,7 @@ function reviewHandoff(summary) {
   } });
   handoffStage(T('Aktarılacak özet'), [
     summary ? null : el('p', { class: 'links-intro', text: T('Özet alınamadı. Yeni oturumun bilmesi gerekenleri aşağıya kendiniz yazabilirsiniz.') }),
+    el('label', { class: 'launcher-ai' }, aiBox, el('span', { text: T('Yapay zekâ bu uygulamayı yönetebilsin: durumunu görme, başlangıç adresini değiştirme, açma, kapatma, klasöründeki logları okuma ve (ağ incelemesi açıksa) çağrılan servisleri ve cevaplarını görme. Loglar ve cevaplar seçtiğiniz yapay zekâya gider; değişiklik yapan işlemler oturumun izin ayarına göre onayınızı ister.') })),
     fromLocal && toCloud
       ? el('div', { class: 'links-result err' }, el('span', { text: usedPrivate
         ? T('Dikkat: bu konuşmada Outlook ya da Teams verisi okundu. Aşağıdaki özet {name} hizmetine (buluta) gönderilecek; e-posta ve mesaj içeriklerinden paylaşmak istemediklerinizi silin.', { name })
