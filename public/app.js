@@ -335,6 +335,8 @@ function connect() {
   setConn('wait', T('Bağlanıyor'));
   ws.onopen = () => {
     state.connected = true;
+    state.downSince = 0;
+    state.downTold = false;
     setConn('ok', T('Bağlı'));
     // Sayfa yenilense ya da bağlantı kopsa da sunucudaki oturuma geri bağlan
     openLive({ liveId: state.liveId, sessionId: state.sessionId, isNew: !state.liveId && !state.sessionId, engine: state.sessionEngine || state.engine, local: state.sessionLocal });
@@ -343,6 +345,12 @@ function connect() {
     state.connected = false;
     setBusy(false);
     setConn('err', T('Bağlantı koptu'));
+    // Kısa kesinti (yeniden başlatma) olağandır; sunucu uzun süre dönmezse ne yapılacağı bir kez söylenir
+    if (!state.downSince) state.downSince = Date.now();
+    if (!state.downTold && Date.now() - state.downSince > 25_000) {
+      state.downTold = true;
+      notice(T('Atölye sunucusu çalışmıyor görünüyor. Atölye kendi penceresinde açıksa birazdan onu kendisi yeniden başlatır. Tarayıcıda kullanıyorsanız masaüstündeki Atölye kısayoluyla başlatıp bu sayfayı yenileyin.'));
+    }
     setTimeout(connect, 2000);
   };
   ws.onmessage = (e) => {
@@ -4328,6 +4336,12 @@ $('#checkUpdateBtn').onclick = async () => {
   btn.textContent = T('Denetleniyor…');
   const u = await checkUpdate(true);
   btn.disabled = false;
+  // Cevap hiç gelmediyse sorun GitHub'da değil, Atölye'nin kendi sunucusundadır
+  if (!u) {
+    btn.textContent = label;
+    notice(T('Güncelleme denetlenemedi: Atölye sunucusuna ulaşılamıyor. Sunucu çalışmıyor olabilir; masaüstündeki Atölye kısayoluyla yeniden başlatın.'));
+    return;
+  }
   if (u?.available) {
     btn.textContent = label;
     $('#updatePop').hidden = false; // sağ üstteki düğme ve ayrıntısı açılır
@@ -4355,7 +4369,7 @@ async function applyUpdate(u) {
     if (now && now.current !== u.current) return location.reload();
   }
   btn.disabled = false;
-  status.textContent = T('Güncelleme tamamlanamadı. Kurulum klasöründe PowerShell ile ".\\atolye.ps1 guncelle" komutunu çalıştırıp çıktıya bakın.');
+  status.textContent = T('Güncelleme tamamlanamadı ya da Atölye yeniden başlamadı. Atölye çalışıyorsa nedeni kenar çubuğundaki "Kayıtlar" penceresinde yazar; çalışmıyorsa masaüstündeki Atölye kısayoluyla başlatın.');
 }
 $('#updateBtn').onclick = (e) => { e.stopPropagation(); $('#updatePop').hidden = !$('#updatePop').hidden; };
 document.addEventListener('click', (e) => { if (!$('#updateWrap').contains(e.target)) $('#updatePop').hidden = true; });

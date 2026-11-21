@@ -99,6 +99,8 @@ function Resolve-InstallDir {
 
 $InstallDir = Resolve-InstallDir
 $LogFile = Join-Path $InstallDir 'atolye.log'
+# Güncelleme sürerken duran işaret dosyası (bkz. "Güncelleme kilidi")
+$UpdateLock = Join-Path $InstallDir '.guncelleniyor'
 $ScriptPath = Join-Path $InstallDir 'atolye.ps1'
 # Testlerde gerçek Masaüstü/Başlangıç klasörlerine dokunmamak için değiştirilebilir
 # Windows, klasör yoksa ya da grup ilkesiyle kapatılmışsa GetFolderPath için boş yol döndürür.
@@ -715,28 +717,71 @@ function Test-CopilotCli {
   return $false
 }
 
+# ---------- Güncelleme kilidi ----------
+# Güncelleme, yeni sürümü hazırlayıp klasörleri değiştirirken ".guncelleniyor" dosyasını bırakır. Bu sırada başka bir
+# başlatma (kısayol, Windows açılışı, masaüstü penceresinin sunucuyu yeniden başlatması) araya girip yarım klasörlerle
+# sunucu açmasın ya da klasörleri "onarmaya" kalkmasın diye bekler. Dosya 10 dakikadan eskiyse güncelleme yarıda
+# ölmüş sayılır ve yok sayılır.
+function Set-UpdateLock { $script:Guncelleniyor = $true; try { Set-Content $UpdateLock (Get-Date -Format s) -Encoding ASCII } catch { } }
+function Clear-UpdateLock { if ($script:Guncelleniyor) { Remove-Item $UpdateLock -Force -ErrorAction SilentlyContinue; $script:Guncelleniyor = $false } }
+function Test-UpdateLock {
+  # Kilidi bu betiğin kendisi koyduysa beklemez
+  if ($script:Guncelleniyor -or -not (Test-Path $UpdateLock)) { return $false }
+  try { return (((Get-Date) - (Get-Item $UpdateLock).LastWriteTime).TotalMinutes -lt 10) } catch { return $false }
+}
+function Wait-UpdateLock {
+  if (-not (Test-UpdateLock)) { return }
+  Write-Step 'Güncelleme sürüyor; bitmesi bekleniyor…'
+  while (Test-UpdateLock) { Start-Sleep -Seconds 1 }
+}
+
+# Durdurulan sunucunun portu bırakmasını bekler: hemen yeniden başlatınca "port dolu" sanılıp başka porta geçilmesin
+function Wait-PortFree([int]$seconds = 15) {
+  $port = Get-Port
+  for ($i = 0; $i -lt ($seconds * 2); $i++) {
+    if (-not (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) { return $true }
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
+}
+
+# Bu kurulumun sunucu süreçleri (node … src\cli.js): port henüz dinlenmiyor olsa da (yavaş açılış) görülür
+function Get-ServerProcess {
+  $cli = Join-Path $InstallDir 'src\cli.js'
+  try {
+    return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+      Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($cli, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+  } catch { return @() }
+}
+
+# Sunucuyu terminalden bağımsız gizli bir pencerede ve kullanıcının ana klasöründe başlatır (terminal kapansa da
+# sürer); çıktısı atolye.log dosyasına yazılır. Port dinlenene kadar bekler; başladıysa $true döner.
+function Start-Server([int]$seconds = 20) {
+  $node = Get-NodePath
+  if (-not $node) { return $false }
+  $cli = Join-Path $InstallDir 'src\cli.js'
+  $shell = New-Object -ComObject WScript.Shell
+  $shell.CurrentDirectory = $HOME
+  [void]$shell.Run("cmd /d /s /c `"`"$node`" `"$cli`" --no-open > `"$LogFile`" 2>&1`"", 0, $false)
+  for ($i = 0; $i -lt ($seconds * 2); $i++) {
+    Start-Sleep -Milliseconds 500
+    if (Test-Running) { return $true }
+  }
+  return $false
+}
+
 function Start-Atolye {
+  # Güncelleme klasörleri değiştirirken araya girilmez
+  Wait-UpdateLock
   Repair-Install
   if (Test-Running) {
     Write-Ok "Zaten çalışıyor: $(Get-Url)"
   } else {
     # Port başka bir programdaysa: elle başlatmada sor, Windows açılışında (gizli) boş portu kendisi seçsin
     Resolve-PortConflict -Auto:$TarayiciAcma
-    $node = Get-NodePath
-    if (-not $node) { Stop-WithError 'Node.js bulunamadı.' }
+    if (-not (Get-NodePath)) { Stop-WithError 'Node.js bulunamadı.' }
     Write-Step 'Başlatılıyor…'
-    # Sunucu, terminalden bağımsız gizli bir pencerede ve kullanıcının ana klasöründe çalışır
-    # (terminal kapansa da sürer); çıktısı atolye.log dosyasına yazılır.
-    $cli = Join-Path $InstallDir 'src\cli.js'
-    $shell = New-Object -ComObject WScript.Shell
-    $shell.CurrentDirectory = $HOME
-    [void]$shell.Run("cmd /d /s /c `"`"$node`" `"$cli`" --no-open > `"$LogFile`" 2>&1`"", 0, $false)
-    $ok = $false
-    for ($i = 0; $i -lt 40; $i++) {
-      Start-Sleep -Milliseconds 500
-      if (Test-Running) { $ok = $true; break }
-    }
-    if (-not $ok) {
+    if (-not (Start-Server 20)) {
       Write-Warn 'Atölye başlatılamadı. Son kayıtlar:'
       if (Test-Path $LogFile) { Get-Content $LogFile -Tail 15 | ForEach-Object { Write-Host "    $_" } }
       if ($script:HataFirlat) { throw "Atölye başlatılamadı" }
@@ -1000,6 +1045,8 @@ function Update-PackageInstall {
     $new = (Get-Content (Join-Path $src 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
     if ([version]$new.version -le [version]$current.version) { Write-Ok "Zaten güncel ($($current.version))"; return }
     Write-Step "Güncelleniyor: $($current.version) → $($new.version)"
+    # Buradan sonra başka bir başlatma ya da ikinci bir güncelleme araya girmez (işlev biterken kilit kalkar)
+    Set-UpdateLock
 
     # Kütüphaneler değiştiyse: mevcut node_modules'un kopyası üzerinde, çalışan kuruluma dokunmadan hazırla
     $depsChanged = (($new.dependencies | ConvertTo-Json -Compress) -ne ($current.dependencies | ConvertTo-Json -Compress))
@@ -1035,10 +1082,24 @@ function Update-PackageInstall {
     $wasRunning = Test-Running
     $swapped = @()
     $rootBackup = Join-Path $stage 'eski-dosyalar'
+    $backupFiles = $rootFiles + '.paket'
+    # Eski klasörleri ve dosyaları yerine koyar (değişim ya da yeni sürümün açılışı başarısız olduğunda)
+    $restore = {
+      foreach ($d in $swapped) {
+        $cur = Join-Path $InstallDir $d
+        if (Test-Path "$cur.eski") {
+          if (Test-Path $cur) { Remove-Item $cur -Recurse -Force }
+          Rename-WithRetry "$cur.eski" $d
+        }
+      }
+      foreach ($f in $backupFiles) {
+        if (Test-Path (Join-Path $rootBackup $f)) { Copy-Item (Join-Path $rootBackup $f) -Destination $InstallDir -Force }
+      }
+    }
     try {
-      if ($wasRunning) { Stop-Atolye; Start-Sleep -Seconds 1 }
+      if ($wasRunning) { Stop-Atolye; [void](Wait-PortFree) }
       New-Item -ItemType Directory -Force $rootBackup | Out-Null
-      foreach ($f in $rootFiles) {
+      foreach ($f in $backupFiles) {
         if (Test-Path (Join-Path $InstallDir $f)) { Copy-Item (Join-Path $InstallDir $f) -Destination $rootBackup -Force }
       }
       foreach ($d in $dirs) {
@@ -1058,36 +1119,81 @@ function Update-PackageInstall {
       $problem = $_.Exception.Message
       Write-Warn "Güncelleme sırasında hata oluştu: $problem"
       Write-Step 'Eski sürüm geri yükleniyor…'
-      try {
-        foreach ($d in $swapped) {
-          $cur = Join-Path $InstallDir $d
-          if (Test-Path "$cur.eski") {
-            if (Test-Path $cur) { Remove-Item $cur -Recurse -Force }
-            Rename-WithRetry "$cur.eski" $d
-          }
-        }
-        foreach ($f in $rootFiles) {
-          if (Test-Path (Join-Path $rootBackup $f)) { Copy-Item (Join-Path $rootBackup $f) -Destination $InstallDir -Force }
-        }
-        Write-Ok 'Eski sürüm geri yüklendi'
-      } catch { Write-Warn "Eski sürüm geri yüklenemedi: $($_.Exception.Message). Atölye bir sonraki başlatılışta kendini onarmayı deneyecek." }
+      try { & $restore; Write-Ok 'Eski sürüm geri yüklendi' }
+      catch { Write-Warn "Eski sürüm geri yüklenemedi: $($_.Exception.Message). Atölye bir sonraki başlatılışta kendini onarmayı deneyecek." }
       Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+      Clear-UpdateLock
       if ($wasRunning) { try { $script:TarayiciAcma = $true; Start-Atolye } catch { } }
       Stop-WithError "Güncelleme tamamlanamadı; önceki sürüm ($($current.version)) kullanılmaya devam ediyor. Sebep: $problem"
     }
-    # 3) Temizlik: eski klasörler ancak yenisi yerine geçtikten sonra silinir (silinemezse zararsızdır)
+
+    # 3) Doğrulama — yeni sürüm gerçekten açılıyor mu? Eski klasörler ancak yeni sürüm cevap verdikten sonra silinir.
+    #    Yeni sürüm açılırken çöküyorsa (kayıt dosyasına yazıp kapanıyorsa) önceki sürüme dönülür ve o başlatılır.
+    #    Süreç hiç çalışmadıysa (kayıt dosyası boş: ör. güvenlik yazılımı gizli pencereden başlatmayı engelledi) sorun
+    #    sürümde değildir: yeni sürüm yerinde kalır; Atölye penceresi ya da masaüstü kısayolu onu başlatır.
+    $eskiHata = $script:HataFirlat
+    $script:HataFirlat = $true   # bu adımdaki hatalar betiği sonlandırmaz, aşağıda ele alınır
+    try { Install-EnvFile } catch { }
+    $started = $true
+    $crashed = $false
+    if ($wasRunning) {
+      $script:TarayiciAcma = $true
+      Write-Step 'Yeni sürüm başlatılıyor…'
+      Remove-Item $LogFile -Force -ErrorAction SilentlyContinue
+      $started = $false
+      try {
+        Resolve-PortConflict -Auto
+        $started = Start-Server 10
+        # Yavaş bilgisayarda (yeni dosyalar taranırken) açılış uzayabilir: süreç yaşıyorsa iki dakikaya kadar beklenir;
+        # süreç kapandıysa (çöktüyse) beklenmez
+        for ($i = 0; -not $started -and $i -lt 120 -and @(Get-ServerProcess).Count; $i++) { Start-Sleep -Seconds 1; $started = Test-Running }
+        # Port dinleniyor ama sayfa cevap vermiyorsa da açılmış sayılmaz
+        if ($started) {
+          $started = $false
+          for ($i = 0; $i -lt 30 -and -not $started; $i++) { if (Test-AtolyeHttp (Get-Port)) { $started = $true } else { Start-Sleep -Milliseconds 500 } }
+        }
+      } catch { $started = $false }
+      if (-not $started) {
+        Write-Warn 'Yeni sürüm başlatılamadı.'
+        $logText = ''
+        try { if (Test-Path $LogFile) { $logText = [string](Get-Content $LogFile -Raw -Encoding UTF8) } } catch { }
+        if ($logText.Trim()) { Write-Host '  Son kayıtlar:'; ($logText -split "`r?`n" | Select-Object -Last 15) | ForEach-Object { Write-Host "    $_" } }
+        # Kayıt dosyasına bir şey yazıldıysa ya da süreç asılı kaldıysa sunucu çalıştırıldı ama açılamadı: sorun yeni sürümde
+        $crashed = [bool]$logText.Trim() -or [bool]@(Get-ServerProcess).Count
+      }
+    }
+    $script:HataFirlat = $eskiHata
+    if ($crashed) {
+      Write-Step "Önceki sürüme ($($current.version)) dönülüyor…"
+      Stop-Atolye
+      foreach ($p in @(Get-ServerProcess)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+      [void](Wait-PortFree)
+      $restored = $false
+      try { & $restore; $restored = $true; Write-Ok 'Önceki sürüm geri yüklendi' }
+      catch { Write-Warn "Önceki sürüm geri yüklenemedi: $($_.Exception.Message). Atölye bir sonraki başlatılışta kendini onarmayı deneyecek." }
+      Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+      $back = $false
+      if ($restored) { try { $back = Start-Server 45 } catch { } }
+      Clear-UpdateLock
+      Stop-WithError "Yeni sürüm ($($new.version)) bu bilgisayarda açılmadı; önceki sürüme ($($current.version)) dönüldü$(if ($back) { ' ve Atölye yeniden çalışıyor.' } else { '. Atölye başlatılamadı: masaüstündeki Atölye kısayoluyla açın.' })"
+    }
+
+    # 4) Temizlik: eski klasörler ancak yenisi yerine geçtikten (ve açıldıktan) sonra silinir (silinemezse zararsızdır)
     foreach ($d in $dirs) { Remove-Item (Join-Path $InstallDir "$d.eski") -Recurse -Force -ErrorAction SilentlyContinue }
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notlike '*\node_modules\*' } | Unblock-File -ErrorAction SilentlyContinue
+    Clear-UpdateLock
     Write-Ok "Güncellendi: $($current.version) → $($new.version)"
-    Install-EnvFile
     if (Test-DesktopApp) { [void](Build-DesktopApp) }
+    if (-not $started) {
+      Stop-WithError "Yeni sürüm ($($new.version)) kuruldu ama Atölye yeniden başlatılamadı (sunucu süreci çalıştırılamadı; güvenlik yazılımı engellemiş olabilir). Atölye penceresi açıksa birazdan kendisi başlatır; değilse masaüstündeki Atölye kısayoluyla açın."
+    }
     if ($wasRunning) {
-      $script:TarayiciAcma = $true
-      Start-Atolye
+      Write-Ok "Çalışıyor: $(Get-Url)"
       Write-Host '  Tarayıcıda sayfayı yenileyin.' -ForegroundColor Gray
     }
   } finally {
+    Clear-UpdateLock
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
@@ -1098,6 +1204,7 @@ function Update-Atolye {
     try { Start-Transcript -Path (Join-Path $InstallDir 'atolye-guncelle.log') -Force | Out-Null } catch { }
   }
   if (-not (Test-AtolyeDir $InstallDir)) { Stop-WithError "Kurulum bulunamadı: $InstallDir. Önce 'kur' komutunu çalıştırın." }
+  if (Test-UpdateLock) { Stop-WithError 'Başka bir güncelleme şu an sürüyor; bitmesini bekleyin.' }
   Repair-Install
   if (-not (Test-Path (Join-Path $InstallDir '.git'))) {
     Update-PackageInstall
@@ -1136,7 +1243,7 @@ function Update-Atolye {
   $wasRunning = Test-Running
   if ($wasRunning) {
     Stop-Atolye
-    Start-Sleep -Seconds 1
+    [void](Wait-PortFree)
     $script:TarayiciAcma = $true
     Start-Atolye
     Write-Host '  Tarayıcıda sayfayı yenileyin.' -ForegroundColor Gray

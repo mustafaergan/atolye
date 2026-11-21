@@ -62,12 +62,16 @@ static class Program
 class MainForm : Form
 {
     readonly string root;     // Atölye kurulum klasörü (bu dosya <kurulum>\masaustu-app içinde durur)
-    readonly string url;
+    string url;               // port değişebilir (başka program portu aldıysa): her başlatmada yeniden okunur
     readonly string dataDir;  // pencere konumu ve WebView2 verisi (kurulum klasörünün dışında: güncelleme kilitlenmesin)
     readonly Label status;
     readonly Button retry;
     WebView2 web;
     int failures;
+    System.Windows.Forms.Timer watch; // sunucu bekçisi
+    int down;                         // art arda cevapsız kalan denetim sayısı
+    int revived;                      // art arda başarısız yeniden başlatma denemesi
+    bool checking;
 
     public MainForm()
     {
@@ -134,6 +138,7 @@ class MainForm : Form
     // Sunucu çalışmıyorsa kurulumun kendi başlatma komutuyla (port denetimi dahil) başlatılır
     bool EnsureServer()
     {
+        url = "http://127.0.0.1:" + ReadPort();
         if (Ping()) return true;
         try
         {
@@ -150,9 +155,58 @@ class MainForm : Form
         for (int i = 0; i < 90; i++)
         {
             Thread.Sleep(500);
+            url = "http://127.0.0.1:" + ReadPort(); // başlatma komutu boş bir porta geçmiş olabilir
             if (Ping()) return true;
         }
         return false;
+    }
+
+    // Güncelleme klasörleri değiştirirken (kurulum klasöründe ".guncelleniyor" dosyası durur) sunucuya dokunulmaz.
+    // Dosya 10 dakikadan eskiyse güncelleme yarıda kalmış sayılır.
+    bool Updating()
+    {
+        try
+        {
+            string f = Path.Combine(root, ".guncelleniyor");
+            return File.Exists(f) && (DateTime.Now - File.GetLastWriteTime(f)).TotalMinutes < 10;
+        }
+        catch { return false; }
+    }
+
+    // Bekçi: sunucu kendiliğinden kapanırsa (güncelleme onu yeniden başlatamadıysa, süreç sonlandıysa) pencere onu
+    // yeniden başlatır; kullanıcının pencereyi kapatıp açması gerekmez. Kısa kesintilere (olağan yeniden başlatma)
+    // karışılmaz: sunucu yaklaşık 20 saniye cevap vermezse devreye girer. Sayfa, sunucu dönünce kendisi bağlanır;
+    // yalnızca port değiştiyse yeni adrese gidilir.
+    void StartWatch()
+    {
+        if (watch != null) return;
+        watch = new System.Windows.Forms.Timer();
+        watch.Interval = 5000;
+        watch.Tick += OnWatch;
+        watch.Start();
+    }
+
+    async void OnWatch(object sender, EventArgs e)
+    {
+        if (checking || IsDisposed || web == null) return;
+        checking = true;
+        try
+        {
+            bool up = await Task.Run(new Func<bool>(Ping));
+            if (up) { down = 0; revived = 0; return; }
+            down++;
+            if (down < 4 || Updating()) return;
+            down = 0;
+            if (revived >= 3) return; // üç kez denendi, başlamıyor: kullanıcı kayıtlara bakmalı
+            string before = url;
+            bool ok = await Task.Run(new Func<bool>(EnsureServer));
+            if (IsDisposed) return;
+            if (!ok) { revived++; return; }
+            revived = 0;
+            if (url != before) web.CoreWebView2.Navigate(url);
+        }
+        catch { }
+        finally { checking = false; }
     }
 
     async void Start()
@@ -183,6 +237,7 @@ class MainForm : Form
             web.CoreWebView2.NavigationCompleted += OnNavigated;
             web.CoreWebView2.Navigate(url);
             web.BringToFront();
+            StartWatch();
         }
         catch (Exception ex)
         {
