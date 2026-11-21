@@ -504,6 +504,43 @@ export function removeSkill(name) {
   return listSkills();
 }
 
+// ---------- Oturumların disk kullanımı ----------
+/**
+ * Bir klasörün toplam boyutu ve dosya sayısı. Bağlantılar (symlink/junction) izlenmez, okunamayan dosya atlanır.
+ * Çok kalabalık klasörde "limit" dosyadan sonra durur ve partial: true döner (pencere beklemesin diye).
+ */
+export function dirSize(dir, limit = 50_000) {
+  const out = { bytes: 0, files: 0, partial: false };
+  const stack = [dir];
+  while (stack.length) {
+    let list;
+    try { list = fs.readdirSync(stack.pop(), { withFileTypes: true }); } catch { continue; }
+    for (const d of list) {
+      const p = path.join(d.parentPath || d.path, d.name);
+      if (d.isDirectory()) stack.push(p);
+      else if (d.isFile()) {
+        if (out.files >= limit) { out.partial = true; return out; }
+        try { out.bytes += fs.statSync(p).size; out.files += 1; } catch { /* silinmiş ya da kilitli */ }
+      }
+    }
+  }
+  return out;
+}
+
+/** Oturum kayıtlarının özeti: toplam, motorlara göre dağılım ve en çok yer tutanlar */
+export function sessionUsage(sessions, top = 5) {
+  const engines = {};
+  let bytes = 0;
+  for (const s of sessions) {
+    const size = Number(s.size) || 0;
+    const e = engines[s.engine] || (engines[s.engine] = { count: 0, bytes: 0 });
+    e.count += 1; e.bytes += size; bytes += size;
+  }
+  const largest = sessions.filter((s) => Number(s.size) > 0).sort((a, b) => b.size - a.size).slice(0, top)
+    .map((s) => ({ title: s.title, cwd: s.cwd, engine: s.engine, size: s.size, lastModified: s.lastModified }));
+  return { count: sessions.length, bytes, engines, largest };
+}
+
 // ---------- Eski oturumlar ----------
 /** Temizlik sınırı: "days" gündür kullanılmayanlar ya da "before" tarihinden (YYYY-AA-GG) önce kullanılanlar */
 export function cleanupCutoff({ days, before } = {}, now = Date.now()) {

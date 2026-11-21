@@ -258,6 +258,32 @@ test('Copilot oturumunda "/skill" mesajı: düz istek ve gizli yönerge olarak g
   assert.equal(sent[4], '/ikinci canlı 90 için hazırla', 'Claude Code\'da skill zaten komuttur');
 });
 
+test('disk kullanımı: klasör boyutu ve oturum özeti (motorlara göre, en büyükler)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-boyut-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'alt', 'derin'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'x'.repeat(100));
+    fs.writeFileSync(path.join(dir, 'alt', 'b.txt'), 'x'.repeat(250));
+    fs.writeFileSync(path.join(dir, 'alt', 'derin', 'c.txt'), 'x'.repeat(50));
+    assert.deepEqual(s.dirSize(dir), { bytes: 400, files: 3, partial: false });
+    const kisitli = s.dirSize(dir, 2);
+    assert.equal(kisitli.partial, true, 'sınır aşılınca yarım sonuç olduğu bildirilir');
+    assert.equal(kisitli.files, 2);
+    assert.deepEqual(s.dirSize(path.join(dir, 'yok')), { bytes: 0, files: 0, partial: false }, 'olmayan klasör hata vermez');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+
+  const u = s.sessionUsage([
+    { id: 'a', engine: 'claude', size: 3000, title: 'A', cwd: '/p', lastModified: 1 },
+    { id: 'b', engine: 'claude', size: 500, title: 'B', cwd: '/p', lastModified: 2 },
+    { id: 'c', engine: 'copilot', size: 9000, title: 'C', cwd: '/q', lastModified: 3 },
+    { id: 'd', engine: 'yerel', title: 'D', cwd: '/q', lastModified: 4 },
+  ], 2);
+  assert.equal(u.count, 4);
+  assert.equal(u.bytes, 12500);
+  assert.deepEqual(u.engines, { claude: { count: 2, bytes: 3500 }, copilot: { count: 1, bytes: 9000 }, yerel: { count: 1, bytes: 0 } });
+  assert.deepEqual(u.largest.map((x) => x.title), ['C', 'A'], 'en büyükler, boyutu bilinmeyen listelenmez');
+});
+
 test('eski oturumlar: gün ya da tarih sınırı; açık oturumlar seçilmez', () => {
   const now = new Date(2026, 10, 17, 12, 0, 0).getTime();
   const day = 24 * 60 * 60 * 1000;

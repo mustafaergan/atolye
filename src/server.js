@@ -25,7 +25,7 @@ import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
 import { shortTitle } from './title.js';
-import { saveAttachments } from './attachments.js';
+import { attachDir, KEEP_DAYS, saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
@@ -275,19 +275,28 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     const out = [];
     for (const dir of dirs) {
       const list = await listSessions({ dir, limit: 300 }).catch(() => []);
-      for (const s of list) out.push({ id: s.sessionId, engine: store.isLocalSession(s.sessionId) ? 'yerel' : 'claude', cwd: s.cwd || dir, lastModified: s.lastModified, title: s.customTitle || shortTitle(s.summary) || shortTitle(s.firstPrompt) || msg(lang, 'Adsız oturum') });
+      for (const s of list) out.push({ id: s.sessionId, engine: store.isLocalSession(s.sessionId) ? 'yerel' : 'claude', cwd: s.cwd || dir, lastModified: s.lastModified, size: s.fileSize || 0, title: s.customTitle || shortTitle(s.summary) || shortTitle(s.firstPrompt) || msg(lang, 'Adsız oturum') });
     }
-    for (const s of store.get().copilotSessions) out.push({ id: s.id, engine: 'copilot', cwd: s.cwd, lastModified: s.lastModified, title: s.title || msg(lang, 'Adsız oturum') });
+    for (const s of store.get().copilotSessions) out.push({ id: s.id, engine: 'copilot', cwd: s.cwd, lastModified: s.lastModified, size: transcript.size(s.id), title: s.title || msg(lang, 'Adsız oturum') });
     const seen = new Set();
     return out.filter((s) => !seen.has(`${s.engine}:${s.id}`) && seen.add(`${s.engine}:${s.id}`)).sort((a, b) => b.lastModified - a.lastModified);
   }
+
+  // Oturumların ve tuttukları dosyaların disk kullanımı (Ayarlar > Oturumlar). Oturum kaydı: Claude ve yerel model
+  // oturumlarında Claude Code'un konuşma dosyası, Copilot'ta Atölye'nin yerel kopyası.
+  app.get('/api/sessions/usage', guard(async (req) => ({
+    ok: true,
+    sessions: settings.sessionUsage(await allSessions(req.query.lang)),
+    attachments: { ...settings.dirSize(attachDir()), keepDays: KEEP_DAYS },
+    general: settings.dirSize(GENERAL_DIR),
+  })));
 
   // Eski oturumların temizliği: önce kaç oturumun silineceği sorulur (apply yok), onaydan sonra silinir (apply: true)
   app.post('/api/sessions/cleanup', guard(async (req) => {
     const cutoff = settings.cleanupCutoff(req.body || {});
     const openIds = new Set([...manager.entries.values()].map((e) => e.agent.sessionId).filter(Boolean));
     const old = settings.selectOld(await allSessions(req.query.lang), cutoff, openIds);
-    if (!req.body?.apply) return { ok: true, count: old.length, cutoff, sample: old.slice(0, 6).map((s) => ({ title: s.title, cwd: s.cwd, lastModified: s.lastModified })) };
+    if (!req.body?.apply) return { ok: true, count: old.length, bytes: old.reduce((n, s) => n + (Number(s.size) || 0), 0), cutoff, sample: old.slice(0, 6).map((s) => ({ title: s.title, cwd: s.cwd, lastModified: s.lastModified })) };
     let deleted = 0;
     for (const s of old) {
       try {

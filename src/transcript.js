@@ -44,6 +44,11 @@ export function read(id) {
   return out;
 }
 
+/** Yerel kopyanın diskteki boyutu (bayt); dosya yoksa 0 */
+export function size(id) {
+  try { return fs.statSync(fileFor(id)).size; } catch { return 0; }
+}
+
 export function remove(id) {
   try { fs.rmSync(fileFor(id), { force: true }); } catch { /* yoksay */ }
 }

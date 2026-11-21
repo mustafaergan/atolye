@@ -217,7 +217,10 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
   bildirir. Yalnızca Atölye'nin eklediği skill'ler buradan kaldırılabilir. Klasör yolu elle yazılabilir ya da **Klasör seç…** ile bilgisayardan seçilebilir. Eski sürümle eklenmiş skill'ler Atölye
   açılırken Copilot klasörüne de kopyalanır.
 - **Oturumlar:** "N gündür kullanılmayan" ya da "şu tarihten önce son kez kullanılan" oturumlar toplu silinir. Önce kaç
-  oturumun silineceği gösterilir. Claude oturumları Claude Code ile ortaktır; silinen geri gelmez.
+  oturumun silineceği ve ne kadar yer açılacağı gösterilir. Claude oturumları Claude Code ile ortaktır; silinen geri
+  gelmez. Sekmenin başındaki **Disk kullanımı** özeti oturum kayıtlarının toplam boyutunu (motorlara göre), sohbete
+  eklenen dosyaların (`~/.atolye/ekler`) ve klasörsüz sohbet dosyalarının (`~/.atolye/genel`) boyutunu ve en çok yer
+  tutan oturumları gösterir; Atölye'nin kurulum klasörü bu sayılara dahil değildir.
 
 **Sohbetlerde arama:** kenar çubuğundaki arama kutusu bütün proje klasörlerindeki sohbetlerin (Claude, Copilot, yerel)
 başlıklarında ve mesaj metinlerinde arar; sonuçta eşleşen bölüm vurgulanır, tıklayınca sohbet açılır. Araç çıktıları

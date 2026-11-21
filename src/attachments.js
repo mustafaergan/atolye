@@ -10,7 +10,7 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_UNZIPPED = 80 * 1024 * 1024; // sıkıştırılmış bomba dosyalara karşı
 const PREVIEW_PER_FILE = 30_000; // mesaja eklenen karakter (dosya başına)
 const PREVIEW_TOTAL = 60_000;
-const KEEP_DAYS = 30;
+export const KEEP_DAYS = 30;
 
 const TEXT_EXT = new Set(['csv', 'tsv', 'txt', 'md', 'json', 'jsonl', 'xml', 'yaml', 'yml', 'log', 'sql', 'html', 'htm', 'ini', 'properties', 'conf', 'env',
   'js', 'mjs', 'ts', 'tsx', 'jsx', 'java', 'py', 'cs', 'go', 'rb', 'php', 'kt', 'c', 'h', 'cpp', 'css', 'sh', 'ps1', 'bat', 'gradle', 'toml', 'rtf', 'har']);

@@ -2425,6 +2425,35 @@ function settingsSkills() {
   ];
 }
 
+// Oturumların ve tuttukları dosyaların diskte kapladığı yer (sekme açılınca ve silme sonrasında okunur)
+const diskSize = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n > 0 ? fileSize(n) : '0 KB');
+async function loadSessionUsage() {
+  settingsUi.usageLoading = true;
+  const r = await fetch(`/api/sessions/usage?lang=${getLang()}`).then((x) => x.json()).catch(() => null);
+  settingsUi.usage = r?.ok ? r : { failed: true };
+  settingsUi.usageLoading = false;
+  if (settingsUi.tab === 'sessions' && settingsDlg.open) renderSettings();
+}
+function sessionUsageBox() {
+  const g = settingsUi.usage;
+  if (!g) { if (!settingsUi.usageLoading) loadSessionUsage(); return el('div', { class: 'links-result', text: T('Disk kullanımı hesaplanıyor…') }); }
+  if (g.failed) return el('div', { class: 'links-result err', text: T('Disk kullanımı okunamadı.') });
+  const ENGINE = { claude: 'Claude Code', yerel: T('Yerel LLM'), copilot: 'GitHub Copilot' };
+  const files = (d) => `${T('{n} dosya', { n: d.files })} · ${diskSize(d.bytes)}${d.partial ? '+' : ''}`;
+  const engines = Object.entries(g.sessions.engines).map(([id, e]) => `${ENGINE[id] || id}: ${e.count} · ${diskSize(e.bytes)}`).join('  ·  ');
+  const row = (name, value, hint) => el('tr', {}, el('th', { text: name }), el('td', {}, el('span', { text: value }), hint && el('small', { text: hint })));
+  return el('div', { class: 'usage-box' },
+    el('div', { class: 'usage-title', text: T('Disk kullanımı') }),
+    el('table', { class: 'usage-table' },
+      row(T('Oturum kayıtları'), `${T('{n} oturum', { n: g.sessions.count })} · ${diskSize(g.sessions.bytes)}`, engines),
+      row(T('Eklenen dosyalar'), files(g.attachments), T('Sohbete eklediğiniz dosyaların kopyaları (~/.atolye/ekler); {n} gün sonra kendiliğinden silinir.', { n: g.attachments.keepDays })),
+      row(T('Klasörsüz sohbet dosyaları'), files(g.general), T('Klasörsüz sohbetlerde oluşturulan dosyalar (~/.atolye/genel); oturum silinince silinmez.'))),
+    g.sessions.largest.length ? el('div', { class: 'usage-title', text: T('En çok yer tutan oturumlar') }) : null,
+    g.sessions.largest.length ? el('table', { class: 'usage-table' }, ...g.sessions.largest.map((s) =>
+      row(diskSize(s.size), s.title, `${ENGINE[s.engine] || s.engine} · ${folderOf(s.cwd)} · ${timeAgo(s.lastModified)}`))) : null,
+    el('small', { class: 'usage-hint', text: T('Atölye\'nin kendi kurulum klasörü bu sayılara dahil değildir.') }));
+}
+
 function settingsSessions() {
   const u = settingsUi.cleanup || (settingsUi.cleanup = { mode: 'days', days: '90', before: '', preview: null });
   const days = sInput(u.days, { type: 'number', min: '1', max: '3650', class: 'settings-num' });
@@ -2437,10 +2466,11 @@ function settingsSessions() {
     if (!del.dataset.sure) { del.dataset.sure = '1'; del.textContent = T('Emin misiniz? Geri alınamaz'); return; }
     const r = await sCall('/api/sessions/cleanup', { ...body(), apply: true });
     u.preview = null;
-    if (r.ok) loadAllSessions();
+    if (r.ok) { loadAllSessions(); settingsUi.usage = null; }
     setNote(r.ok ? T('{n} oturum silindi.', { n: r.deleted }) : r.error, r.ok ? 'ok' : 'err');
   };
   return [
+    sessionUsageBox(),
     el('p', { class: 'links-intro', text: T('Uzun süredir kullanılmayan oturumları toplu olarak silin. Atölye\'deki bütün proje klasörlerine bakılır; açık oturumlara dokunulmaz. Claude oturumları Claude Code ile ortaktır: burada silinen oturum Claude Code\'da da silinir ve geri getirilemez.') }),
     el('label', { class: 'settings-toggle' }, radio('days'), el('span', { class: 'settings-inline' }, days, T('gündür kullanılmayan oturumlar'))),
     el('label', { class: 'settings-toggle' }, radio('before'), el('span', { class: 'settings-inline' }, before, T('tarihinden önce son kez kullanılan oturumlar'))),
@@ -2449,7 +2479,7 @@ function settingsSessions() {
         keep();
         const r = await sCall('/api/sessions/cleanup', body());
         u.preview = r.ok ? r : null;
-        setNote(r.ok ? (r.count ? T('{n} oturum silinecek. Örnekler: {list}', { n: r.count, list: r.sample.map((s) => `${s.title} (${folderOf(s.cwd)}, ${timeAgo(s.lastModified)})`).join(' · ') }) : T('Bu ölçüte uyan oturum yok.')) : r.error, r.ok ? '' : 'err');
+        setNote(r.ok ? (r.count ? T('{n} oturum silinecek, {size} yer açılacak. Örnekler: {list}', { n: r.count, size: diskSize(r.bytes || 0), list: r.sample.map((s) => `${s.title} (${folderOf(s.cwd)}, ${timeAgo(s.lastModified)})`).join(' · ') }) : T('Bu ölçüte uyan oturum yok.')) : r.error, r.ok ? '' : 'err');
       } }),
       u.preview?.count ? del : null),
   ];
@@ -2457,6 +2487,7 @@ function settingsSessions() {
 
 $('#settingsBtn').onclick = async () => {
   settingsUi.note = null;
+  settingsUi.usage = null;
   await Promise.all([loadSettings(), loadEngines(true)]);
   renderSettings();
   settingsDlg.showModal();
