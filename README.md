@@ -320,7 +320,11 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
     SELECT / WITH sorgusu kabul edilir, salt okunur işlem içinde çalışır (en çok 1000 satır, 30 sn). Oracle "thin"
     kipte çalışır, Oracle istemcisi gerekmez (12.1+). Bilgisayarda 64 bit Oracle istemcisi (Oracle Client ya da Instant
     Client) varsa onun kitaplıkları kullanılır ("thick" kip): thin kipin desteklemediği eski parola biçimi (10G; "NJS-116"
-    hatası) ve 12.1'den eski veritabanları bununla çalışır. Kitaplık `ORACLE_HOME` ve `PATH` içinde aranır; başka yerdeyse
+    hatası) ve 12.1'den eski veritabanları bununla çalışır. İstemci yoksa Bağlantılar > Oracle sekmesindeki **Oracle
+    istemcisini indir** düğmesi (Windows x64) Oracle Instant Client 19c "Basic" paketini Oracle'ın kendi sitesinden,
+    Oracle'ın lisans koşullarıyla indirir (164 MB iner, yaklaşık 500 MB yer kaplar; proxy ayarı kullanılır, inen dosyanın
+    SHA-256 özeti doğrulanır) ve `~/.atolye/oracle-client` altına açar; Microsoft Visual C++ Redistributable (2017+)
+    kurulu olmalıdır. Atölye paketi kendisi dağıtmaz. Kitaplık ayrıca `ORACLE_HOME` ve `PATH` içinde aranır; başka yerdeyse
     `.env` içinde `ORACLE_CLIENT_LIB_DIR=<klasör>` ile gösterilir, `ORACLE_THIN=1` her durumda thin kipi zorlar. Yalnızca okuma yetkisi olan bir veritabanı kullanıcısı önerilir.
   - **WebLogic** (REST yönetim arayüzü; kullanıcı adı + parola, yalnızca okuma): `weblogic_servers`,
     `weblogic_applications`, `weblogic_deployments`, `weblogic_datasources`. Parola düz metin saklandığı için

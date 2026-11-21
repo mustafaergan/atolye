@@ -31,6 +31,7 @@ import * as testauto from './testauto.js';
 import * as commands from './commands.js';
 import * as settings from './settings.js';
 import * as teams from './teams.js';
+import * as oracleClient from './oracle-client.js';
 import { bridge, bridgeHandlers } from './kopru.js';
 import { searchSessions } from './search.js';
 import { validWork } from './workmode.js';
@@ -419,6 +420,15 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Outlook: bilgisayardaki Outlook'un araçları açılır/kapatılır (adres ya da anahtar gerekmez)
   app.post('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook etkinleştirildi'); res.json(integrations.setOutlook(true)); }));
   app.delete('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook kapatıldı'); res.json(integrations.setOutlook(false)); }));
+  // Oracle istemcisi: thin kipin desteklemediği bağlantılar için Oracle Instant Client, kullanıcı istediğinde Oracle'ın
+  // sitesinden indirilir (bkz. oracle-client.js). İndirme arka planda sürer; arayüz durumu aralıklarla sorar.
+  app.get('/api/oracle-client', wrap(async (_req, res) => res.json(oracleClient.status())));
+  app.post('/api/oracle-client', wrap(async (_req, res) => {
+    const { status, done } = oracleClient.start();
+    if (status.phase === 'download' && !status.received) console.log('[oracle] istemci indirme başlatıldı');
+    done.then((st) => console.log(`[oracle] istemci indirme: ${st.phase === 'done' ? `tamam (${st.installed})` : st.error}`)).catch(() => {});
+    res.json(oracleClient.status());
+  }));
   // Teams: Graph Explorer'dan alınan erişim anahtarı yalnızca bellekte tutulur (diske ve kayıtlara yazılmaz); araçlar
   // yalnızca yerel LLM oturumlarına sunulur ve isteklerini aşağıdaki iç kapıdan geçirir (bkz. teams.js)
   teams.gate.origin = `http://127.0.0.1:${port}`;

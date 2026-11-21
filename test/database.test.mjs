@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { checkReadOnly, skeleton, formatRows, validDbUrl, setDriver, oracle, postgres, findOracleClient, oracleConnectError, resetOracleMode } from '../src/database.js';
+import { checkReadOnly, skeleton, formatRows, validDbUrl, setDriver, oracle, postgres, oracleConnectError, resetOracleMode } from '../src/database.js';
 import { availableTools, callTool } from '../src/mcp-server.js';
 
 test('yalnızca tek bir SELECT / WITH sorgusu kabul edilir', () => {
@@ -115,16 +115,6 @@ test('veritabanı araçları yalnızca bağlantı kuruluysa sunulur ve hepsi oku
   assert.match(r.content[0].text, /^postgres: Yalnızca SELECT/);
 });
 
-test('Oracle istemcisi: kitaplık elle gösterilen klasörde, ORACLE_HOME ve PATH içinde aranır', () => {
-  const has = (...files) => (f) => files.includes(f);
-  const j = path.join;
-  assert.equal(findOracleClient({ PATH: 'C:\\a;"C:\\ora\\ic";C:\\b' }, has(j('C:\\ora\\ic', 'oci.dll')), 'win32'), 'C:\\ora\\ic');
-  assert.equal(findOracleClient({ Path: 'C:\\x', ORACLE_HOME: 'C:\\oracle' }, has(j('C:\\oracle', 'bin', 'oci.dll')), 'win32'), j('C:\\oracle', 'bin'));
-  assert.equal(findOracleClient({ ORACLE_CLIENT_LIB_DIR: 'D:\\ic', PATH: 'C:\\ora' }, has(j('D:\\ic', 'oci.dll'), j('C:\\ora', 'oci.dll')), 'win32'), 'D:\\ic', 'elle gösterilen önce gelir');
-  assert.equal(findOracleClient({ PATH: 'C:\\a;C:\\b' }, has(), 'win32'), null);
-  assert.equal(findOracleClient({ LD_LIBRARY_PATH: '/opt/a:/opt/ic' }, has(j('/opt/ic', 'libclntsh.so')), 'linux'), '/opt/ic');
-});
-
 test('Oracle: istemci kitaplığı varsa onunla (thick), yoksa ya da yüklenemezse istemcisiz (thin) bağlanılır', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-oci-'));
   fs.writeFileSync(path.join(dir, process.platform === 'win32' ? 'oci.dll' : process.platform === 'darwin' ? 'libclntsh.dylib' : 'libclntsh.so'), '');
@@ -144,6 +134,7 @@ test('Oracle: istemci kitaplığı varsa onunla (thick), yoksa ya da yüklenemez
   const quiet = console.error;
   try {
     process.env.ORACLE_CLIENT_LIB_DIR = dir;
+    process.env.ATOLYE_ORACLE_CLIENT_DIR = path.join(dir, 'indirilen-yok'); // gerçek ~/.atolye klasörüne bakılmaz
     delete process.env.ORACLE_THIN;
     resetOracleMode();
     setDriver('oracle', driver(false));
@@ -168,10 +159,10 @@ test('Oracle: istemci kitaplığı varsa onunla (thick), yoksa ya da yüklenemez
     delete process.env.ORACLE_CLIENT_LIB_DIR;
     resetOracleMode();
     setDriver('oracle', driver(false, async () => { throw new Error('NJS-116: password verifier type 0x939 is not supported by node-oracledb in Thin mode'); }));
-    await assert.rejects(oracle.whoami(cfg), /parolası eski \(10G\) biçimde.*NJS-116.*yeniden tanımlamasını.*ORACLE_CLIENT_LIB_DIR/s);
+    await assert.rejects(oracle.whoami(cfg), /parolası eski \(10G\) biçimde.*NJS-116.*Oracle istemcisini indir.*yeniden tanımlamasını/s);
   } finally {
     console.error = quiet;
-    for (const k of ['ORACLE_CLIENT_LIB_DIR', 'ORACLE_THIN']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    for (const k of ['ORACLE_CLIENT_LIB_DIR', 'ORACLE_THIN', 'ATOLYE_ORACLE_CLIENT_DIR']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
     resetOracleMode();
     fs.rmSync(dir, { recursive: true, force: true });
   }
