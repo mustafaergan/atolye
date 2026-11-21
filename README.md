@@ -212,9 +212,12 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
   bilindiği için dosyayı paylaşacaksanız dışa aktarırken kendi anahtarınızı yazın.
 - **Skill'ler:** içinde `SKILL.md` bulunan bir klasör (ya da birden fazla skill içeren üst klasör) eklenir; skill
   `~/.claude/skills` (Claude Code ve yerel LLM oturumları) ve `~/.copilot/skills` (GitHub Copilot; Copilot, Claude'un
-  klasörüne bakmaz) altına kopyalanır ve yeni oturumlarda `/` komut listesinde çıkar. Copilot oturumunda `/skill-adı
-  istek` yazıldığında Copilot bunu komut olarak tanımıyorsa Atölye mesajı düz isteğe çevirir ve skill'in yerini
-  bildirir. Yalnızca Atölye'nin eklediği skill'ler buradan kaldırılabilir. Klasör yolu elle yazılabilir ya da **Klasör seç…** ile bilgisayardan seçilebilir. Eski sürümle eklenmiş skill'ler Atölye
+  klasörüne bakmaz) altına kopyalanır ve yeni oturumlarda `/` komut listesinde çıkar. **Bilgisayardaki her skill her
+  oturum türünde çalışır**, Atölye ile eklenmemiş olsa da: `~/.claude/skills`, projenin `.claude/skills` klasörü ve
+  `~/.copilot/skills` altındaki skill'ler bütün oturumların `/` listesinde görünür. Oturumun motoru skill'i kendisi
+  tanımıyorsa (Copilot'ta Claude klasöründeki, Claude Code ve yerel LLM'de yalnızca Copilot klasöründeki skill) Atölye
+  `/skill-adı istek` mesajını düz isteğe çevirir ve skill'in yerini bildirir; dosyalar kopyalanmaz, yerinden okunur.
+  Ayarlar'da Atölye ile eklenmemiş skill'ler ayrı bir listede gösterilir; yalnızca Atölye'nin eklediği skill'ler buradan kaldırılabilir. Klasör yolu elle yazılabilir ya da **Klasör seç…** ile bilgisayardan seçilebilir. Eski sürümle eklenmiş skill'ler Atölye
   açılırken Copilot klasörüne de kopyalanır.
 - **Oturumlar:** "N gündür kullanılmayan" ya da "şu tarihten önce son kez kullanılan" oturumlar toplu silinir. Önce kaç
   oturumun silineceği ve ne kadar yer açılacağı gösterilir. Claude oturumları Claude Code ile ortaktır; silinen geri

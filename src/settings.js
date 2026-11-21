@@ -410,6 +410,12 @@ export function listSkills() {
   return readSkills().map((s) => ({ ...s, copilot: Boolean(s.copilot), description: skillInfo(path.join(skillsDir(), s.name))?.description || '', exists: fs.existsSync(path.join(skillsDir(), s.name, 'SKILL.md')) }));
 }
 
+/** Atölye ile eklenmemiş ama bilgisayarda bulunan skill'ler (Ayarlar'da salt okunur gösterilir): { name, description, where } */
+export function otherSkills() {
+  const tracked = new Set(readSkills().map((s) => s.name));
+  return foundSkills().filter((s) => !tracked.has(s.name)).map((s) => ({ name: s.name, description: s.description, where: s.places.claude ? 'claude' : 'copilot' }));
+}
+
 /**
  * Skill'in Copilot klasöründeki kopyası. Orada aynı adla kullanıcının kendi koyduğu bir skill varsa dokunulmaz.
  * Kopya oluştuysa kayıt "copilot" olarak işaretlenir (kaldırırken yalnızca kendi kopyamız silinsin diye).
@@ -438,25 +444,72 @@ export function syncSkills() {
   return changed;
 }
 
-/** Copilot oturumunun "/" listesine eklenecek skill'ler (Copilot'un kendi bildirdiği komutlar hariç) */
-export function skillCommands(native = []) {
-  const known = new Set(native.map((c) => c.name));
-  return listSkills().filter((s) => s.exists && !known.has(s.name)).map((s) => ({ name: s.name, description: s.description }));
+/** Bir skill klasörünün içindeki skill'ler (her biri <ad>/SKILL.md) */
+function skillsIn(dir, where) {
+  let list;
+  try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+  const out = [];
+  for (const d of list) {
+    if (!d.isDirectory() && !d.isSymbolicLink()) continue;
+    const info = skillInfo(path.join(dir, d.name));
+    if (info) out.push({ ...info, dir: path.join(dir, d.name), where });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
- * Copilot oturumunda "/skill-adı istek" yazıldıysa ve Copilot bu komutu kendisi tanımıyorsa mesaj düz isteğe çevrilir:
- * { text: gönderilecek metin, note: yapay zekâya gizli yönerge }. Skill değilse ya da Copilot tanıyorsa null.
+ * Bilgisayarda duran bütün skill'ler, Atölye ile eklenmiş olsun olmasın: projenin .claude/skills klasörü (cwd
+ * verilmişse), Claude Code'un kişisel klasörü ve Copilot'un kişisel klasörü. Aynı ad birden fazla yerdeyse tek kayıt
+ * döner; "places" hangi yerlerde bulunduğunu söyler: { project, claude, copilot } → klasör yolu.
  */
-export function skillPrompt(text, native = []) {
+export function foundSkills(cwd = '') {
+  const personal = skillsDir();
+  const project = cwd ? path.join(cwd, '.claude', 'skills') : '';
+  const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  const all = [
+    ...(project && !same(project, personal) ? skillsIn(project, 'project') : []),
+    ...skillsIn(personal, 'claude'),
+    ...skillsIn(copilotSkillsDir(), 'copilot'),
+  ];
+  const byName = new Map();
+  for (const s of all) {
+    const e = byName.get(s.name) || { name: s.name, description: '', places: {} };
+    if (!e.places[s.where]) e.places[s.where] = s.dir;
+    if (!e.description) e.description = s.description;
+    byName.set(s.name, e);
+  }
+  return [...byName.values()];
+}
+
+// Claude Code (ve onun motorunu kullanan yerel LLM) proje ve kişisel Claude klasöründeki skill'i kendisi komut olarak
+// yükler; Copilot yalnızca kendi klasörünü. Motorun kendiliğinden görmediği skill'i Atölye tanıtır.
+const nativeFor = (engine, skill) => (engine === 'copilot' ? false : Boolean(skill.places.project || skill.places.claude));
+const skillDirFor = (engine, skill) => (engine === 'copilot'
+  ? skill.places.copilot || skill.places.project || skill.places.claude
+  : skill.places.project || skill.places.claude || skill.places.copilot);
+
+/**
+ * Oturumun "/" listesine Atölye'nin ekleyeceği skill'ler: bilgisayarda bulunan ama bu motorun kendi bildirmediği
+ * skill'ler (motorun bildirdiği komutlar yinelenmez).
+ */
+export function skillCommands(native = [], cwd = '', engine = 'copilot') {
+  const known = new Set(native.map((c) => c.name));
+  return foundSkills(cwd).filter((s) => !known.has(s.name) && !nativeFor(engine, s)).map((s) => ({ name: s.name, description: s.description }));
+}
+
+/**
+ * "/skill-adı istek" yazıldıysa ve oturumun motoru bu skill'i kendisi tanımıyorsa mesaj düz isteğe çevrilir:
+ * { name, rest: gönderilecek metin, note: yapay zekâya gizli yönerge }. Skill değilse ya da motor tanıyorsa null.
+ * Böylece bilgisayardaki skill, hangi klasörde durursa dursun her oturum türünde çalışır.
+ */
+export function skillPrompt(text, native = [], cwd = '', engine = 'copilot') {
   const m = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/i.exec(String(text || '').trim());
   if (!m) return null;
   const name = m[1].toLowerCase();
   if (native.some((c) => c.name === name)) return null;
-  const skill = readSkills().find((s) => s.name === name);
-  if (!skill) return null;
-  const dir = [copilotSkillsDir(), skillsDir()].map((d) => path.join(d, name)).find((d) => fs.existsSync(path.join(d, 'SKILL.md')));
-  if (!dir) return null;
+  const skill = foundSkills(cwd).find((s) => s.name === name);
+  if (!skill || nativeFor(engine, skill)) return null;
+  const dir = skillDirFor(engine, skill);
   const rest = (m[2] || '').trim();
   return {
     name,

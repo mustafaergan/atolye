@@ -256,6 +256,42 @@ test('Copilot oturumunda "/skill" mesajı: düz istek ve gizli yönerge olarak g
   assert.equal(sent[3], '/help', 'Copilot\'un kendi komutu olduğu gibi gider');
   go(claude, '/ikinci canlı 90 için hazırla');
   assert.equal(sent[4], '/ikinci canlı 90 için hazırla', 'Claude Code\'da skill zaten komuttur');
+
+  // Atölye ile eklenmemiş, elle konmuş skill'ler de her oturum türünde çalışır
+  const claudeDir = process.env.ATOLYE_SKILLS_DIR;
+  const copilotDir = `${claudeDir}-copilot`;
+  const proje = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-proje-'));
+  const koy = (dir, text) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'SKILL.md'), text); };
+  koy(path.join(claudeDir, 'elle-claude'), '---\nname: elle-claude\ndescription: Claude klasörüne elle kondu\n---\n');
+  koy(path.join(copilotDir, 'elle-copilot'), '---\nname: elle-copilot\ndescription: Copilot klasörüne elle kondu\n---\n');
+  koy(path.join(proje, '.claude', 'skills', 'proje-isi'), '---\nname: proje-isi\n---\n');
+  try {
+    // Copilot oturumu: Claude klasöründeki ve projedeki skill listede çıkar, yerinden okunur
+    const liste = s.skillCommands([{ name: 'help' }], proje, 'copilot').map((x) => x.name);
+    for (const ad of ['elle-claude', 'elle-copilot', 'proje-isi']) assert.ok(liste.includes(ad), `${ad} Copilot listesinde`);
+    go({ ...copilot, cwd: proje }, '/elle-claude rapor çıkar');
+    assert.match(sent[5], /^rapor çıkar\n\n<system-reminder>The user invoked the skill "elle-claude"\. /);
+    assert.ok(sent[5].includes(path.join(claudeDir, 'elle-claude', 'SKILL.md')), 'kopyalanmaz, Claude klasöründen okunur');
+    go({ ...copilot, cwd: proje }, '/proje-isi başla');
+    assert.ok(sent[6].includes(path.join(proje, '.claude', 'skills', 'proje-isi', 'SKILL.md')));
+    assert.equal(s.skillPrompt('/proje-isi başla', [], '', 'copilot'), null, 'proje skill\'i başka klasörde geçerli değildir');
+    // Claude Code / yerel LLM oturumu: yalnızca Copilot klasöründeki skill Atölye'nin yardımıyla çalışır
+    assert.deepEqual(s.skillCommands([], proje, 'claude').map((x) => x.name), ['cakisan', 'elle-copilot'], 'önceki testten kalan cakisan da yalnızca Copilot klasöründe');
+    go({ ...claude, cwd: proje }, '/elle-copilot özetle');
+    assert.match(sent[7], /^özetle\n\n<system-reminder>The user invoked the skill "elle-copilot"\. /);
+    assert.ok(sent[7].includes(path.join(copilotDir, 'elle-copilot', 'SKILL.md')));
+    go({ ...claude, cwd: proje }, '/proje-isi başla');
+    assert.equal(sent[8], '/proje-isi başla', 'proje skill\'ini Claude Code kendisi yükler');
+    // Ayarlar: Atölye ile eklenmemiş skill'ler ayrı listelenir
+    const diger = s.otherSkills();
+    assert.deepEqual(diger.find((x) => x.name === 'elle-claude'), { name: 'elle-claude', description: 'Claude klasörüne elle kondu', where: 'claude' });
+    assert.equal(diger.find((x) => x.name === 'elle-copilot').where, 'copilot');
+    assert.ok(!diger.some((x) => x.name === 'ikinci'), 'Atölye ile eklenen bu listede yinelenmez');
+  } finally {
+    fs.rmSync(proje, { recursive: true, force: true });
+    fs.rmSync(path.join(claudeDir, 'elle-claude'), { recursive: true, force: true });
+    fs.rmSync(path.join(copilotDir, 'elle-copilot'), { recursive: true, force: true });
+  }
 });
 
 test('disk kullanımı: klasör boyutu ve oturum özeti (motorlara göre, en büyükler)', () => {

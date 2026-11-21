@@ -238,6 +238,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     copilot: settings.copilotStatus(),
     local: settings.localStatus(),
     skills: settings.listSkills(),
+    otherSkills: settings.otherSkills(),
   })));
   app.post('/api/settings/app', guard(async (req) => {
     const r = await settings.appSet(String(req.body?.key || ''), Boolean(req.body?.on));

@@ -136,10 +136,11 @@ export class SessionManager {
     // Ekli dosyaların yolu ve içeriğinin başı yalnızca yapay zekâya giden mesaja eklenir; ekranda dosya adları görünür.
     // Ask / Plan kipinin yönergesi de yalnızca yapay zekâya gider (geçmişte system-reminder olarak gizlenir).
     const extra = attachmentPrompt(files, lang);
-    // Copilot, Atölye ile eklenen skill'i "/ad" komutu olarak tanımıyorsa mesaj düz isteğe çevrilir ve skill'in yeri
-    // gizli yönergeyle bildirilir (Claude Code ve yerel LLM oturumlarında skill zaten komuttur)
+    // Oturumun motoru bilgisayardaki bir skill'i "/ad" komutu olarak tanımıyorsa mesaj düz isteğe çevrilir ve skill'in
+    // yeri gizli yönergeyle bildirilir: Copilot'ta Claude klasöründeki skill, Claude Code ve yerel LLM oturumlarında
+    // yalnızca Copilot klasöründeki skill. Motorun kendi tanıdığı skill olduğu gibi gider.
     let skill = null;
-    if (entry.engine === 'copilot') { try { skill = skillPrompt(text, entry.agent.commands || []); } catch { /* skill kaydı okunamadı: mesaj olduğu gibi gider */ } }
+    try { skill = skillPrompt(text, entry.agent.commands || [], entry.cwd || '', entry.engine === 'copilot' ? 'copilot' : 'claude'); } catch { /* skill okunamadı: mesaj olduğu gibi gider */ }
     const body = skill ? (skill.rest || msg(lang, '"{name}" skill\'ini kullan.', { name: skill.name })) : text;
     const rule = text.startsWith('/') && !skill ? '' : workInstruction(entry.agent.work);
     const carried = String(handoff || '').trim().slice(0, HANDOFF_MAX).replace(/<\/?system-reminder>/gi, '');

@@ -474,9 +474,9 @@ export class CopilotSession {
   }
 
   #sendCapabilities() {
-    // Atölye ile eklenen skill'ler, Copilot komut olarak bildirmese de "/" listesinde görünür (bkz. manager.js send)
+    // Bilgisayardaki skill'ler, Copilot komut olarak bildirmese de "/" listesinde görünür (bkz. manager.js send)
     let skills = [];
-    try { skills = skillCommands(this.commands); } catch { /* skill listesi okunamazsa yalnızca Copilot'un komutları */ }
+    try { skills = skillCommands(this.commands, this.cwd, 'copilot'); } catch { /* skill listesi okunamazsa yalnızca Copilot'un komutları */ }
     this.emit({ type: 'capabilities', models: this.models, commands: [...this.commands, ...skills], effort: { current: this.effort.current, hasDefault: false, options: this.effort.options } });
   }
 

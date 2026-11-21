@@ -2,7 +2,7 @@
 // açık tutar, böylece aynı oturuma art arda mesaj gönderebilir, çalışmayı
 // durdurabilir, izin modunu ve modeli anında değiştirebiliriz.
 import { EDIT_TOOLS, denyMessage, validWork } from './workmode.js';
-import { localEnv } from './settings.js';
+import { localEnv, skillCommands } from './settings.js';
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { msg } from './messages.js';
@@ -199,13 +199,18 @@ export class AgentSession {
     return row?.supportsEffort === false ? [] : (row?.supportedEffortLevels || []);
   }
 
+  /** Yalnızca Copilot'un klasöründe duran skill'ler: bu motor onları kendisi görmez, Atölye listeye ekler (bkz. manager.js send) */
+  #extraSkills() {
+    try { return skillCommands(this.commands, this.cwd, 'claude'); } catch { return []; }
+  }
+
   #emitCapabilities() {
     const levels = this.#effortLevels();
     if (this.effort && levels.length && !levels.includes(this.effort)) this.effort = undefined; // bu model o seviyeyi desteklemiyor
     this.emit({
       type: 'capabilities',
       models: this.modelInfos.map((m) => ({ value: m.value, name: m.displayName, description: m.description })),
-      commands: this.commands,
+      commands: [...this.commands, ...this.#extraSkills()],
       effort: { current: this.effort || '', hasDefault: true, options: levels.map((v) => ({ value: v, name: v })) },
     });
   }

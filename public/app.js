@@ -2395,7 +2395,7 @@ function settingsSkills() {
   const dir = sInput(settingsUi.skillDir || '', { placeholder: 'C:\\dev\\skillerim\\rapor-yaz' });
   dir.addEventListener('input', () => { settingsUi.skillDir = dir.value; });
   return [
-    el('p', { class: 'links-intro', text: T('Skill, yapay zekâya belirli bir işi nasıl yapacağını anlatan bir klasördür (içinde SKILL.md bulunur). Klasörün yolunu yazıp ekleyin; birden fazla skill içeren bir üst klasör de verebilirsiniz. Eklenen skill yeni açılan oturumlarda "/" komut listesinde çıkar.') }),
+    el('p', { class: 'links-intro', text: T('Skill, yapay zekâya belirli bir işi nasıl yapacağını anlatan bir klasördür (içinde SKILL.md bulunur). Klasörün yolunu yazıp ekleyin; birden fazla skill içeren bir üst klasör de verebilirsiniz. Skill\'ler bütün oturum türlerinde (Claude Code, GitHub Copilot, yerel LLM) kullanılır ve yeni açılan oturumlarda "/" komut listesinde çıkar.') }),
     skills.length ? el('div', { class: 'command-list' }, skills.map((s) => el('div', { class: 'command-row' },
       el('div', { class: 'c-main' },
         el('div', { class: 'c-name plain', text: `/${s.name}` }, !s.exists && el('span', { class: 'c-badge', text: T('dosyası yok') })),
@@ -2406,6 +2406,11 @@ function settingsSkills() {
         setNote(r.ok ? T('Skill kaldırıldı.') : r.error, r.ok ? 'ok' : 'err');
       } })))))
       : sNote(T('Henüz skill eklemediniz.')),
+    (settingsUi.data.otherSkills || []).length ? el('p', { class: 'links-intro', text: T('Bilgisayarda bulunan diğer skill\'ler (Atölye ile eklenmemiş). Bunlar da bütün oturum türlerinde kullanılır; buradan kaldırılamaz.') }) : null,
+    (settingsUi.data.otherSkills || []).length ? el('div', { class: 'command-list' }, settingsUi.data.otherSkills.map((s) => el('div', { class: 'command-row' },
+      el('div', { class: 'c-main' },
+        el('div', { class: 'c-name plain', text: `/${s.name}` }, el('span', { class: 'c-badge', text: s.where === 'claude' ? T('Claude Code klasöründe') : T('Copilot klasöründe') })),
+        el('div', { class: 'c-prompt', text: s.description || '' }))))) : null,
     sField(T('Skill klasörü'), dir, T('Yolu yazın ya da "Klasör seç" ile bilgisayarınızdan seçin.')),
     el('div', { class: 'links-actions' },
       el('button', { type: 'button', class: 'btn', text: T('Klasör seç…'), onclick: async () => {
