@@ -706,6 +706,8 @@ details.ctx-section[open] > summary svg { transform: rotate(90deg); }
 .links-body { display: flex; flex-direction: column; gap: 12px; max-height: min(62vh, 560px); overflow-y: auto; }
 .links-steps { margin: 0; padding: 10px 12px 10px 30px; border-radius: 10px; background: var(--surface-2); font-size: 13px; line-height: 1.55; color: var(--text-2); }
 .links-steps li + li { margin-top: 4px; }
+.links-steps.oracle-client { padding-left: 12px; display: flex; flex-direction: column; gap: 8px; }
+.links-steps.oracle-client .links-actions { align-items: center; }
 .links-steps a { color: var(--accent); overflow-wrap: anywhere; }
 .links-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-2); }
 .links-field input { font: inherit; font-size: 13.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }

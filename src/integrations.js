@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { clients, configFromEnv, envKey, SERVICES } from './atlassian.js';
 import { availableTools, callTool, TOOLS } from './mcp-server.js';
 import { validDbUrl } from './database.js';
@@ -206,9 +207,43 @@ export function remove(service) {
   return status();
 }
 
+// Oracle sürücüsünün kipi (istemcili / istemcisiz) süreç başına bir kez, ilk bağlantıdan önce belirlenir ve sonradan
+// değişmez. İstemci Atölye çalışırken indirilebildiği için Oracle işlemleri bu süreçte değil, her seferinde yeni bir
+// alt süreçte çalıştırılır (bkz. mcp-server.js runOnce); böylece indirilen istemci hemen kullanılır.
+const OWN_PROCESS = ['oracle'];
+let oneShotImpl = null;
+/** Testler için: alt süreç yerine çağrılacak işlev */
+export function setOneShot(fn) { oneShotImpl = fn; }
+function oneShot(payload, timeoutMs = 90_000) {
+  if (oneShotImpl) return oneShotImpl(payload);
+  return new Promise((resolve) => {
+    const fail = (text) => resolve({ ok: false, isError: true, error: text, content: [{ type: 'text', text }] });
+    let child;
+    try { child = spawn(process.execPath, [MCP_SCRIPT, '--once'], { env: { ...process.env, ...readEnv() }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); } catch (err) { return fail(err.message); }
+    let out = '';
+    let errText = '';
+    const timer = setTimeout(() => { child.kill(); fail('işlem zamanında bitmedi'); }, timeoutMs);
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { errText += d; });
+    child.on('error', (err) => { clearTimeout(timer); fail(err.message); });
+    child.on('close', () => {
+      clearTimeout(timer);
+      try { resolve(JSON.parse(out.trim().split('\n').pop())); } catch { fail(errText.trim().split('\n').pop() || 'işlem tamamlanamadı'); }
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
 /** Kayıtlı bilgilerle giriş dener: { ok, user } ya da { ok: false, error } */
 export async function test(service) {
   check(service);
+  if (OWN_PROCESS.includes(service)) {
+    const r = await oneShot({ op: 'whoami', service });
+    if (r.ok) return { ok: true, user: r.user };
+    // Oracle istemcisi gerektiren hatalar: arayüz indirme seçeneğini yalnızca bu durumda gösterir
+    return { ok: false, error: r.error || 'not-configured', ...(/NJS-116|NJS-138|NJS-112/.test(r.error || '') ? { needsClient: true } : {}) };
+  }
   // Sınamayı kullanıcı arayüzden yapar (sonuç yapay zekâya gitmez): Outlook'ta oturum işareti burada verilir
   const cfg = configFromEnv(service, { ...readEnv(), ...(service === 'outlook' ? { ATOLYE_YEREL_OTURUM: '1' } : {}) });
   if (!cfg) return { ok: false, error: 'not-configured' };
@@ -233,6 +268,7 @@ export async function runReadTool(name, args) {
   const tool = TOOLS[name];
   if (!tool) return { ok: false, text: 'Bilinmeyen işlem' };
   if (tool.write) return { ok: false, text: 'Bu işlem değişiklik yapar; buradan çalıştırılamaz' };
-  const res = await callTool(name, args && typeof args === 'object' ? args : {}, readEnv());
+  const input = args && typeof args === 'object' ? args : {};
+  const res = OWN_PROCESS.includes(tool.service) ? await oneShot({ op: 'call', name, args: input }) : await callTool(name, input, readEnv());
   return { ok: !res.isError, text: res.content?.[0]?.text || '' };
 }

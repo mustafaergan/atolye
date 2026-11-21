@@ -101,7 +101,31 @@ export async function handleMessage(m, env = process.env) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+/**
+ * Tek seferlik çalışma (--once): standart girdiden tek bir istek okunur, sonuç tek satır JSON olarak yazılır ve süreç biter.
+ * { op: 'whoami', service } -> { ok, user } | { ok: false, error };  { op: 'call', name, args } -> araç sonucu.
+ * Atölye sunucusu Oracle işlemlerini bununla ayrı bir süreçte çalıştırır (bkz. integrations.js oneShot).
+ */
+export async function runOnce(m, env = process.env) {
+  if (m?.op === 'whoami') {
+    const cfg = SERVICES.includes(m.service) ? configFromEnv(m.service, env) : null;
+    if (!cfg) return { ok: false, error: 'not-configured' };
+    try { return { ok: true, user: await clients[m.service].whoami(cfg) }; } catch (err) { return { ok: false, error: err.message }; }
+  }
+  if (m?.op === 'call') return callTool(String(m.name || ''), m.args && typeof m.args === 'object' ? m.args : {}, env);
+  return { ok: false, isError: true, error: 'Bilinmeyen işlem', content: [{ type: 'text', text: 'Bilinmeyen işlem' }] };
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1] && process.argv.includes('--once')) {
+  let raw = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (c) => { raw += c; });
+  process.stdin.on('end', async () => {
+    let out;
+    try { out = await runOnce(JSON.parse(raw)); } catch (err) { out = { ok: false, isError: true, error: err.message, content: [{ type: 'text', text: err.message }] }; }
+    process.stdout.write(`${JSON.stringify(out)}\n`, () => process.exit(0));
+  });
+} else if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const rl = readline.createInterface({ input: process.stdin });
   rl.on('line', async (line) => {
     if (!line.trim()) return;

@@ -3140,6 +3140,8 @@ function renderLinks() {
       cur.hasToken || cur.url ? removeBtn : null,
       helpButton(id)),
     result,
+    // Oracle istemcisi kutusu: yalnızca bağlantı istemci gerektiren bir hata verdiyse ya da indirme başlatıldıysa
+    id === 'oracle' && (links.result[id]?.needsClient || oracleClientUi.active) ? oracleClientBox(runTest) : null,
     el('p', { class: 'links-intro', text: def.examples() }),
   ].filter(Boolean));
   show(links.result[id] || null);
@@ -3394,6 +3396,59 @@ async function renderProxyTab() {
   ].filter(Boolean));
   show(proxyUi.result);
   $('#linksNote').textContent = T('Bu ayar yalnızca Atölye\'nin başlattığı GitHub Copilot oturumlarına uygulanır; Claude Code ve diğer programlar etkilenmez. Parola dosyada düz metin olarak durur, tarayıcıya geri gönderilmez ve kayıtlara yazılmaz.');
+}
+
+// ---------- Oracle istemcisi (Oracle sekmesinin altında) ----------
+// Bağlantı "NJS-116" (eski parola biçimi) ya da "NJS-138" (eski veritabanı) hatası veriyorsa Oracle Instant Client gerekir.
+// Kutu yalnızca bu hata çıktığında (ve başlatılmış bir indirme sürerken) görünür; bilgisayarda istemci yoksa kullanıcı
+// buradan indirir: paket Oracle'ın sitesinden gelir (bkz. src/oracle-client.js). İndirme bitince bağlantı yeniden sınanır.
+const oracleClientUi = { status: null, timer: null, active: false };
+const mb = (n) => Math.round((n || 0) / 1e6);
+function oracleClientBox(onDone) {
+  const box = el('div', { class: 'links-steps oracle-client' });
+  const draw = () => {
+    const st = oracleClientUi.status;
+    if (!st) return box.replaceChildren(el('span', { text: T('Oracle istemcisi denetleniyor…') }));
+    const busy = ['download', 'verify', 'extract'].includes(st.phase);
+    const text = busy
+      ? (st.phase === 'download' ? T('Oracle istemcisi indiriliyor… %{p} ({a} / {b} MB)', { p: st.total ? Math.floor((st.received / st.total) * 100) : 0, a: mb(st.received), b: mb(st.total) })
+        : st.phase === 'verify' ? T('İnen dosya doğrulanıyor…') : T('Arşiv açılıyor…'))
+      : st.found
+        ? (st.installed && st.found === st.installed
+          ? T('Oracle istemcisi kurulu ({dir}): Oracle bağlantıları onun üzerinden kurulur. "Bağlantıyı sına" ile deneyin; açık oturumlar için yeni bir oturum açın.', { dir: st.found })
+          : T('Bilgisayardaki Oracle istemcisi kullanılıyor ({dir}).', { dir: st.found }))
+        : st.phase === 'error' && st.error !== 'unsupported' ? T('Oracle istemcisi indirilemedi: {error}', { error: st.error })
+          : st.supported
+            ? T('Bu bağlantı için Oracle\'ın ücretsiz Instant Client paketi gerekiyor. Atölye onu sizin için indirebilir: paket Oracle\'ın kendi sitesinden, Oracle\'ın lisans koşullarıyla gelir; {size} MB iner, diskte yaklaşık 500 MB yer kaplar. Bilgisayarda Microsoft Visual C++ Redistributable (2017 ya da üstü) kurulu olmalıdır. İndirme bitince bağlantı kendiliğinden yeniden sınanır.', { size: mb(st.size) })
+            : T('Bu bağlantı için Oracle Instant Client gerekiyor. Bu işletim sisteminde elle kurulur; klasörü .env dosyasında ORACLE_CLIENT_LIB_DIR ile gösterilir.');
+    const canDownload = !busy && !st.found && st.supported;
+    box.replaceChildren(...[
+      el('span', { text: text }),
+      canDownload ? el('div', { class: 'links-actions' },
+        el('button', { class: 'btn', type: 'button', text: st.phase === 'error' ? T('Yeniden dene') : T('Oracle istemcisini indir'), onclick: async () => {
+          oracleClientUi.active = true;
+          oracleClientUi.status = await fetch('/api/oracle-client', { method: 'POST' }).then((r) => r.json()).catch(() => oracleClientUi.status);
+          draw();
+          watch();
+        } }),
+        el('a', { href: st.page, target: '_blank', rel: 'noopener noreferrer', text: T('Oracle\'ın indirme ve lisans sayfası') })) : null,
+    ].filter(Boolean));
+  };
+  const load = async () => { oracleClientUi.status = await fetch('/api/oracle-client').then((r) => r.json()).catch(() => oracleClientUi.status); if (box.isConnected) draw(); };
+  // İndirme sürerken durum saniyede bir sorulur; sekme ya da pencere kapanınca durur
+  const watch = () => {
+    clearInterval(oracleClientUi.timer);
+    oracleClientUi.timer = setInterval(async () => {
+      if (!box.isConnected) return clearInterval(oracleClientUi.timer);
+      await load();
+      if (['download', 'verify', 'extract'].includes(oracleClientUi.status?.phase)) return;
+      clearInterval(oracleClientUi.timer);
+      if (oracleClientUi.status?.phase === 'done') onDone?.(); // istemci hazır: bağlantı kendiliğinden yeniden sınanır
+    }, 1000);
+  };
+  draw();
+  load().then(() => { if (['download', 'verify', 'extract'].includes(oracleClientUi.status?.phase)) watch(); });
+  return box;
 }
 
 // ---------- Teams bağlantısı ----------

@@ -5,9 +5,9 @@
 // Yine de en güvenlisi veritabanında yalnızca okuma yetkisi olan bir kullanıcı kullanmaktır.
 // Sürücüler (pg, oracledb) yalnızca gerektiğinde yüklenir. Oracle varsayılan olarak "thin" kipte çalışır: Oracle istemcisi
 // kurmak gerekmez (Oracle Database 12.1 ve üstü). Bilgisayarda Oracle istemci kitaplıkları varsa "thick" kip kullanılır:
-// thin kipin desteklemediği eski parola biçimi (10G) ve eski veritabanı sürümleri onunla çalışır (bkz. findOracleClient).
-import fs from 'node:fs';
-import path from 'node:path';
+// thin kipin desteklemediği eski parola biçimi (10G) ve eski veritabanı sürümleri onunla çalışır. Kitaplıklar bilgisayarda
+// aranır ya da Bağlantılar > Oracle sekmesinden indirilir (bkz. oracle-client.js).
+import { findOracleClient } from './oracle-client.js';
 
 const MAX_ROWS = 1000;
 const DEFAULT_ROWS = 100;
@@ -173,27 +173,13 @@ export const postgres = {
 };
 
 // ---------- Oracle ----------
-/**
- * Oracle istemci kitaplıklarının (Oracle Client / Instant Client) klasörü ya da null. Sırayla: ORACLE_CLIENT_LIB_DIR
- * (elle gösterilen klasör), ORACLE_HOME ve PATH (Linux'ta LD_LIBRARY_PATH) içindeki klasörler.
- */
-export function findOracleClient(env = process.env, exists = fs.existsSync, platform = process.platform) {
-  const win = platform === 'win32';
-  const lib = win ? 'oci.dll' : platform === 'darwin' ? 'libclntsh.dylib' : 'libclntsh.so';
-  const sep = win ? ';' : ':';
-  const dirs = [env.ORACLE_CLIENT_LIB_DIR, env.ORACLE_HOME && path.join(env.ORACLE_HOME, win ? 'bin' : 'lib'),
-    ...String((win ? env.PATH || env.Path : env.LD_LIBRARY_PATH) || '').split(sep)];
-  for (const raw of dirs) {
-    const dir = String(raw || '').trim().replace(/^"+|"+$/g, '');
-    if (dir && exists(path.join(dir, lib))) return dir;
-  }
-  return null;
-}
+export { findOracleClient };
 
 // Sürücünün kipi süreç başına bir kez, ilk bağlantıdan ÖNCE belirlenir (sonradan değiştirilemez)
 let oracleMode = null;
+let clientLoadError = ''; // istemci bulundu ama yüklenemediyse nedeni (kullanıcıya gösterilir)
 /** Testler için: kip seçimini sıfırlar */
-export function resetOracleMode() { oracleMode = null; }
+export function resetOracleMode() { oracleMode = null; clientLoadError = ''; }
 async function oracleDriver(env = process.env) {
   const oracledb = await drivers.oracle();
   if (oracleMode) return oracledb;
@@ -204,25 +190,28 @@ async function oracleDriver(env = process.env) {
       oracledb.initOracleClient({ libDir: dir });
       oracleMode = 'thick';
     } catch (err) {
-      // Kitaplık yüklenemedi (ör. 32 bit istemci): istemcisiz kiple sürdürülür
-      console.error(`[oracle] istemci kitaplığı kullanılamadı (${dir}): ${String(err.message || err).split('\n')[0]}`);
+      // Kitaplık yüklenemedi (ör. 32 bit istemci, eksik Visual C++ kitaplığı): istemcisiz kiple sürdürülür
+      clientLoadError = `${dir}: ${String(err.message || err).split('\n')[0].replace(/\s*See https?:\S+.*$/, '')}`;
+      console.error(`[oracle] istemci kitaplığı kullanılamadı (${clientLoadError})`);
     }
   }
   return oracledb;
 }
 
-const ORACLE_CLIENT_HINT = 'Bilgisayarda 64 bit Oracle istemcisi (Oracle Client ya da Instant Client) varsa Atölye onu kendiliğinden kullanır: '
-  + 'klasörü PATH\'te değilse Atölye klasöründeki .env dosyasına ORACLE_CLIENT_LIB_DIR=<oci.dll\'in bulunduğu klasör> satırını ekleyip Atölye\'yi yeniden başlatın.';
+const ORACLE_CLIENT_HINT = 'Oracle istemcisini Bağlantılar > Oracle sekmesindeki "Oracle istemcisini indir" düğmesiyle indirin (Windows); '
+  + 'bilgisayarda zaten 64 bit Oracle istemcisi varsa Atölye onu kendiliğinden kullanır (başka bir klasördeyse .env dosyasında ORACLE_CLIENT_LIB_DIR ile gösterilir).';
+const CLIENT_LOAD_HINT = 'Oracle istemcisi bulundu ama yüklenemedi ({error}). 64 bit olmalı ve bilgisayarda Microsoft Visual C++ Redistributable (2017 ya da üstü, x64) kurulu olmalıdır.';
 /** Bağlantı hatasının anlaşılır açıklaması */
-export function oracleConnectError(message, mode = 'thin') {
+export function oracleConnectError(message, mode = 'thin', loadError = '') {
   const m = String(message || '').split('\n')[0];
   if (/ORA-01017/.test(m)) return 'kullanıcı adı ya da parola hatalı';
+  const fix = loadError ? CLIENT_LOAD_HINT.replace('{error}', loadError) : ORACLE_CLIENT_HINT;
   if (/NJS-116/.test(m)) {
-    return 'bu veritabanı kullanıcısının parolası eski (10G) biçimde saklanıyor; Atölye\'nin Oracle istemcisi gerektirmeyen bağlantısı bu biçimi desteklemiyor (NJS-116). '
-      + 'Parola doğru olsa da bağlanılamaz. İki çözüm var: (1) veritabanı yöneticisinden bu kullanıcının parolasını yeniden tanımlamasını isteyin (aynı parola olabilir; '
-      + `yeni biçim o zaman oluşur) ya da parolası yeni biçimde olan başka bir kullanıcı kullanın. (2) ${ORACLE_CLIENT_HINT}`;
+    return 'bu veritabanı kullanıcısının parolası eski (10G) biçimde saklanıyor; Oracle istemcisi gerektirmeyen bağlantı bu biçimi desteklemiyor (NJS-116). '
+      + `Parola doğru olsa da bağlanılamaz. Çözüm: ${fix} İstemci kurmak istemezseniz veritabanı yöneticisinden bu kullanıcının parolasını yeniden tanımlamasını isteyin `
+      + '(aynı parola olabilir; yeni biçim o zaman oluşur) ya da parolası yeni biçimde olan başka bir kullanıcı kullanın.';
   }
-  if (/NJS-138|NJS-112/.test(m)) return `${m} — veritabanı sürümü Oracle istemcisi gerektirmeyen bağlantıyı desteklemiyor (Oracle 12.1 ve üstü gerekir). ${ORACLE_CLIENT_HINT}`;
+  if (/NJS-138|NJS-112/.test(m)) return `${m} — veritabanı sürümü Oracle istemcisi gerektirmeyen bağlantıyı desteklemiyor (Oracle 12.1 ve üstü gerekir). ${fix}`;
   if (/ORA-28040|ORA-03134/.test(m)) return `${m} — bilgisayardaki Oracle istemcisi ile veritabanı sürümü uyuşmuyor (istemci çok eski ya da çok yeni olabilir)`;
   return mode === 'thick' ? `${m} (Oracle istemcisiyle bağlanıldı)` : m;
 }
@@ -236,7 +225,7 @@ async function oraRun(cfg, fn) {
   try {
     conn = await oracledb.getConnection({ user: cfg.email, password: cfg.token, connectString: cfg.url.replace(/^oracle:\/\//i, ''), connectTimeout: 15 });
   } catch (err) {
-    throw new Error(`Oracle'a bağlanılamadı: ${oracleConnectError(err.message || err, oracleMode)}`);
+    throw new Error(`Oracle'a bağlanılamadı: ${oracleConnectError(err.message || err, oracleMode, clientLoadError)}`);
   }
   try {
     try { conn.callTimeout = QUERY_TIMEOUT_MS; } catch { /* Oracle istemcisi 18'den eskiyse süre sınırı ayarlanamaz */ }
