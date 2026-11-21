@@ -3,8 +3,11 @@
 //   2. Sorgu salt okunur bir işlem (READ ONLY transaction) içinde çalışır ve sonunda geri alınır.
 //   3. Satır sayısı ve süre sınırlıdır.
 // Yine de en güvenlisi veritabanında yalnızca okuma yetkisi olan bir kullanıcı kullanmaktır.
-// Sürücüler (pg, oracledb) yalnızca gerektiğinde yüklenir. Oracle "thin" kipte çalışır: Oracle istemcisi kurmak gerekmez
-// (Oracle Database 12.1 ve üstü).
+// Sürücüler (pg, oracledb) yalnızca gerektiğinde yüklenir. Oracle varsayılan olarak "thin" kipte çalışır: Oracle istemcisi
+// kurmak gerekmez (Oracle Database 12.1 ve üstü). Bilgisayarda Oracle istemci kitaplıkları varsa "thick" kip kullanılır:
+// thin kipin desteklemediği eski parola biçimi (10G) ve eski veritabanı sürümleri onunla çalışır (bkz. findOracleClient).
+import fs from 'node:fs';
+import path from 'node:path';
 
 const MAX_ROWS = 1000;
 const DEFAULT_ROWS = 100;
@@ -170,20 +173,73 @@ export const postgres = {
 };
 
 // ---------- Oracle ----------
+/**
+ * Oracle istemci kitaplıklarının (Oracle Client / Instant Client) klasörü ya da null. Sırayla: ORACLE_CLIENT_LIB_DIR
+ * (elle gösterilen klasör), ORACLE_HOME ve PATH (Linux'ta LD_LIBRARY_PATH) içindeki klasörler.
+ */
+export function findOracleClient(env = process.env, exists = fs.existsSync, platform = process.platform) {
+  const win = platform === 'win32';
+  const lib = win ? 'oci.dll' : platform === 'darwin' ? 'libclntsh.dylib' : 'libclntsh.so';
+  const sep = win ? ';' : ':';
+  const dirs = [env.ORACLE_CLIENT_LIB_DIR, env.ORACLE_HOME && path.join(env.ORACLE_HOME, win ? 'bin' : 'lib'),
+    ...String((win ? env.PATH || env.Path : env.LD_LIBRARY_PATH) || '').split(sep)];
+  for (const raw of dirs) {
+    const dir = String(raw || '').trim().replace(/^"+|"+$/g, '');
+    if (dir && exists(path.join(dir, lib))) return dir;
+  }
+  return null;
+}
+
+// Sürücünün kipi süreç başına bir kez, ilk bağlantıdan ÖNCE belirlenir (sonradan değiştirilemez)
+let oracleMode = null;
+/** Testler için: kip seçimini sıfırlar */
+export function resetOracleMode() { oracleMode = null; }
+async function oracleDriver(env = process.env) {
+  const oracledb = await drivers.oracle();
+  if (oracleMode) return oracledb;
+  oracleMode = 'thin';
+  const dir = env.ORACLE_THIN === '1' || typeof oracledb.initOracleClient !== 'function' ? null : findOracleClient(env);
+  if (dir) {
+    try {
+      oracledb.initOracleClient({ libDir: dir });
+      oracleMode = 'thick';
+    } catch (err) {
+      // Kitaplık yüklenemedi (ör. 32 bit istemci): istemcisiz kiple sürdürülür
+      console.error(`[oracle] istemci kitaplığı kullanılamadı (${dir}): ${String(err.message || err).split('\n')[0]}`);
+    }
+  }
+  return oracledb;
+}
+
+const ORACLE_CLIENT_HINT = 'Bilgisayarda 64 bit Oracle istemcisi (Oracle Client ya da Instant Client) varsa Atölye onu kendiliğinden kullanır: '
+  + 'klasörü PATH\'te değilse Atölye klasöründeki .env dosyasına ORACLE_CLIENT_LIB_DIR=<oci.dll\'in bulunduğu klasör> satırını ekleyip Atölye\'yi yeniden başlatın.';
+/** Bağlantı hatasının anlaşılır açıklaması */
+export function oracleConnectError(message, mode = 'thin') {
+  const m = String(message || '').split('\n')[0];
+  if (/ORA-01017/.test(m)) return 'kullanıcı adı ya da parola hatalı';
+  if (/NJS-116/.test(m)) {
+    return 'bu veritabanı kullanıcısının parolası eski (10G) biçimde saklanıyor; Atölye\'nin Oracle istemcisi gerektirmeyen bağlantısı bu biçimi desteklemiyor (NJS-116). '
+      + 'Parola doğru olsa da bağlanılamaz. İki çözüm var: (1) veritabanı yöneticisinden bu kullanıcının parolasını yeniden tanımlamasını isteyin (aynı parola olabilir; '
+      + `yeni biçim o zaman oluşur) ya da parolası yeni biçimde olan başka bir kullanıcı kullanın. (2) ${ORACLE_CLIENT_HINT}`;
+  }
+  if (/NJS-138|NJS-112/.test(m)) return `${m} — veritabanı sürümü Oracle istemcisi gerektirmeyen bağlantıyı desteklemiyor (Oracle 12.1 ve üstü gerekir). ${ORACLE_CLIENT_HINT}`;
+  if (/ORA-28040|ORA-03134/.test(m)) return `${m} — bilgisayardaki Oracle istemcisi ile veritabanı sürümü uyuşmuyor (istemci çok eski ya da çok yeni olabilir)`;
+  return mode === 'thick' ? `${m} (Oracle istemcisiyle bağlanıldı)` : m;
+}
+
 const SYSTEM_OWNERS = "'SYS','SYSTEM','XDB','MDSYS','CTXSYS','ORDSYS','ORDDATA','OLAPSYS','WMSYS','EXFSYS','DBSNMP','APPQOSSYS','OUTLN','LBACSYS','DVSYS','GSMADMIN_INTERNAL','AUDSYS','OJVMSYS','DVF','GSMCATUSER','SYSBACKUP','SYSDG','SYSKM','SYSRAC','REMOTE_SCHEDULER_AGENT','DBSFWUSER','ORACLE_OCM','SI_INFORMTN_SCHEMA','ORDPLUGINS','MDDATA','APEX_PUBLIC_USER','FLOWS_FILES','ANONYMOUS','XS$NULL'";
 
 async function oraRun(cfg, fn) {
-  const oracledb = await drivers.oracle();
+  const oracledb = await oracleDriver();
   oracledb.fetchAsString = [oracledb.CLOB, oracledb.NCLOB].filter(Boolean);
   let conn;
   try {
     conn = await oracledb.getConnection({ user: cfg.email, password: cfg.token, connectString: cfg.url.replace(/^oracle:\/\//i, ''), connectTimeout: 15 });
   } catch (err) {
-    const m = String(err.message || err);
-    throw new Error(`Oracle'a bağlanılamadı: ${/ORA-01017/.test(m) ? 'kullanıcı adı ya da parola hatalı' : /NJS-138|NJS-116|NJS-112/.test(m) ? `${m} — veritabanı sürümü "thin" kipi desteklemiyor olabilir (Oracle 12.1 ve üstü gerekir)` : m}`);
+    throw new Error(`Oracle'a bağlanılamadı: ${oracleConnectError(err.message || err, oracleMode)}`);
   }
   try {
-    conn.callTimeout = QUERY_TIMEOUT_MS;
+    try { conn.callTimeout = QUERY_TIMEOUT_MS; } catch { /* Oracle istemcisi 18'den eskiyse süre sınırı ayarlanamaz */ }
     await conn.execute('SET TRANSACTION READ ONLY');
     try { return await fn(conn, oracledb); } finally { await conn.rollback().catch(() => {}); }
   } finally {
@@ -197,7 +253,7 @@ export const oracle = {
   async whoami(cfg) {
     return oraRun(cfg, async (c, db) => {
       const r = await c.execute("select user, sys_context('USERENV', 'DB_NAME') from dual", [], { outFormat: db.OUT_FORMAT_ARRAY });
-      return `${r.rows[0][0]} @ ${r.rows[0][1]}${c.oracleServerVersionString ? ` (Oracle ${c.oracleServerVersionString})` : ''}`;
+      return `${r.rows[0][0]} @ ${r.rows[0][1]}${c.oracleServerVersionString ? ` (Oracle ${c.oracleServerVersionString})` : ''}${oracleMode === 'thick' ? ' · Oracle istemcisiyle' : ''}`;
     });
   },
   async query(cfg, { sql, limit }) {
