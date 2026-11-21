@@ -225,16 +225,30 @@
     </main>
   </div>
 
-  <dialog id="linksDialog" class="dialog links-dialog">
+  <dialog id="linksDialog" class="dialog links-dialog links-wide">
     <div class="dialog-inner">
       <div class="dialog-head">
         <h2 data-i18n>Bağlantılar</h2>
         <button class="icon-btn" id="linksClose" type="button" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
       <p class="links-intro" data-i18n>Jira, Confluence, Bitbucket ve Graylog bağlantılarını buradan kurun; Claude Code ve Copilot oturumları kayıtları, sayfaları, çekme isteklerini ve logları okuyabilsin. Bağlantı yeni açılan oturumlarda kullanılır.</p>
-      <div class="links-tabs" id="linksTabs" role="tablist"></div>
-      <div class="links-body" id="linksBody"></div>
-      <p class="links-note" id="linksNote"></p>
+      <!-- Solda gruplu ve aranabilir bağlantı listesi, sağda seçili bağlantı. Dar ekranda liste yerine açılır kutu görünür. -->
+      <div class="links-layout">
+        <aside class="links-rail">
+          <div class="search-wrap links-search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="search" id="linksFilter" placeholder="Bağlantı ara…" aria-label="Bağlantı ara…" data-i18n-attr="placeholder,aria-label" autocomplete="off" spellcheck="false">
+          </div>
+          <nav class="links-nav" id="linksTabs" aria-label="Bağlantılar" data-i18n-attr="aria-label"></nav>
+          <div class="links-summary" id="linksSummary"></div>
+        </aside>
+        <select class="links-select links-jump" id="linksJump" aria-label="Bağlantı seç" data-i18n-attr="aria-label"></select>
+        <section class="links-pane">
+          <div class="links-pane-head" id="linksHead"></div>
+          <div class="links-body" id="linksBody"></div>
+          <p class="links-note" id="linksNote"></p>
+        </section>
+      </div>
     </div>
   </dialog>
 

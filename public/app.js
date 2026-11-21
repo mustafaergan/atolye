@@ -3098,18 +3098,108 @@ function renderLinksBadge() {
   badge.textContent = String(n);
 }
 
+// ---------- Bağlantılar penceresi: solda gruplu liste, sağda seçili bağlantı ----------
+// Bağlantı sayısı arttıkça yatay sekme şeridi üç satıra bölünüyordu. Liste artık türüne göre gruplanır, aranır ve
+// her satırda kurulu olup olmadığı görünür. Yeni bir bağlantı eklerken kimliğini aşağıdaki gruplardan birine yazın;
+// yazılmazsa "Diğer" grubunda çıkar.
+const LINK_GROUPS = [
+  [() => T('İş ve doküman'), ['jira', 'confluence']],
+  [() => T('Kod ve kalite'), ['bitbucket', 'jenkins', 'fortify', 'sonarqube']],
+  [() => T('Kayıt ve sunucu'), ['graylog', 'graylogprod', 'weblogic']],
+  [() => T('Veritabanı'), ['oracle', 'postgres']],
+  [() => T('Test'), ['reportportal', 'testotomasyon', 'tarayici', 'fikirhane']],
+  [() => T('İletişim'), ['outlook', 'teams']],
+  [() => T('Bu bilgisayar'), ['repo', 'proxy', 'uygulama']],
+];
+links.filter = '';
+const linkName = (id) => (id === 'repo' ? T('İlk repom') : id === 'proxy' ? 'Proxy' : LINKS[id].name);
+// Kurulu mu? "İlk repom" bir bağlantı değil, işlemdir: durumu yoktur (null)
+function linkState(id) {
+  if (id === 'repo') return null;
+  if (id === 'proxy') return Boolean(proxyUi.status?.configured);
+  if (id === 'uygulama') return Boolean(launcherUi.status?.exe && !launcherUi.status?.exeError);
+  return Boolean(links.status?.services?.[id]?.connected);
+}
+// Bu modda görünen bağlantılar. Masaüstü uygulaması her modda vardır.
+const visibleLinks = () => [...roleTabs().filter((id) => id === 'repo' || id === 'proxy' || LINKS[id]), 'uygulama'];
+function linkGroups() {
+  const visible = visibleLinks();
+  const groups = LINK_GROUPS.map(([name, ids]) => [name(), ids.filter((id) => visible.includes(id))]);
+  const rest = visible.filter((id) => !LINK_GROUPS.some(([, ids]) => ids.includes(id)));
+  if (rest.length) groups.push([T('Diğer'), rest]);
+  return groups.filter(([, ids]) => ids.length);
+}
+function selectLink(id) {
+  links.tab = id;
+  // Masaüstü uygulaması: yarım kalan taslak ve eski sonuç atılır, durum yeniden okunur
+  if (id === 'uygulama') { launcherUi.result = null; launcherUi.draft = null; loadLauncher().then(() => { if (links.tab === 'uygulama') renderLinks(); }); }
+  renderLinks();
+  $('#linksBody').scrollTop = 0;
+  $('#linksTabs [aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+}
+function renderLinksNav() {
+  const nav = $('#linksTabs');
+  const groups = linkGroups();
+  const q = links.filter.trim().toLocaleLowerCase('tr');
+  const hit = (s) => s.toLocaleLowerCase('tr').includes(q);
+  // Arama bağlantı adında ve grup adında yapılır ("veri" yazınca Oracle ve PostgreSQL çıkar)
+  const shown = groups.map(([name, ids]) => [name, !q || hit(name) ? ids : ids.filter((id) => hit(linkName(id)))]).filter(([, ids]) => ids.length);
+  // Liste her çizimde yenilenir: kaydırma yeri ve klavye odağı korunur
+  const top = nav.scrollTop;
+  const focused = nav.contains(document.activeElement) ? document.activeElement.dataset.link : null;
+  nav.replaceChildren(...(shown.length ? shown.map(([name, ids]) => el('div', { class: 'links-group', role: 'group', 'aria-label': name },
+    el('div', { class: 'links-group-name', text: name }),
+    ...ids.map((id) => {
+      const on = linkState(id);
+      return el('button', { class: 'links-item', type: 'button', 'data-link': id, 'aria-current': id === links.tab ? 'true' : null, title: on === null ? null : `${linkName(id)}: ${on ? T('Kurulu') : T('Kurulmadı')}`, onclick: () => selectLink(id) },
+        el('span', { class: `links-dot${on ? ' on' : on === null ? ' none' : ''}` }), el('span', { class: 'links-item-name', text: linkName(id) }));
+    }))) : [el('div', { class: 'links-empty', text: T('Eşleşen bağlantı yok.') })]));
+  nav.scrollTop = top;
+  if (focused) nav.querySelector(`[data-link="${focused}"]`)?.focus();
+  const stateful = groups.flatMap(([, ids]) => ids).filter((id) => linkState(id) !== null);
+  $('#linksSummary').textContent = T('{n} / {total} kurulu', { n: stateful.filter(linkState).length, total: stateful.length });
+  // Dar ekranda liste yerine açılır kutu
+  const jump = $('#linksJump');
+  jump.replaceChildren(...groups.map(([name, ids]) => el('optgroup', { label: name }, ...ids.map((id) => {
+    const on = linkState(id);
+    return el('option', { value: id, text: `${on ? '● ' : on === null ? '' : '○ '}${linkName(id)}` });
+  }))));
+  jump.value = links.tab;
+}
+function renderLinksHead() {
+  const id = links.tab;
+  const on = linkState(id);
+  const group = linkGroups().find(([, ids]) => ids.includes(id))?.[0];
+  $('#linksHead').replaceChildren(...[
+    el('div', { class: 'links-pane-title' }, group ? el('span', { class: 'links-pane-group', text: group }) : null, el('h3', { text: linkName(id) })),
+    on === null ? null : el('span', { class: `links-pill${on ? ' on' : ''}`, text: on ? T('Kurulu') : T('Kurulmadı') }),
+  ].filter(Boolean));
+}
+$('#linksFilter').addEventListener('input', () => { links.filter = $('#linksFilter').value; renderLinksNav(); });
+$('#linksFilter').addEventListener('keydown', (e) => {
+  const first = $('#linksTabs .links-item');
+  if (e.key === 'Escape' && links.filter) { e.preventDefault(); $('#linksFilter').value = ''; links.filter = ''; renderLinksNav(); }
+  else if (e.key === 'ArrowDown' && first) { e.preventDefault(); first.focus(); }
+  else if (e.key === 'Enter' && first) { e.preventDefault(); selectLink(first.dataset.link); }
+});
+// Listede ok tuşlarıyla gezilir; Enter ya da boşluk seçer
+$('#linksTabs').addEventListener('keydown', (e) => {
+  const items = [...$('#linksTabs').querySelectorAll('.links-item')];
+  const at = items.indexOf(document.activeElement);
+  if (at < 0) return;
+  const to = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : null;
+  if (to === null) return;
+  e.preventDefault();
+  if (to < 0) $('#linksFilter').focus();
+  else items[Math.min(to, items.length - 1)].focus();
+});
+$('#linksJump').addEventListener('change', () => selectLink($('#linksJump').value));
+
 function renderLinks() {
   const services = links.status?.services || {};
-  $('#linksTabs').replaceChildren(...Object.entries(LINKS).filter(([id]) => roleTabs().includes(id)).map(([id, def]) =>
-    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(id === links.tab), onclick: () => { links.tab = id; renderLinks(); } },
-      el('span', { class: `links-dot${services[id]?.connected ? ' on' : ''}` }), el('span', { text: def.name }))),
-    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'repo'), onclick: () => { links.tab = 'repo'; renderLinks(); } },
-      el('span', { text: T('İlk repom') })),
-    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'proxy'), onclick: () => { links.tab = 'proxy'; renderLinks(); } },
-      el('span', { class: `links-dot${proxyUi.status?.configured ? ' on' : ''}` }), el('span', { text: 'Proxy' })),
-    // Masaüstü uygulaması: veri bağlantısı değildir (sohbette seçilmez); yalnızca bu panelden kullanılır
-    el('button', { class: 'links-tab', type: 'button', role: 'tab', 'aria-selected': String(links.tab === 'uygulama'), onclick: () => { links.tab = 'uygulama'; launcherUi.result = null; launcherUi.draft = null; loadLauncher().then(() => { if (links.tab === 'uygulama') renderLinks(); }); renderLinks(); } },
-      el('span', { class: `links-dot${launcherUi.status?.exe && !launcherUi.status?.exeError ? ' on' : ''}` }), el('span', { text: launcherTitle() })));
+  if (!visibleLinks().includes(links.tab)) links.tab = visibleLinks()[0];
+  renderLinksNav();
+  renderLinksHead();
   if (links.tab === 'repo') return renderRepoTab();
   if (links.tab === 'proxy') return renderProxyTab();
   if (links.tab === 'uygulama') return renderLauncherTab();
@@ -3189,8 +3279,11 @@ $('#linksBtn').onclick = async () => {
   await loadLinks();
   repoUi.info = null; // Git ve Bitbucket durumu her açılışta yeniden okunur
   proxyUi.status = await fetch('/api/proxy').then((r) => r.json()).catch(() => null);
+  $('#linksFilter').value = '';
+  links.filter = '';
   renderLinks();
   linksDlg.showModal();
+  $('#linksTabs [aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
 };
 $('#linksClose').onclick = () => linksDlg.close();
 linksDlg.addEventListener('click', (e) => { if (e.target === linksDlg) linksDlg.close(); });
@@ -3437,6 +3530,9 @@ async function renderProxyTab() {
 // açar (bkz. src/launcher.js). Hangi uygulama ve hangi adresler: kuruluşun tanım dosyasından gelir, kodda yer almaz.
 // Yapay zekâ araçları ve sohbetteki bağlantı seçeneği yalnızca kullanıcı paneldeki izni açarsa sunulur.
 const launcherTitle = () => launcherUi.status?.definition?.title || T('Masaüstü uygulaması');
+// Sohbetin bağlantı seçicisinde: yapay zekâ izni açıksa seçilip doğrudan bu uygulama hakkında soru sorulabilir
+LINKS.uygulama = { get name() { return launcherTitle(); } };
+LINK_TOOLS.uygulama = 'desktop_app_status, desktop_app_set_start_url, desktop_app_open, desktop_app_close, desktop_app_list_logs, desktop_app_read_log, desktop_app_network, desktop_app_network_detail, desktop_app_page';
 async function loadLauncher() {
   launcherUi.status = await fetch('/api/launcher').then((r) => r.json()).catch(() => launcherUi.status);
   return launcherUi.status;
@@ -3527,12 +3623,22 @@ function renderLauncherTab() {
   }) });
   const reloadBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Yeniden yükle'), onclick: once(async () => { await loadLauncher(); launcherUi.draft = null; redraw(null); }) });
   const forgetBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Seçimi kaldır'), onclick: once(async () => { await launcherCall('/api/launcher/exe', 'DELETE'); launcherUi.draft = null; redraw(null); }) });
+  // Çalışan uygulamayı kapatma: Atölye'nin başlattığı örnek; yoksa bu adla çalışan bütün örnekler (elle açılanlar dahil)
+  const closeBtn = el('button', { class: 'btn', type: 'button', text: T('Çalışan uygulamayı kapat'), onclick: once(async () => {
+    const all = st.process !== 'started';
+    if (!confirm(all ? T('Bu adla çalışan bütün uygulama örnekleri kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.') : T('Atölye\'nin başlattığı uygulama kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.'))) return;
+    const r = await launcherCall('/api/launcher/close', 'POST', { all });
+    redraw(r.ok ? { ok: true, text: T('Uygulama kapatıldı.') } : { ok: false, text: r.error || '?' });
+  }) });
+  const aiBox = el('input', { type: 'checkbox', checked: st.ai });
+  aiBox.onchange = once(async () => {
+    const r = await launcherCall('/api/launcher/ai', 'POST', { enabled: aiBox.checked });
+    await loadLinks(); // sohbetteki bağlantı seçicisi güncellensin
+    redraw(r.ok ? { ok: true, text: aiBox.checked ? T('Yapay zekâ izni açıldı. Yeni açılan oturumlarda geçerlidir.') : T('Yapay zekâ izni kapatıldı. Yeni açılan oturumlarda geçerlidir.') } : { ok: false, text: r.error || '?' });
+  });
   const removeDef = el('button', { class: 'btn ghost', type: 'button', text: T('Tanımı kaldır'), onclick: once(async () => {
     if (!confirm(T('Tanım ve uygulama seçimi bu bilgisayardan silinsin mi? Uygulamanın kendisine ve ayar dosyasına dokunulmaz.'))) return;
     await launcherCall('/api/launcher/definition', 'DELETE'); launcherUi.draft = null; redraw(null);
-// Sohbetin bağlantı seçicisinde: yapay zekâ izni açıksa seçilip doğrudan bu uygulama hakkında soru sorulabilir
-LINKS.uygulama = { get name() { return launcherTitle(); } };
-LINK_TOOLS.uygulama = 'desktop_app_status, desktop_app_set_start_url, desktop_app_open, desktop_app_close, desktop_app_list_logs, desktop_app_read_log, desktop_app_network, desktop_app_network_detail, desktop_app_page';
   }) });
 
   const TARGET_NOTE = {
@@ -3568,6 +3674,7 @@ LINK_TOOLS.uygulama = 'desktop_app_status, desktop_app_set_start_url, desktop_ap
     st.exe && !st.exeError ? el('label', { class: 'links-field' }, el('span', { text: T('Başlangıç adresi (InitialPage)') }), url) : null,
     st.exe && !st.exeError ? el('div', { class: 'links-actions' }, target && !target.error ? saveOpenBtn : null, target && !target.error ? saveBtn : null, openBtn) : null,
     result,
+    el('label', { class: 'launcher-ai' }, aiBox, el('span', { text: T('Yapay zekâ bu uygulamayı yönetebilsin: durumunu görme, başlangıç adresini değiştirme, açma, kapatma, klasöründeki logları okuma ve (ağ incelemesi açıksa) çağrılan servisleri ve cevaplarını görme. Loglar ve cevaplar seçtiğiniz yapay zekâya gider; değişiklik yapan işlemler oturumun izin ayarına göre onayınızı ister.') })),
     el('div', { class: 'links-actions' }, chooseDef, removeDef, defInput),
   ].filter(Boolean));
   show(launcherUi.result);
@@ -3630,19 +3737,6 @@ function startHandoffSummary() {
       el('button', { class: 'btn', type: 'button', text: T('Özeti kendim yazacağım'), onclick: () => reviewHandoff('') }),
       el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
   ]);
-  // Çalışan uygulamayı kapatma: Atölye'nin başlattığı örnek; yoksa bu adla çalışan bütün örnekler (elle açılanlar dahil)
-  const closeBtn = el('button', { class: 'btn', type: 'button', text: T('Çalışan uygulamayı kapat'), onclick: once(async () => {
-    const all = st.process !== 'started';
-    if (!confirm(all ? T('Bu adla çalışan bütün uygulama örnekleri kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.') : T('Atölye\'nin başlattığı uygulama kapatılsın mı? Açık bir görüşme ya da kaydedilmemiş iş varsa kesilir.'))) return;
-    const r = await launcherCall('/api/launcher/close', 'POST', { all });
-    redraw(r.ok ? { ok: true, text: T('Uygulama kapatıldı.') } : { ok: false, text: r.error || '?' });
-  }) });
-  const aiBox = el('input', { type: 'checkbox', checked: st.ai });
-  aiBox.onchange = once(async () => {
-    const r = await launcherCall('/api/launcher/ai', 'POST', { enabled: aiBox.checked });
-    await loadLinks(); // sohbetteki bağlantı seçicisi güncellensin
-    redraw(r.ok ? { ok: true, text: aiBox.checked ? T('Yapay zekâ izni açıldı. Yeni açılan oturumlarda geçerlidir.') : T('Yapay zekâ izni kapatıldı. Yeni açılan oturumlarda geçerlidir.') } : { ok: false, text: r.error || '?' });
-  });
   sendToAi(T('Bu konuşmayı başka bir yapay zekâ oturumuna devredeceğim. Onun kaldığımız yerden devam edebilmesi için bir aktarım özeti yaz: amaç, şimdiye kadar öğrenilenler ve alınan kararlar (gerekli kimlikler, dosya yolları ve sayılarla), yapılanlar ve sıradaki adım. Araç kullanma; yalnızca özeti yaz, giriş ya da kapanış cümlesi ekleme.'));
   clearTimeout(handoffUi.timer);
   handoffUi.timer = setTimeout(() => { if (handoffUi.waiting) reviewHandoff(state.lastReply); }, HANDOFF_WAIT_MS);
@@ -3674,7 +3768,6 @@ function reviewHandoff(summary) {
   } });
   handoffStage(T('Aktarılacak özet'), [
     summary ? null : el('p', { class: 'links-intro', text: T('Özet alınamadı. Yeni oturumun bilmesi gerekenleri aşağıya kendiniz yazabilirsiniz.') }),
-    el('label', { class: 'launcher-ai' }, aiBox, el('span', { text: T('Yapay zekâ bu uygulamayı yönetebilsin: durumunu görme, başlangıç adresini değiştirme, açma, kapatma, klasöründeki logları okuma ve (ağ incelemesi açıksa) çağrılan servisleri ve cevaplarını görme. Loglar ve cevaplar seçtiğiniz yapay zekâya gider; değişiklik yapan işlemler oturumun izin ayarına göre onayınızı ister.') })),
     fromLocal && toCloud
       ? el('div', { class: 'links-result err' }, el('span', { text: usedPrivate
         ? T('Dikkat: bu konuşmada Outlook ya da Teams verisi okundu. Aşağıdaki özet {name} hizmetine (buluta) gönderilecek; e-posta ve mesaj içeriklerinden paylaşmak istemediklerinizi silin.', { name })
