@@ -855,7 +855,7 @@ function renderResult(msg) {
   const secs = (msg.duration_ms / 1000).toFixed(1);
   const parts = [T('{n} sn', { n: secs })];
   if (msg.num_turns) parts.push(T('{n} tur', { n: msg.num_turns }));
-  if (msg.total_cost_usd) parts.push(`≈ $${msg.total_cost_usd.toFixed(3)}`);
+  if (msg.total_cost_usd && showCost()) parts.push(`≈ $${msg.total_cost_usd.toFixed(3)}`);
   if (msg.subtype === 'success' && msg.is_error) {
     // API hatası zaten asistan metni olarak gösterildi
     append(el('div', { class: 'result-line err', text: parts.join(' · ') }));
@@ -912,12 +912,15 @@ async function loadCopilotQuota() {
   renderCopilotCredit();
 }
 
+// Claude Code maliyeti kendi Claude fiyat tablosuyla hesaplar; yerel modelde bu tutar gerçek değildir, gösterilmez
+const showCost = () => currentEngine() !== 'yerel';
+
 const creditUnit = (u) => (!u || /^(aic|credits?)$/i.test(u) ? T('kredi') : u);
 
 function updateStatus() {
   const bits = [];
   if (dom.statusline.dataset.model) bits.push(dom.statusline.dataset.model);
-  if (state.cost) bits.push(T('oturum ≈ ${n}', { n: state.cost.toFixed(3) }));
+  if (state.cost && showCost()) bits.push(T('oturum ≈ ${n}', { n: state.cost.toFixed(3) }));
   // Copilot: bu oturumda harcanan kredi (Copilot bildiriyorsa). Kalan kota Copilot tarafından bildirilmez.
   // Sağ üstteki gösterge: bu oturumda harcanan kredi (yalnızca Copilot oturumunda ve harcama bildirildiyse)
   renderCopilotCredit();
@@ -1070,7 +1073,7 @@ function renderMetrics() {
     [T('Önbelleğe yazılan'), fmtTokens(sum('cacheCreationInputTokens'))],
     [T('Tur'), String(m.turns)],
     [T('Süre'), fmtDuration(m.durationMs)],
-    [T('Tahmini maliyet'), m.cost ? `≈ $${m.cost.toFixed(3)}` : '–'],
+    ...(showCost() ? [[T('Tahmini maliyet'), m.cost ? `≈ $${m.cost.toFixed(3)}` : '–']] : []),
   ];
   const web = sum('webSearchRequests');
   if (web) rows.push([T('Web araması'), String(web)]);

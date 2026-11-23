@@ -115,6 +115,41 @@ export function thinkFilter() {
   };
 }
 
+/**
+ * Tekrar döngüsü: yerel modeller (özellikle düşünen modeller) bazen aynı metni durmadan üretir; çıktı sınırına (32000 token)
+ * kadar dakikalarca sürer, sonunda Claude Code "çıktı sınırı aşıldı" hatası verir ve "devam et" aynı yere çarpar. Son
+ * `minSpan` karakter (en az 6 tekrar) tam olarak `p` uzunluğunda bir parçanın tekrarıysa döngü sayılır. Düşünme bölümü
+ * (<think>, reasoning_content) de denetlenir; araç çağrısı argümanları denetlenmez (büyük dosya yazımı tekrarlı olabilir).
+ */
+export function loopDetector({ minSpan = 3000, maxPeriod = 2000, every = 1024 } = {}) {
+  const keep = Math.max(minSpan, maxPeriod * 6);
+  let tail = '';
+  let since = 0;
+  let hit = false;
+  const periodic = (p, span) => {
+    const n = tail.length;
+    for (let i = n - p - 1; i >= n - span; i -= 1) if (tail.charCodeAt(i) !== tail.charCodeAt(i + p)) return false;
+    return true;
+  };
+  return {
+    push(s) {
+      if (hit || !s) return hit;
+      tail = (tail + s).slice(-keep);
+      since += s.length;
+      if (since < every) return false;
+      since = 0;
+      for (let p = 1; p <= maxPeriod; p += 1) {
+        const span = Math.max(minSpan, p * 6);
+        if (tail.length < span) break;
+        if (periodic(p, span)) { hit = true; break; }
+      }
+      return hit;
+    },
+    get looping() { return hit; },
+  };
+}
+export const LOOP_NOTE = '[Atölye: model aynı metni tekrar tekrar üretmeye başladı, yanıt burada kesildi. / The model started repeating itself, so the reply was cut off here.]';
+
 /** OpenAI yanıtı (akışsız) → Anthropic mesajı */
 export function fromOpenAI(data = {}, model, inputEstimate = 0) {
   const choice = data.choices?.[0] || {};
@@ -139,6 +174,7 @@ export function fromOpenAI(data = {}, model, inputEstimate = 0) {
  */
 export function streamTranslator({ model, send, inputEstimate = 0 }) {
   const filter = thinkFilter();
+  const loop = loopDetector();
   const calls = new Map(); // sıra → { id, name, args }
   let started = false;
   let index = -1;
@@ -169,7 +205,12 @@ export function streamTranslator({ model, send, inputEstimate = 0 }) {
       const choice = chunk.choices?.[0];
       if (!choice) return;
       const d = choice.delta || choice.message || {};
-      if (typeof d.content === 'string' && d.content) text(filter.push(d.content));
+      const thought = typeof d.reasoning_content === 'string' ? d.reasoning_content : typeof d.reasoning === 'string' ? d.reasoning : '';
+      if (thought) loop.push(thought);
+      if (typeof d.content === 'string' && d.content) {
+        if (loop.push(d.content)) return; // döngü: çağıran akışı keser, end() notu ekler
+        text(filter.push(d.content));
+      }
       for (const tc of Array.isArray(d.tool_calls) ? d.tool_calls : []) {
         const known = tc.id ? [...calls.entries()].find(([, c]) => c.id === tc.id)?.[0] : undefined;
         const key = typeof tc.index === 'number' ? tc.index : known ?? (tc.id ? calls.size : Math.max(0, calls.size - 1));
@@ -182,9 +223,15 @@ export function streamTranslator({ model, send, inputEstimate = 0 }) {
       }
       if (choice.finish_reason) finish = choice.finish_reason;
     },
+    /** Model tekrar döngüsüne girdi: çağıran üst akışı keser, end() turu notla bitirir */
+    get looping() { return loop.looping; },
+    get finish() { return finish; },
+    get outputTokens() { return usage?.completion_tokens ?? Math.ceil(chars / 4); },
     end() {
       if (done) return;
       text(filter.flush());
+      // Döngüde kesilen yanıt: tur, kullanıcının yön verebileceği şekilde normal biter (yarım araç çağrıları atılır)
+      if (loop.looping) { text(`${anyText ? '\n\n' : ''}${LOOP_NOTE}`); calls.clear(); finish = 'stop'; }
       done = true;
       start();
       if (textOpen) send('content_block_stop', { type: 'content_block_stop', index });
@@ -336,6 +383,7 @@ export function bridgeHandlers({ configOf, fetchImpl = fetch, log = () => {} }) 
       if (!payload.stream) {
         const data = await up.json().catch(() => null);
         if (!data) { res.status(502).json(errorBody(502, 'Model sunucusunun yanıtı okunamadı')); return; }
+        if (data.choices?.[0]?.finish_reason === 'length') log(`${cfg.model} çıktı sınırına ulaştı (≈${data.usage?.completion_tokens ?? '?'} token)`);
         res.json(fromOpenAI(data, cfg.model, inputEstimate));
         return;
       }
@@ -353,8 +401,14 @@ export function bridgeHandlers({ configOf, fetchImpl = fetch, log = () => {} }) 
             try { chunk = JSON.parse(data); } catch { continue; }
             if (chunk?.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error).slice(0, 300));
             tr.feed(chunk);
+            if (tr.looping) {
+              // Döngüden çıkılır: akış bırakılınca sunucuyla bağlantı kapanır, model üretmeyi bırakır
+              log(`${cfg.model} aynı metni tekrar etmeye başladı; yanıt ≈${tr.outputTokens} token sonra kesildi`);
+              break;
+            }
           }
         }
+        if (tr.finish === 'length') log(`${cfg.model} çıktı sınırına ulaştı (≈${tr.outputTokens} token; sınır ${payload.max_tokens && !plain.has(cfg.id) ? payload.max_tokens : 'sunucunun kendi varsayılanı'})`);
         tr.end();
       } catch (err) {
         if (!abort.signal.aborted) { log(`akış kesildi: ${err?.message || err}`); tr.fail(`Model sunucusunun yanıtı yarıda kesildi: ${err?.message || err}`); }

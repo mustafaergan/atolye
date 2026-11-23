@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import express from 'express';
-import { IMAGE_NOTE, bridge, bridgeHandlers, fromOpenAI, hasImages, withoutImages, looksOpenAI, openaiEndpoint, openaiModelsUrl, streamTranslator, thinkFilter, toOpenAI } from '../src/kopru.js';
+import { IMAGE_NOTE, LOOP_NOTE, loopDetector, bridge, bridgeHandlers, fromOpenAI, hasImages, withoutImages, looksOpenAI, openaiEndpoint, openaiModelsUrl, streamTranslator, thinkFilter, toOpenAI } from '../src/kopru.js';
 
 test('uç nokta: tam adres olduğu gibi kalır, kök adrese /v1/chat/completions eklenir', () => {
   assert.equal(openaiEndpoint('https://gateway.example.com/chat/completions'), 'https://gateway.example.com/chat/completions');
@@ -210,4 +210,53 @@ test('köprü uçtan uca: anahtar denetimi, akış, akışsız yanıt, alan redd
     const r = await fetch(`http://127.0.0.1:${s2.address().port}/kopru/abc/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': bridge.secret }, body: JSON.stringify(ask) });
     assert.equal(r.status, 502);
   } finally { s2.close(); }
+});
+
+test('tekrar döngüsü: aynı metni durmadan üreten model kesilir, tur notla normal biter', async () => {
+  let upstreamClosed = false;
+  let sent = 0;
+  const upstream = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.on('close', () => { upstreamClosed = true; });
+    const line = 'Önce alanları kontrol edeyim, sonra dosyayı okuyayım. ';
+    const timer = setInterval(() => {
+      if (res.destroyed) return clearInterval(timer);
+      sent += 1;
+      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: line } }] })}\n\n`);
+      if (sent > 5000) { clearInterval(timer); res.end('data: [DONE]\n\n'); }
+    }, 1);
+  });
+  await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+  const cfg = { id: 'dongu', kind: 'openai', url: `http://127.0.0.1:${upstream.address().port}/chat/completions`, model: 'dongu-modeli', key: '' };
+  const logs = [];
+  const app = express();
+  app.use(express.json());
+  const h = bridgeHandlers({ configOf: () => cfg, log: (t) => logs.push(t) });
+  app.post('/kopru/:id/v1/messages', (req, res) => h.messages(req, res));
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/kopru/dongu/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': bridge.secret }, body: JSON.stringify({ model: 'x', max_tokens: 32000, stream: true, messages: [{ role: 'user', content: 'devam et' }] }) });
+    const raw = await r.text();
+    const events = raw.split('\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5)));
+    const textOut = events.filter((e) => e.type === 'content_block_delta').map((e) => e.delta.text).join('');
+    assert.ok(textOut.endsWith(LOOP_NOTE), 'tur sonunda açıklama');
+    assert.equal(events.find((e) => e.type === 'message_delta').delta.stop_reason, 'end_turn', 'çıktı sınırı hatası yerine normal biter');
+    assert.ok(sent < 300, `erken kesilir (${sent} parça)`);
+    await new Promise((res) => setTimeout(res, 50));
+    assert.ok(upstreamClosed, 'model sunucusuyla bağlantı kapanır');
+    assert.ok(logs.some((l) => /tekrar etmeye/.test(l)));
+  } finally { server.close(); upstream.close(); }
+});
+
+test('loopDetector: düşünme bölümündeki döngü de yakalanır, olağan metin yakalanmaz', () => {
+  const normal = loopDetector();
+  let prose = '';
+  for (let i = 0; i < 400; i += 1) prose += `Satır ${i}: kayıt ${i * 7} işlendi, durum ${i % 3 === 0 ? 'tamam' : 'bekliyor'}.\n`;
+  assert.equal(normal.push(prose), false, 'benzer ama farklı satırlar döngü değildir');
+  const table = loopDetector();
+  assert.equal(table.push('| a | b |\n|---|---|\n' + '| x | y |\n'.repeat(50)), false, 'kısa tekrar eşiğin altında');
+  const thinking = loopDetector();
+  assert.equal(thinking.push('Wait, let me reconsider the problem. '.repeat(200)), true);
 });

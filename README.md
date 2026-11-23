@@ -210,6 +210,10 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
     Model görsel okuyamıyorsa ("not a multimodal model" gibi bir hata dönerse) köprü görselleri kısa bir notla değiştirip
     isteği yineler ve bunu o model için hatırlar: görsel eklenmiş bir oturum kilitlenmez, model görseli göremediğini
     söyleyip devam eder.
+    Model aynı metni durmadan üretmeye başlarsa (tekrar döngüsü; düşünme bölümü dahil) köprü yanıtı kısa sürede keser
+    ve turu bir notla bitirir; aksi hâlde model çıktı sınırına (32000 token) kadar dakikalarca üretip "output token
+    maximum" hatası verir. Çıktı sınırına ulaşılan yanıtlar `atolye.log`'a yazılır. Yerel model oturumlarında Claude'un
+    fiyatlarıyla hesaplanan (gerçek olmayan) dolar tutarı gösterilmez.
 
   Tür, adres `/chat/completions` ile bitiyorsa kendiliğinden seçilir; emin değilseniz **Bağlantıyı dene** hangisinin
   çalıştığını bulur. Liste `~/.atolye/yerel-llm.json` dosyasında durur. Küçük modeller araç kullanımında (dosya
