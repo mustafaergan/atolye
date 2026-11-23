@@ -997,3 +997,24 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* Bağlantılar > Chrome: eşleştirme kodu satırı */
 .chrome-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .chrome-code code { font-family: var(--mono); font-size: 13px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); user-select: all; overflow-wrap: anywhere; }
+
+/* Arka planda süren işlemler (yazma kutusunun üstünde) */
+.task-bar {
+  max-width: var(--content-w, 820px); margin: 0 auto 8px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px; padding: 6px 8px 6px 12px; font-size: 12.5px;
+}
+.task-head { display: flex; align-items: center; gap: 8px; min-height: 26px; color: var(--text-2); }
+.task-head .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: spin .9s linear infinite; flex: none; }
+.task-title { flex: 1; font-weight: 600; }
+.task-all { padding: 2px 10px; font-size: 12px; }
+.task-row { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.task-kind { flex: none; color: var(--text-3); font-size: 11.5px; }
+.task-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.task-stop {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 7px; background: none; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.task-stop:hover { border-color: var(--err); color: var(--err); background: var(--err-soft); }
+.task-stop:disabled { opacity: .4; cursor: default; }
+.task-stop svg { width: 11px; height: 11px; fill: currentColor; }
+.s-badge.run.bg .spin { border-color: var(--text-3); border-right-color: transparent; }

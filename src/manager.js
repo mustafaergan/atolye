@@ -115,6 +115,7 @@ export class SessionManager {
       mode: entry.agent.permissionMode,
       model: entry.agent.model || '',
       busy: entry.agent.busy,
+      tasks: entry.agent.tasks || [],
       capabilities: entry.capabilities,
       ready: entry.agent.ready !== false && entry.agent.booted !== false,
       history,
@@ -153,6 +154,16 @@ export class SessionManager {
     this.#onEvent(entry, { type: 'user_prompt', text, images, ...(files.length ? { files: files.map((f) => ({ name: f.name, size: f.size })) } : {}) });
   }
 
+  /**
+   * Oturumdaki her işi durdurur: süren tur ve arka plandaki işlemler. Oturum açık kalır; konuşma devam edebilir.
+   * Ekranda açık olmayan bir oturum da listeden durdurulabilsin diye oturumun kimliğiyle çağrılır.
+   */
+  async stop(entry) {
+    await entry.agent.interrupt();
+    const tasks = entry.agent.tasks || [];
+    if (tasks.length && entry.agent.stopTask) await Promise.all(tasks.map((t) => entry.agent.stopTask(t.id).catch(() => {})));
+  }
+
   close(entry) {
     clearTimeout(entry.idleTimer);
     if (!this.entries.delete(entry.liveId)) return;
@@ -176,6 +187,7 @@ export class SessionManager {
         title: e.title,
         cwd: e.cwd,
         busy: e.agent.busy,
+        tasks: (e.agent.tasks || []).length,
         waiting: e.agent.pending.size,
         lastActivity: e.lastActivity,
       }));
@@ -211,6 +223,8 @@ export class SessionManager {
     }
     if (ev.type === 'capabilities') {
       entry.capabilities = ev;
+    } else if (ev.type === 'tasks') {
+      // Tampona yazılmaz: oturum açılınca güncel liste anlık görüntüyle gider
     } else {
       entry.buffer.push(ev);
       // Tur bitince akış parçaları gereksiz: tam mesajlar zaten tamponda
@@ -220,7 +234,7 @@ export class SessionManager {
     for (const fn of entry.subs) fn(ev);
 
     if (ev.type === 'session_ended') return this.close(entry);
-    if (['busy', 'permission', 'question', 'permission_resolved', 'user_prompt'].includes(ev.type)) {
+    if (['busy', 'tasks', 'permission', 'question', 'permission_resolved', 'user_prompt'].includes(ev.type)) {
       this.#broadcast();
       this.#maybeClose(entry);
     }
@@ -250,16 +264,17 @@ export class SessionManager {
   }
 
   // Kimse bakmıyorsa ve iş bitmişse kapat. Hiç mesaj gönderilmemiş boş
-  // oturumlar hemen, bitmiş oturumlar kısa bir beklemeden sonra kapanır.
+  // oturumlar hemen, bitmiş oturumlar kısa bir beklemeden sonra kapanır. Arka planda işlem süren oturum açık kalır
+  // (kapanırsa işlem sessizce ölür; listede görünür ve oradan durdurulabilir).
   #maybeClose(entry) {
     clearTimeout(entry.idleTimer);
-    if (entry.subs.size || entry.agent.busy || entry.agent.pending.size) return;
+    if (entry.subs.size || entry.agent.busy || entry.agent.pending.size || entry.agent.tasks?.length) return;
     if (!entry.sent) return this.close(entry);
     entry.idleTimer = setTimeout(() => this.#maybeCloseNow(entry), IDLE_CLOSE_MS);
   }
 
   #maybeCloseNow(entry) {
-    if (!entry.subs.size && !entry.agent.busy && !entry.agent.pending.size) this.close(entry);
+    if (!entry.subs.size && !entry.agent.busy && !entry.agent.pending.size && !entry.agent.tasks?.length) this.close(entry);
   }
 
   #broadcast() {

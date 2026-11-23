@@ -45,6 +45,7 @@ const ICONS = {
   spark: '<path d="M12 2v6M12 16v6M2 12h6M16 12h6M5 5l4 4M15 15l4 4M5 19l4-4M15 9l4-4"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   pencil: '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
   up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   down: '<path d="M12 5v14M5 12l7 7 7-7"/>',
@@ -67,6 +68,7 @@ const state = {
   liveId: null,         // sunucuda çalışan oturumun kimliği
   sessions: [],         // diskteki oturumlar
   running: [],          // sunucuda çalışan oturumlar
+  tasks: [],            // açık oturumun arka planda süren işlemleri (komut, alt ajan…)
   ws: null,
   connected: false,
   busy: false,
@@ -617,6 +619,7 @@ function applyOpened(ev) {
   if (ev.engine === 'copilot' && ev.ready === false) append(el('div', { class: 'notice info boot-notice', text: T("Copilot'a bağlanılıyor… Hazır olunca mesajınız gönderilir; bu, şirket ağında bir dakikaya kadar sürebilir.") }));
   requestContext();
   setBusy(ev.busy);
+  setTasks(ev.tasks || []);
   // Başka bir motordan aktarılan özet: açılan ilk (boş) oturuma bağlanır, o oturuma dönüldüğünde kartı yeniden çizilir
   if (state.handoff && !state.handoff.liveId && !ev.sessionId && !(ev.history || []).length) state.handoff.liveId = ev.liveId;
   if (state.handoff && state.handoff.liveId === ev.liveId) renderHandoffCard();
@@ -632,6 +635,7 @@ function handleEvent(ev) {
   switch (ev.type) {
     case 'sdk': return handleSdk(ev.msg);
     case 'busy': return setBusy(ev.busy);
+    case 'tasks': return setTasks(ev.tasks || []);
     case 'permission': return renderPermission(ev);
     case 'question': return renderQuestion(ev);
     case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
@@ -1330,6 +1334,41 @@ function setBusy(busy) {
   updateSendBtn();
 }
 
+// ---------- Arka plandaki işlemler ----------
+// Claude Code bir komutu ya da alt ajanı arka plana atınca tur biter ama işlem sürer; ekranda görünsün ve durdurulabilsin.
+const TASK_KIND = { local_bash: 'Komut', shell: 'Komut', local_agent: 'Alt ajan', subagent: 'Alt ajan', remote_agent: 'Alt ajan', monitor: 'İzleyici', workflow: 'İş akışı' };
+const taskKind = (t) => (TASK_KIND[t.kind] ? T(TASK_KIND[t.kind]) : t.kind || T('İşlem'));
+
+function setTasks(tasks) {
+  state.tasks = Array.isArray(tasks) ? tasks : [];
+  renderTasks();
+}
+
+function renderTasks() {
+  let bar = $('#taskBar');
+  if (!state.tasks.length) { bar?.remove(); return; }
+  if (!bar) {
+    bar = el('div', { class: 'task-bar', id: 'taskBar', role: 'status' });
+    dom.composer.before(bar);
+  }
+  const n = state.tasks.length;
+  bar.replaceChildren(
+    el('div', { class: 'task-head' },
+      el('span', { class: 'spin' }),
+      el('span', { class: 'task-title', text: T('Arka planda {n} işlem sürüyor', { n }) }),
+      n > 1 ? el('button', { class: 'btn ghost task-all', type: 'button', text: T('Tümünü durdur'), onclick: () => stopLive(state.liveId) }) : null),
+    ...state.tasks.map((t) => el('div', { class: 'task-row', title: t.description },
+      el('span', { class: 'task-kind', text: t.agent ? `${taskKind(t)} · ${t.agent}` : taskKind(t) }),
+      el('span', { class: 'task-desc', text: t.description || '' }),
+      el('button', { class: 'task-stop', type: 'button', title: T('Bu işlemi durdur'), 'aria-label': T('Bu işlemi durdur'),
+        onclick: (e) => { e.currentTarget.disabled = true; wsSend({ type: 'stop_task', taskId: t.id }); } }, icon(ICONS.stop), el('span', { text: T('Durdur') })))));
+}
+
+/** Bir oturumdaki bütün işleri durdurur (süren tur + arka plan işlemleri); oturum açık olmasa da çalışır */
+function stopLive(liveId) {
+  if (liveId) wsSend({ type: 'stop_live', liveId });
+}
+
 function setWorking(text) {
   let w = $('.working', dom.messages);
   if (!w) {
@@ -1746,7 +1785,7 @@ function sessionRows(dir) {
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i];
     const other = !engineShown(r.engine || r.run?.engine || 'claude', r.local || r.run?.local, shown);
-    if (other && !(r.run && (r.run.busy || r.run.waiting))) rows.splice(i, 1);
+    if (other && !(r.run && (r.run.busy || r.run.waiting || r.run.tasks))) rows.splice(i, 1);
   }
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
 
@@ -1760,12 +1799,15 @@ function sessionRows(dir) {
 
 function sessionRow(s) {
   const active = s.draft || (s.liveId && s.liveId === state.liveId) || (s.id && s.id === state.sessionId) || (s.run && s.run.liveId === state.liveId);
+  const working = Boolean(s.run && (s.run.busy || s.run.tasks));
   const status = s.run
     ? s.run.waiting
       ? el('span', { class: 's-badge wait', title: T('Onayınızı bekliyor'), text: T('onay') })
       : s.run.busy
         ? el('span', { class: 's-badge run', title: T('Çalışıyor') }, el('span', { class: 'spin' }))
-        : null
+        : s.run.tasks
+          ? el('span', { class: 's-badge run bg', title: T('Arka planda {n} işlem sürüyor', { n: s.run.tasks }) }, el('span', { class: 'spin' }))
+          : null
     : null;
   const engine = s.engine || s.run?.engine || 'claude';
   const local = s.local || s.run?.local || null;
@@ -1781,7 +1823,13 @@ function sessionRow(s) {
       ? el('span', { class: 's-engine', text: engineLabel(engine) })
       : null,
     el('span', { class: 's-time', text: timeAgo(s.lastModified) }),
-    s.id && !s.run?.busy ? el('span', { class: 's-actions' },
+    // Çalışan oturum açmadan da durdurulabilir (ekranda görünmeyen, arka planda süren işler için)
+    working ? el('span', { class: 's-actions' },
+      el('span', { title: T('Durdur'), onclick: (e) => {
+        e.stopPropagation();
+        if (confirm(T('"{title}" oturumundaki işlem durdurulsun mu? (Konuşma silinmez.)', { title: s.title }))) stopLive(s.run.liveId);
+      } }, icon(ICONS.stop))) : null,
+    s.id && !working ? el('span', { class: 's-actions' },
       el('span', { title: T('Yeniden adlandır'), onclick: (e) => { e.stopPropagation(); renameSession(s); } }, icon(ICONS.pencil)),
       el('span', { title: T('Sil'), onclick: (e) => { e.stopPropagation(); removeSession(s); } }, icon(ICONS.trash))) : null);
   if (s.id && !s.draft) makeDraggable(item, { kind: 'session', dir: s.cwd, id: s.id }, (from, side) => dropSession(from, s, side));
@@ -1797,7 +1845,7 @@ function renderSessions() {
     const k = pathKey(dir);
     const rows = sessionRows(dir);
     const collapsed = state.collapsed.has(k);
-    const runningCount = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting)).length;
+    const runningCount = state.running.filter((r) => samePath(r.cwd, dir) && (r.busy || r.waiting || r.tasks)).length;
     const isSelected = samePath(dir, state.selectedProject);
     const toggle = (e) => {
       e.stopPropagation();
@@ -4585,7 +4633,7 @@ $('#checkUpdateBtn').onclick = async () => {
 // Güncellemeyi sunucuda başlatır; Atölye yeni sürümle yeniden başlayınca sayfa kendiliğinden yenilenir.
 // Çalışan oturumlar yeniden başlatmada kapanır (konuşmalar kaybolmaz, listeden yeniden açılır).
 async function applyUpdate(u) {
-  if (state.running?.some((r) => r.busy) && !confirm(T('Çalışan oturumlar var; güncelleme Atölye\'yi yeniden başlatır ve bu işleri yarıda keser. Devam edilsin mi?'))) return;
+  if (state.running?.some((r) => r.busy || r.tasks) && !confirm(T('Çalışan oturumlar var; güncelleme Atölye\'yi yeniden başlatır ve bu işleri yarıda keser. Devam edilsin mi?'))) return;
   const status = $('#updateStatus');
   const btn = $('#updatePop .btn');
   btn.disabled = true;

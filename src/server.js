@@ -777,6 +777,31 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
             emit({ type: 'busy', busy: false });
           }
           return;
+        case 'stop_task':
+          // Arka plandaki tek bir işlem (komut, alt ajan)
+          if (!current?.agent.stopTask) return;
+          try {
+            await timed(current.agent.stopTask(String(m.taskId || '')), 'işlem durdurma');
+          } catch (err) {
+            // İşlem bu arada bitmiş olabilir; ekrandaki liste güncel hâline döner
+            emit({ type: 'tasks', tasks: current.agent.tasks || [] });
+            if (err.timeout) throw err;
+          }
+          return;
+        case 'stop_live': {
+          // Oturumdaki bütün işler (tur + arka plan); ekranda açık olmayan oturum da listeden durdurulabilir
+          const target = manager.entries.get(String(m.liveId || ''));
+          if (!target) return;
+          try {
+            await timed(manager.stop(target), 'durdurma');
+          } catch (err) {
+            if (!err.timeout) throw err;
+            manager.close(target);
+            // Ekrandaki oturumsa bildirilir; listeden durdurulan başka bir oturum listeden düşer
+            if (target === current) emit({ type: 'error', message: msg(lang, 'Oturum yanıt vermiyordu ve kapatıldı. Listeden yeniden açabilirsiniz.') });
+          }
+          return;
+        }
         case 'answer':
           current?.agent.answer(m.id, m.decision || { behavior: 'deny' });
           return;

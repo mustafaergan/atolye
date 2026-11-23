@@ -103,6 +103,7 @@ export class AgentSession {
     this.wake = null;
     this.closed = false;
     this.busy = false;
+    this.tasks = []; // arka planda süren işlemler (komut, alt ajan…), bkz. #setTasks
     this.q = null;
     this.gen = 0; // Claude Code sürecinin kaçıncı başlatılışı
   }
@@ -118,9 +119,12 @@ export class AgentSession {
       includePartialMessages: true,
       // CLAUDE.md, ~/.claude/settings.json (gateway adresi, token, izinler) yüklensin
       settingSources: ['user', 'project', 'local'],
+      // Oturum durumu olayları: Claude Code bir turu kendisi başlattığında da (ör. arka plandaki bir işlem bitince)
+      // arayüz "çalışıyor" göstersin ve durdurulabilsin.
       // Yerel LLM: ortam değişkenleri hem sürece hem de (kullanıcı ayarlarındaki gateway adresinin önüne geçsin diye)
       // komut satırı ayarı olarak verilir
-      ...(this.local ? { env: { ...process.env, ...localEnv(this.local) }, extraArgs: { settings: JSON.stringify({ env: localEnv(this.local) }) } } : {}),
+      env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1', ...(this.local ? localEnv(this.local) : {}) },
+      ...(this.local ? { extraArgs: { settings: JSON.stringify({ env: localEnv(this.local) }) } } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.#promptAppend() ? { append: this.#promptAppend() } : {}) },
       canUseTool: (toolName, input, ctx) => this.#askPermission(toolName, input, ctx),
       stderr: (data) => {
@@ -128,6 +132,7 @@ export class AgentSession {
       },
     };
     const gen = ++this.gen;
+    this.#setTasks([]); // arka plan listesi süreç başınadır; yeni süreç boş başlar
     this.q = query({ prompt: this.#input(gen), options });
     this.#pump(this.q, gen);
     this.#sendCapabilities();
@@ -177,6 +182,11 @@ export class AgentSession {
           sessionAllowances.set(this.sessionId, this.allowed);
         }
         if (msg.type === 'result') this.#setBusy(false);
+        if (msg.type === 'system' && msg.subtype === 'background_tasks_changed') this.#setTasks(msg.tasks);
+        if (msg.type === 'system' && msg.subtype === 'session_state_changed') {
+          if (msg.state === 'running') this.#setBusy(true);
+          else if (msg.state === 'idle') this.#setBusy(false);
+        }
         if (FORWARDED.has(msg.type)) this.emit({ type: 'sdk', msg });
       }
     } catch (err) {
@@ -184,6 +194,7 @@ export class AgentSession {
     } finally {
       if (gen !== this.gen) return; // eski sürecin kapanışı oturumu sonlandırmaz
       this.#setBusy(false);
+      this.#setTasks([]);
       this.#cancelPending(msg(this.lang, 'Oturum kapandı'));
       if (!this.closed) this.emit({ type: 'session_ended' });
       this.closed = true;
@@ -229,6 +240,20 @@ export class AgentSession {
     if (this.busy === busy) return;
     this.busy = busy;
     this.emit({ type: 'busy', busy });
+  }
+
+  /** Arka planda süren işlemler (Claude Code'un tam listesi gelir; arayüzde etkinlik sayılmayanlar çıkarılır) */
+  #setTasks(list) {
+    const tasks = backgroundTasks(list);
+    if (JSON.stringify(tasks) === JSON.stringify(this.tasks)) return;
+    this.tasks = tasks;
+    this.emit({ type: 'tasks', tasks });
+  }
+
+  /** Arka plandaki tek bir işlemi durdurur */
+  async stopTask(id) {
+    if (!this.q || this.closed) return;
+    await this.q.stopTask(String(id));
   }
 
   send(text, images = []) {
@@ -403,4 +428,21 @@ function friendlyError(err, lang) {
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|certificate|self.signed/i.test(text))
     return msg(lang, "Gateway'e bağlanılamadı. ANTHROPIC_BASE_URL, HTTPS_PROXY ve NODE_EXTRA_CA_CERTS ayarlarını kontrol edin. ({error})", { error: text });
   return text;
+}
+
+/**
+ * Claude Code'un arka plan listesinden arayüzde gösterilecekler: etkinlik sayılmayan (ambient) izleyiciler çıkarılır,
+ * yalnızca gereken alanlar kalır. Komut satırı ve açıklama kısaltılır.
+ */
+export function backgroundTasks(list) {
+  if (!Array.isArray(list)) return [];
+  const clip = (v, n) => (typeof v === 'string' && v ? (v.length > n ? `${v.slice(0, n - 1)}…` : v) : undefined);
+  return list
+    .filter((t) => t && t.task_id && !t.ambient)
+    .map((t) => ({
+      id: String(t.task_id),
+      kind: String(t.task_type || ''),
+      agent: clip(t.subagent_type, 60),
+      description: clip(t.description, 200) || '',
+    }));
 }
