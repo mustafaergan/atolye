@@ -6,6 +6,7 @@ import tls from 'node:tls';
 import { outlook } from './outlook.js';
 import { teamsClient } from './teams-client.js';
 import { chromeClient } from './chrome-client.js';
+import { tomcatClient } from './tomcat-client.js';
 import { oracle, postgres } from './database.js';
 import * as fikirhane from './fikirhane.js';
 
@@ -20,7 +21,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane', 'chrome'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane', 'chrome', 'tomcat'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -42,6 +43,13 @@ export function configFromEnv(service, env = process.env) {
   if (service === 'chrome') {
     return env.CHROME_ENABLED === '1' && env.ATOLYE_CHROME_URL && env.ATOLYE_CHROME_ANAHTAR
       ? { url: env.ATOLYE_CHROME_URL, token: env.ATOLYE_CHROME_ANAHTAR, email: '' } : null;
+  }
+  // Uygulama sunucusu (Tomcat): ayar dosyasında yalnızca açık/kapalı; iç adres ve anahtar Atölye sunucusunun ortamından
+  // gelir (bkz. tomcat.js publishGate). Atölye'nin kendi içinden çağrılırken env kayıtlı ayardır, adres process.env'dedir.
+  if (service === 'tomcat') {
+    const url = env.ATOLYE_TOMCAT_URL || process.env.ATOLYE_TOMCAT_URL;
+    const token = env.ATOLYE_TOMCAT_ANAHTAR || process.env.ATOLYE_TOMCAT_ANAHTAR;
+    return env.TOMCAT_ENABLED === '1' && url && token ? { url, token, email: '' } : null;
   }
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
@@ -770,4 +778,4 @@ export const reportportal = {
 };
 
 // Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
-export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane, chrome: chromeClient };
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane, chrome: chromeClient, tomcat: tomcatClient };

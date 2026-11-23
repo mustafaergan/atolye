@@ -37,6 +37,8 @@ import * as commands from './commands.js';
 import * as settings from './settings.js';
 import * as teams from './teams.js';
 import * as chrome from './chrome.js';
+import * as tomcat from './tomcat.js';
+import { scanProject } from './intellij.js';
 import * as oracleClient from './oracle-client.js';
 import { bridge, bridgeHandlers } from './kopru.js';
 import { searchSessions } from './search.js';
@@ -52,6 +54,8 @@ const CONTROL_TIMEOUT_MS = Number(process.env.ATOLYE_CONTROL_TIMEOUT_MS) || 10_0
 // Klasörsüz sohbet oturumlarının çalıştığı boş klasör (hiçbir projeye bağlı değil)
 const GENERAL_DIR = path.join(os.homedir(), '.atolye', 'genel');
 const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+
+let tomcatExitHook = false;
 
 export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   await fs.mkdir(GENERAL_DIR, { recursive: true });
@@ -445,6 +449,72 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.get('/api/fikirhane', wrap(async (_req, res) => res.json(await fikirhane.probe(fikirhane.fikirhaneConfig({ FIKIRHANE_ENABLED: '1' })))));
   app.post('/api/fikirhane', wrap(async (_req, res) => { console.log('[bağlantı] fikirhane etkinleştirildi'); res.json(integrations.setFikirhane(true)); }));
   app.delete('/api/fikirhane', wrap(async (_req, res) => { console.log('[bağlantı] fikirhane kapatıldı'); res.json(integrations.setFikirhane(false)); }));
+  // Uygulama sunucusu (Tomcat): IntelliJ'deki Tomcat çalıştırma ayarı profil olarak alınır; Atölye derler, kurulu Tomcat'i
+  // ayrı bir çalışma klasöründe başlatır. Parola benzeri JVM parametreleri tarayıcıya maskeli gider (bkz. tomcat.js)
+  tomcat.publishGate(port);
+  if (!tomcatExitHook) {
+    tomcatExitHook = true;
+    tomcat.cleanWork().then((n) => { if (n) console.log(`[tomcat] önceki açılıştan kalan ${n} Tomcat kapatıldı`); }).catch(() => {});
+    process.on('exit', () => tomcat.stopAll());
+  }
+  const tomcatView = () => ({
+    enabled: integrations.status().services.tomcat?.connected || false,
+    profiles: tomcat.profiles().map((p) => ({ ...tomcat.publicProfile(p), run: tomcat.runInfo(p.id) })),
+  });
+  const tomcatFail = (res, err) => res.status(400).json({ ok: false, error: err.message, code: err.code || null });
+  app.get('/api/tomcat', wrap(async (_req, res) => res.json(tomcatView())));
+  app.post('/api/tomcat/enable', wrap(async (_req, res) => { integrations.setTomcat(true); console.log('[tomcat] bağlantı etkinleştirildi'); res.json(tomcatView()); }));
+  app.delete('/api/tomcat/enable', wrap(async (_req, res) => { integrations.setTomcat(false); console.log('[tomcat] bağlantı kapatıldı'); res.json(tomcatView()); }));
+  // IntelliJ ayarını tarar; JVM parametrelerinin parola benzeri değerleri tarayıcıya gitmez
+  app.post('/api/tomcat/scan', wrap(async (req, res) => {
+    try {
+      if (!String(req.body?.dir || '').trim()) throw new Error('Klasör gerekli');
+      const r = scanProject(String(req.body?.dir || ''));
+      res.json({ ...r, configs: r.configs.map((c) => ({ ...c, vmParams: tomcat.publicProfile({ vmParams: c.vmParams }).vmParams, env: tomcat.publicProfile({ env: c.env }).env })) });
+    } catch (err) { tomcatFail(res, err); }
+  }));
+  // Taranan ayardan profil: değerler sunucuda yeniden okunur (tarayıcıya giden maskeli liste kullanılmaz)
+  app.post('/api/tomcat/import', wrap(async (req, res) => {
+    try {
+      const r = scanProject(String(req.body?.dir || ''));
+      const c = r.configs.find((x) => x.name === req.body?.config);
+      if (!c) throw new Error('Çalıştırma ayarı bulunamadı');
+      const p = tomcat.saveProfile({ ...c, name: req.body?.name || `${path.basename(r.projectDir)} — ${c.name}`, projectDir: r.projectDir, source: `intellij:${c.name}` });
+      console.log(`[tomcat] profil IntelliJ'den alındı: ${p.id} (${p.vmParams.length} JVM parametresi)`);
+      res.json({ ok: true, id: p.id, ...tomcatView() });
+    } catch (err) { tomcatFail(res, err); }
+  }));
+  app.post('/api/tomcat/profiles', wrap(async (req, res) => {
+    try {
+      const p = tomcat.saveProfile(req.body || {});
+      console.log(`[tomcat] profil kaydedildi: ${p.id}`);
+      res.json({ ok: true, id: p.id, ...tomcatView() });
+    } catch (err) { tomcatFail(res, err); }
+  }));
+  app.delete('/api/tomcat/profiles/:id', wrap(async (req, res) => {
+    try { await tomcat.stop(req.params.id); } catch { /* çalışmıyor */ }
+    tomcat.removeProfile(req.params.id);
+    console.log(`[tomcat] profil silindi: ${req.params.id}`);
+    res.json(tomcatView());
+  }));
+  app.post('/api/tomcat/profiles/:id/start', wrap(async (req, res) => {
+    try {
+      tomcat.start(req.params.id, { build: req.body?.build !== false });
+      console.log(`[tomcat] başlatıldı (arayüzden): ${req.params.id}${req.body?.build === false ? ', derlemeden' : ''}`);
+      res.json(tomcatView());
+    } catch (err) { tomcatFail(res, err); }
+  }));
+  app.post('/api/tomcat/profiles/:id/stop', wrap(async (req, res) => {
+    try { await tomcat.stop(req.params.id); console.log(`[tomcat] durduruldu (arayüzden): ${req.params.id}`); res.json(tomcatView()); } catch (err) { tomcatFail(res, err); }
+  }));
+  app.get('/api/tomcat/profiles/:id/logs', wrap(async (req, res) => {
+    try { res.json(tomcat.readLogs(req.params.id, { source: String(req.query.source || 'konsol'), lines: Number(req.query.lines) || 300, filter: String(req.query.filter || '') })); } catch (err) { tomcatFail(res, err); }
+  }));
+  app.post('/ic/tomcat', wrap(async (req, res) => {
+    const r = await tomcat.gateRequest(req.headers.authorization, req.body);
+    if (r.status === 200) console.log(`[tomcat] araç ${req.body?.op}: ${r.body.error ? r.body.error.slice(0, 160) : 'tamam'}`);
+    res.status(r.status).json(r.body);
+  }));
   // Outlook: bilgisayardaki Outlook'un araçları açılır/kapatılır (adres ya da anahtar gerekmez)
   app.post('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook etkinleştirildi'); res.json(integrations.setOutlook(true)); }));
   app.delete('/api/outlook', wrap(async (_req, res) => { console.log('[bağlantı] outlook kapatıldı'); res.json(integrations.setOutlook(false)); }));

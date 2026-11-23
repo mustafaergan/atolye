@@ -146,7 +146,7 @@ export function status() {
       // Outlook'ta "bağlı" = kullanıcı etkinleştirmiş; araçları yine de yalnızca yerel LLM oturumlarında sunulur
       // Teams de öyle; erişim anahtarının durumu sunucuda eklenir (bkz. server.js, teams.js)
       // Chrome'da iç kapının adresi ayar dosyasında değil sunucunun ortamındadır; "bağlı" = kullanıcı etkinleştirmiş
-      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : s === 'chrome' ? env.CHROME_ENABLED === '1' : Boolean(configFromEnv(s, env)),
+      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : s === 'chrome' ? env.CHROME_ENABLED === '1' : s === 'tomcat' ? env.TOMCAT_ENABLED === '1' : Boolean(configFromEnv(s, env)),
     };
   }
   out.services[BROWSER_SERVER] = browserStatus();
@@ -160,7 +160,7 @@ const check = (service) => { if (!SERVICES.includes(service)) throw new Error('B
 
 export function save(service, { url, email, token }) {
   check(service);
-  if (['outlook', 'teams'].includes(service)) throw new Error('Bu bağlantı buradan kaydedilmez'); // kendi uçları var
+  if (['outlook', 'teams', 'tomcat'].includes(service)) throw new Error('Bu bağlantı buradan kaydedilmez'); // kendi uçları var
   const env = readEnv();
   const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
   if (['oracle', 'postgres'].includes(service)) {
@@ -225,6 +225,15 @@ export function setFikirhane(enabled) {
   const env = readEnv();
   if (enabled) env.FIKIRHANE_ENABLED = '1';
   else delete env.FIKIRHANE_ENABLED;
+  writeEnv(env);
+  return status();
+}
+
+/** Uygulama sunucusu (Tomcat): araçlar açılır ya da kapatılır; profiller ayrı dosyada durur (bkz. tomcat.js) */
+export function setTomcat(enabled) {
+  const env = readEnv();
+  if (enabled) env.TOMCAT_ENABLED = '1';
+  else delete env.TOMCAT_ENABLED;
   writeEnv(env);
   return status();
 }

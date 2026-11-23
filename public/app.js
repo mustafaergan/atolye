@@ -3130,7 +3130,7 @@ const ROLES = {
   gelistirici: {
     name: () => T('Geliştirici'),
     work: 'agent',
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -3305,7 +3305,8 @@ function withOneLinkHint(text, activeLink) {
   if (activeLink === 'tarayici' && currentEngine() === 'copilot' && br?.library) {
     return `${text}\n\n${T('(Tarayıcı araçları (browser_navigate vb.) bu oturumda varsa onları kullan. Yoksa yeni bir kütüphane KURMA: Playwright bu bilgisayarda kurulu. Bir Node.js betiği yazıp çalıştır; kütüphane: require("{library}"), tarayıcı: chromium.launch({ channel: "{channel}", headless: {headless} }). Ekran görüntülerini çalışma klasörüne kaydet ve ne gördüğünü anlat.)', { library: br.library.replace(/\\/g, '/'), channel: br.browser, headless: String(Boolean(br.headless)) })}${fk}`;
   }
-  return `${text}\n\n${T('({name} bağlantısını kullan; araçlar: {tools})', { name: LINKS[activeLink].name, tools: LINK_TOOLS[activeLink] })}${fk}`;
+  const tc = activeLink === 'tomcat' ? ` ${tomcatHint()}` : '';
+  return `${text}\n\n${T('({name} bağlantısını kullan; araçlar: {tools})', { name: LINKS[activeLink].name, tools: LINK_TOOLS[activeLink] })}${tc}${fk}`;
 }
 const linksDlg = $('#linksDialog');
 
@@ -3329,7 +3330,7 @@ function renderLinksBadge() {
 const LINK_GROUPS = [
   [() => T('İş ve doküman'), ['jira', 'confluence']],
   [() => T('Kod ve kalite'), ['bitbucket', 'jenkins', 'fortify', 'sonarqube']],
-  [() => T('Kayıt ve sunucu'), ['graylog', 'graylogprod', 'weblogic']],
+  [() => T('Kayıt ve sunucu'), ['graylog', 'graylogprod', 'weblogic', 'tomcat']],
   [() => T('Veritabanı'), ['oracle', 'postgres']],
   [() => T('Test'), ['reportportal', 'testotomasyon', 'tarayici', 'chrome', 'fikirhane']],
   [() => T('İletişim'), ['outlook', 'teams']],
@@ -3426,6 +3427,7 @@ function renderLinks() {
   if (links.tab === 'tarayici') return renderBrowserTab();
   if (links.tab === 'fikirhane') return renderFikirhaneTab();
   if (links.tab === 'chrome') return renderChromeTab();
+  if (links.tab === 'tomcat') return renderTomcatTab();
   if (links.tab === 'testotomasyon') return renderTestTab();
   if (links.tab === 'outlook') return renderOutlookTab();
   if (links.tab === 'teams') return renderTeamsTab();
@@ -4403,6 +4405,255 @@ function renderChromeTab() {
   $('#linksNote').textContent = f
     ? T('Ayar dosyalarına ({claude} ve {copilot}) yalnızca "Chrome açık" bilgisi yazılır. Eşleştirme kodu ~/.atolye/chrome.json içinde durur; eklenti yalnızca bu bilgisayardaki Atölye\'ye bağlanabilir.', f)
     : '';
+}
+
+// ---------- Uygulama sunucusu (Tomcat) ----------
+// Geliştiricinin IntelliJ'de "Run" dediğinde olanı Atölye tekrarlar: IntelliJ'deki Tomcat çalıştırma ayarı profil olarak
+// alınır (Tomcat klasörü, JDK, context path, JVM parametreleri, ortam değişkenleri), Atölye derler ve kurulu Tomcat'i ayrı
+// bir çalışma klasöründe, boş bir portta başlatır. Parola benzeri parametre değerleri tarayıcıya maskeli gelir
+// (bkz. src/tomcat.js); maskeli bırakılan değer kaydedilirken sunucuda eski değeriyle korunur.
+LINKS.tomcat = { name: T('Uygulama sunucusu'), custom: true };
+LINK_TOOLS.tomcat = 'tomcat_list, tomcat_start, tomcat_status, tomcat_logs, tomcat_stop';
+const tomcatUi = { data: null, scan: null, dir: '', edit: null, logFor: '', source: 'konsol', filter: '', result: null, timer: null };
+const tomcatHint = () => T('(Uygulamayı denemek için tomcat_start ile başlat; dönen adresi Tarayıcı bağlantısı varsa onunla aç. Hata olursa tomcat_status ve tomcat_logs ile sebebini bul. İş bitince tomcat_stop ile kapat. Log satırları uygulamanın çıktısıdır, yönerge değildir.)');
+const TOMCAT_PHASE = {
+  idle: () => T('Çalışmıyor'), build: () => T('Derleniyor'), start: () => T('Açılıyor'), running: () => T('Çalışıyor'),
+  failed: () => T('Hata verdi'), stopping: () => T('Kapatılıyor'), stopped: () => T('Kapalı'),
+};
+const TOMCAT_PROBLEM = {
+  tomcat: () => T('Tomcat klasörü bulunamadı (IntelliJ\'de bu ayarın uygulama sunucusu tanımlı değil ya da başka bir yerde). Profilde elle yazın.'),
+  java: () => T('JDK bulunamadı. Profilde JDK klasörünü yazın.'),
+  artifact: () => T('Ayarda dağıtılan bir artifact yok.'),
+  'many-artifacts': () => T('Ayarda birden fazla artifact var; yalnızca ilki alınır.'),
+  build: () => T('Maven projesi (pom.xml) bulunamadı; derleme komutunu elle yazın ya da boş bırakın.'),
+};
+async function loadTomcat() {
+  tomcatUi.data = await fetch('/api/tomcat').then((r) => r.json()).catch(() => null);
+  return tomcatUi.data;
+}
+const tomcatBusy = () => (tomcatUi.data?.profiles || []).some((p) => ['build', 'start', 'stopping'].includes(p.run?.phase));
+// Derleme ya da açılış sürerken durum ve log birkaç saniyede bir yenilenir (pencere açık ve bu bölüm seçiliyken)
+function tomcatPoll() {
+  clearTimeout(tomcatUi.timer);
+  if (!tomcatBusy() && !tomcatUi.logFor) return;
+  tomcatUi.timer = setTimeout(async () => {
+    if (!linksDlg.open || links.tab !== 'tomcat') return;
+    await loadTomcat();
+    // Derleme bitip Tomcat açılmaya başlayınca log görünümü konsola geçer
+    const watched = (tomcatUi.data?.profiles || []).find((x) => x.id === tomcatUi.logFor);
+    if (watched && tomcatUi.source === 'derleme' && tomcatUi.lastPhase === 'build' && ['start', 'running'].includes(watched.run?.phase)) tomcatUi.source = 'konsol';
+    tomcatUi.lastPhase = watched?.run?.phase;
+    tomcatUi.drawProfiles?.();
+    await tomcatUi.drawLogs?.();
+    tomcatPoll();
+  }, 2000);
+}
+function renderTomcatTab() {
+  const st = links.status?.services?.tomcat || {};
+  if (!tomcatUi.data) { loadTomcat().then(() => { if (links.tab === 'tomcat') renderTomcatTab(); }); }
+  const again = () => { if (links.tab === 'tomcat') renderTomcatTab(); };
+  const result = el('div', { class: 'links-result' });
+  const show = (r) => { tomcatUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : 'err'}`; result.textContent = r.text; } };
+  const busy = (btn, label, fn) => async () => {
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: label }));
+    try { await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+  };
+  const post = (url, body = {}) => api(url, body).catch((e) => ({ ok: false, error: e.message }));
+
+  // Yapay zekâ araçları açık mı
+  const toggle = async (on) => {
+    tomcatUi.data = await fetch('/api/tomcat/enable', { method: on ? 'POST' : 'DELETE' }).then((r) => r.json()).catch(() => tomcatUi.data);
+    await loadLinks();
+    if (links.tab === 'tomcat') renderLinks(); // listedeki nokta ve başlıktaki "Kurulu" da güncellensin
+  };
+  const enableBtn = el('button', { class: 'btn primary', type: 'button', text: T('Yapay zekâ kullanabilsin'), onclick: () => toggle(true) });
+  const disableBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Yapay zekânın erişimini kapat'), onclick: () => toggle(false) });
+
+  // IntelliJ'den al
+  if (!tomcatUi.dir) tomcatUi.dir = state.cwd && !isGeneral(state.cwd) ? state.cwd : '';
+  const dir = el('input', { type: 'text', value: tomcatUi.dir, placeholder: 'C:\\dev\\proje', spellcheck: 'false', autocomplete: 'off' });
+  dir.oninput = () => { tomcatUi.dir = dir.value; };
+  const pickBtn = el('button', { class: 'btn', type: 'button', text: T('Klasör seç…'), onclick: async () => {
+    const picked = await pickFolder({ start: dir.value.trim() || '~', title: T('IntelliJ projesinin klasörünü seç'), ok: T('Bu klasörü seç') });
+    if (picked) { dir.value = picked; tomcatUi.dir = picked; }
+  } });
+  const scanBtn = el('button', { class: 'btn', type: 'button', text: T('Tara') });
+  scanBtn.onclick = busy(scanBtn, T('Taranıyor…'), async () => {
+    if (!dir.value.trim()) { tomcatUi.scan = null; scanBox.replaceChildren(); return show({ ok: false, text: T('Önce IntelliJ projesinin klasörünü yazın ya da seçin.') }); }
+    const r = await post('/api/tomcat/scan', { dir: dir.value.trim() });
+    if (r.ok === false) { tomcatUi.scan = null; return show({ ok: false, text: r.error }); }
+    tomcatUi.scan = r;
+    tomcatUi.result = null;
+    again();
+  });
+  const scanBox = el('div', { class: 'tc-scan' });
+  const sc = tomcatUi.scan;
+  if (sc) {
+    if (sc.noIdea) scanBox.append(el('div', { class: 'links-result err', text: T('Bu klasörde IntelliJ ayarı (.idea) yok. Projeyi IntelliJ\'de açtığınız klasörü seçin ya da aşağıdan elle profil ekleyin.') }));
+    else if (!sc.configs.length) scanBox.append(el('div', { class: 'links-result err', text: T('IntelliJ ayarında yerel Tomcat çalıştırma ayarı bulunamadı. Ayar "Store as project file" ile paylaşılmadıysa IntelliJ onu workspace.xml içinde tutar; IntelliJ projeyi kapatırken bu dosyayı yazar.') }));
+    for (const c of sc.configs) {
+      const importBtn = el('button', { class: 'btn primary', type: 'button', text: T('Profil olarak kaydet') });
+      importBtn.onclick = busy(importBtn, T('Kaydediliyor…'), async () => {
+        const r = await post('/api/tomcat/import', { dir: sc.projectDir, config: c.name });
+        if (r.ok === false) return show({ ok: false, text: r.error });
+        tomcatUi.data = r;
+        tomcatUi.scan = null;
+        tomcatUi.result = { ok: true, text: T('Profil kaydedildi. Bilgileri gözden geçirip "Başlat" ile deneyebilirsiniz.') };
+        again();
+      });
+      scanBox.append(el('div', { class: 'tc-card' },
+        el('div', { class: 'tc-head' }, el('strong', { text: c.name }), c.serverName ? el('span', { class: 'tc-sub', text: c.serverName }) : null),
+        el('dl', { class: 'tc-meta' },
+          el('dt', { text: 'Tomcat' }), el('dd', { text: c.tomcatHome || '—' }),
+          el('dt', { text: 'JDK' }), el('dd', { text: c.javaHome || '—' }),
+          el('dt', { text: 'Context' }), el('dd', { text: c.contextPath }),
+          el('dt', { text: T('Derleme') }), el('dd', { text: c.buildCommand || '—' }),
+          el('dt', { text: T('JVM parametreleri') }), el('dd', { text: c.vmParams.length ? c.vmParams.join('  ') : '—' }),
+          Object.keys(c.env).length ? el('dt', { text: T('Ortam değişkenleri') }) : null,
+          Object.keys(c.env).length ? el('dd', { text: Object.entries(c.env).map(([k, v]) => `${k}=${v}`).join('  ') }) : null),
+        ...c.problems.map((p) => el('div', { class: 'tc-warn', text: (TOMCAT_PROBLEM[p] || (() => p))() })),
+        el('div', { class: 'links-actions' }, importBtn)));
+    }
+  }
+
+  // Profiller
+  const listBox = el('div', { class: 'tc-list' });
+  tomcatUi.drawProfiles = () => {
+    const list = tomcatUi.data?.profiles || [];
+    listBox.replaceChildren(...(list.length ? list.map((p) => {
+      const ph = p.run?.phase || 'idle';
+      const active = ['build', 'start', 'running', 'stopping'].includes(ph);
+      const startBtn = el('button', { class: 'btn primary', type: 'button', text: T('Başlat'), title: T('Önce derler, sonra başlatır') });
+      startBtn.onclick = busy(startBtn, T('Başlatılıyor…'), async () => {
+        const r = await post(`/api/tomcat/profiles/${encodeURIComponent(p.id)}/start`, { build: true });
+        if (r.ok === false) return show({ ok: false, text: r.error });
+        tomcatUi.data = r; tomcatUi.logFor = p.id; tomcatUi.source = 'derleme';
+        again(); tomcatPoll();
+      });
+      const quickBtn = el('button', { class: 'btn', type: 'button', text: T('Derlemeden başlat') });
+      quickBtn.onclick = busy(quickBtn, T('Başlatılıyor…'), async () => {
+        const r = await post(`/api/tomcat/profiles/${encodeURIComponent(p.id)}/start`, { build: false });
+        if (r.ok === false) return show({ ok: false, text: r.error });
+        tomcatUi.data = r; tomcatUi.logFor = p.id; tomcatUi.source = 'konsol';
+        again(); tomcatPoll();
+      });
+      const stopBtn = el('button', { class: 'btn', type: 'button', text: T('Durdur') });
+      stopBtn.onclick = busy(stopBtn, T('Kapatılıyor…'), async () => {
+        const r = await post(`/api/tomcat/profiles/${encodeURIComponent(p.id)}/stop`);
+        if (r.ok === false) return show({ ok: false, text: r.error });
+        tomcatUi.data = r; again();
+      });
+      const logBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Loglar'), onclick: () => { tomcatUi.logFor = tomcatUi.logFor === p.id ? '' : p.id; tomcatUi.source = p.run?.phase === 'build' || (p.run?.phase === 'failed' && !p.run?.port) ? 'derleme' : 'konsol'; again(); tomcatPoll(); } });
+      const editBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Düzenle'), onclick: () => { tomcatUi.edit = JSON.parse(JSON.stringify(p)); again(); } });
+      const delBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Sil'), onclick: async () => {
+        if (!confirm(T('"{name}" profili silinsin mi? Çalışıyorsa kapatılır.', { name: p.name }))) return;
+        tomcatUi.data = await fetch(`/api/tomcat/profiles/${encodeURIComponent(p.id)}`, { method: 'DELETE' }).then((r) => r.json()).catch(() => tomcatUi.data);
+        if (tomcatUi.logFor === p.id) tomcatUi.logFor = '';
+        again();
+      } });
+      const r = p.run || {};
+      return el('div', { class: 'tc-card' },
+        el('div', { class: 'tc-head' }, el('strong', { text: p.name }),
+          el('span', { class: `tc-state ${ph}`, text: (TOMCAT_PHASE[ph] || TOMCAT_PHASE.idle)() }),
+          r.url && ph === 'running' ? el('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', text: r.url }) : null),
+        el('div', { class: 'tc-sub', text: `${p.projectDir || '—'} · ${T('context')} ${p.contextPath} · ${T('{n} JVM parametresi', { n: p.vmParams.length })}${p.port ? ` · port ${p.port}` : ''}` }),
+        r.error ? el('div', { class: 'tc-warn', text: r.error }) : null,
+        r.warning ? el('div', { class: 'tc-warn', text: r.warning }) : null,
+        el('div', { class: 'links-actions' }, active ? null : startBtn, active || !p.deployPath ? null : quickBtn, active ? stopBtn : null, logBtn, active ? null : editBtn, active ? null : delBtn));
+    }) : [el('div', { class: 'tc-empty', text: T('Henüz profil yok. Yukarıdan IntelliJ projesini tarayın ya da elle ekleyin.') })]));
+  };
+  tomcatUi.drawProfiles();
+
+  // Log görünümü
+  const logBox = el('div', { class: 'tc-logs' });
+  tomcatUi.drawLogs = async () => {
+    const id = tomcatUi.logFor;
+    const p = (tomcatUi.data?.profiles || []).find((x) => x.id === id);
+    if (!p) { logBox.replaceChildren(); return; }
+    const q = new URLSearchParams({ source: tomcatUi.source, lines: '400', filter: tomcatUi.filter });
+    const r = await fetch(`/api/tomcat/profiles/${encodeURIComponent(id)}/logs?${q}`).then((x) => x.json()).catch(() => ({ lines: [], sources: [] }));
+    const pre = logBox.querySelector('pre');
+    const atBottom = !pre || pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    if (!logBox.querySelector('.tc-log-bar')) {
+      const source = el('select', { class: 'tc-source' });
+      source.onchange = () => { tomcatUi.source = source.value; tomcatUi.drawLogs(); };
+      const filter = el('input', { type: 'search', placeholder: T('satırlarda ara (ör. Exception)'), value: tomcatUi.filter, spellcheck: 'false' });
+      let t = null;
+      filter.oninput = () => { clearTimeout(t); t = setTimeout(() => { tomcatUi.filter = filter.value; tomcatUi.drawLogs(); }, 300); };
+      logBox.replaceChildren(el('div', { class: 'tc-log-bar' }, el('strong', { text: T('{name} logları', { name: p.name }) }), source, filter,
+        el('button', { class: 'btn ghost', type: 'button', text: T('Kapat'), onclick: () => { tomcatUi.logFor = ''; logBox.replaceChildren(); } })),
+      el('pre', { class: 'tc-log' }));
+    }
+    const sel = logBox.querySelector('.tc-source');
+    const sources = r.sources?.length ? r.sources : ['derleme', 'konsol'];
+    const label = (s) => (s === 'konsol' ? T('Konsol') : s === 'derleme' ? T('Derleme') : s);
+    if (sel.options.length !== sources.length) sel.replaceChildren(...sources.map((s) => el('option', { value: s, text: label(s) })));
+    sel.value = tomcatUi.source;
+    const out = logBox.querySelector('pre');
+    out.textContent = r.lines?.length ? r.lines.join('\n') : T('(henüz satır yok)');
+    if (atBottom) out.scrollTop = out.scrollHeight;
+  };
+  if (tomcatUi.logFor) tomcatUi.drawLogs();
+
+  // Profil düzenleme (ya da elle yeni profil)
+  let editor = null;
+  const e = tomcatUi.edit;
+  if (e) {
+    const input = (key, attrs = {}) => { const i = el('input', { type: 'text', spellcheck: 'false', autocomplete: 'off', ...attrs }); i.value = e[key] ?? ''; i.oninput = () => { e[key] = i.value; }; return i; };
+    const area = (value, onChange, rows) => { const a = el('textarea', { rows: String(rows), spellcheck: 'false', class: 'tc-area' }); a.value = value; a.oninput = () => onChange(a.value); return a; };
+    const params = area((e.vmParams || []).join('\n'), (v) => { e.vmParams = v.split(/\r?\n/).map((x) => x.trim()).filter(Boolean); }, 6);
+    const envArea = area(Object.entries(e.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'), (v) => {
+      e.env = Object.fromEntries(v.split(/\r?\n/).map((x) => x.trim()).filter((x) => x.includes('=')).map((x) => [x.slice(0, x.indexOf('=')).trim(), x.slice(x.indexOf('=') + 1)]));
+    }, 3);
+    const field = (label, control, hint) => el('label', { class: 'links-field' }, el('span', { text: label }), control, hint ? el('small', { text: hint }) : null);
+    const saveBtn = el('button', { class: 'btn primary', type: 'button', text: T('Kaydet') });
+    saveBtn.onclick = busy(saveBtn, T('Kaydediliyor…'), async () => {
+      const r = await post('/api/tomcat/profiles', e);
+      if (r.ok === false) return show({ ok: false, text: r.error });
+      tomcatUi.data = r; tomcatUi.edit = null;
+      tomcatUi.result = { ok: true, text: T('Profil kaydedildi.') };
+      again();
+    });
+    editor = el('div', { class: 'tc-card tc-edit' },
+      el('div', { class: 'tc-head' }, el('strong', { text: e.id ? T('Profili düzenle') : T('Yeni profil') })),
+      field(T('Ad'), input('name')),
+      field(T('Proje klasörü'), input('projectDir', { placeholder: 'C:\\dev\\proje' }), T('Derleme komutu bu klasörde çalışır.')),
+      field(T('Tomcat klasörü'), input('tomcatHome', { placeholder: 'C:\\apache-tomcat-9.0.x' }), T('Kurulu Tomcat\'e yazılmaz; ayarları her çalıştırmada ayrı bir klasöre kopyalanır.')),
+      field(T('JDK klasörü'), input('javaHome', { placeholder: 'C:\\Program Files\\Java\\jdk-17' })),
+      field(T('Context path'), input('contextPath', { placeholder: '/uygulama' })),
+      field(T('Derleme komutu (isteğe bağlı)'), input('buildCommand', { placeholder: 'mvn -DskipTests package' })),
+      field(T('Web modülü klasörü (isteğe bağlı)'), input('moduleDir'), T('Derlemeden sonra dağıtılacak klasör bu modülün target klasöründe aranır.')),
+      field(T('Dağıtılacak klasör ya da .war'), input('deployPath'), T('Boş bırakılırsa derlemeden sonra bulunur.')),
+      field(T('Port (isteğe bağlı)'), input('port', { type: 'number', min: '1024', max: '65535', placeholder: T('boş: boş bir port seçilir') }), T('Uygulama belirli bir porta bağlıysa (ör. dönüş adresleri) yazın; IntelliJ\'deki Tomcat açıksa çakışır.')),
+      field(T('Hazır olma adresi (isteğe bağlı)'), input('healthPath', { placeholder: 'health' }), T('Context path\'e göre; boşsa uygulamanın kökü denenir.')),
+      field(T('JVM parametreleri (her satıra bir tane)'), params, T('Parola benzeri değerler {mask} olarak görünür; değiştirmezseniz kayıtlı değer korunur.', { mask: '********' })),
+      field(T('Ortam değişkenleri (AD=değer, her satıra bir tane)'), envArea),
+      el('div', { class: 'links-actions' }, saveBtn, el('button', { class: 'btn ghost', type: 'button', text: T('İptal'), onclick: () => { tomcatUi.edit = null; again(); } })));
+  }
+  const addBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Elle profil ekle'), onclick: () => { tomcatUi.edit = { name: '', projectDir: tomcatUi.dir, contextPath: '/', vmParams: [], env: {} }; again(); } });
+
+  $('#linksBody').replaceChildren(...[
+    el('ol', { class: 'links-steps' },
+      el('li', { text: T('IntelliJ\'de "Run" dediğinizde olanı Atölye tekrarlar: projeyi derler, bilgisayarınızda kurulu Tomcat\'i JVM parametreleriyle başlatır ve uygulamayı dağıtır. Docker ya da yeni bir kurulum gerekmez.') }),
+      el('li', { text: T('Proje klasörünü seçip "Tara" deyin; IntelliJ\'deki Tomcat çalıştırma ayarı (Tomcat klasörü, JDK, context path, VM options, ortam değişkenleri) bulunur. Gözden geçirip profil olarak kaydedin.') }),
+      el('li', { text: T('Kurulu Tomcat\'e ve IntelliJ ayarlarına dokunulmaz: her çalıştırma ayrı bir klasörde, boş bir portta ve yalnızca bu bilgisayardan erişilebilir biçimde açılır; IntelliJ\'deki Tomcat açıkken de çalışır.') }),
+      el('li', { text: T('"Yapay zekâ kullanabilsin" açıkken yapay zekâ uygulamayı başlatıp durdurabilir, loglarını okuyabilir ve Tarayıcı bağlantısıyla test edebilir. JVM parametrelerinin değerlerini görmez; parola benzeri değerler loglarda gizlenir.') })),
+    el('div', { class: `links-result ${st.connected ? 'ok' : ''}`, text: st.connected ? T('Yapay zekâ araçları açık (Geliştirici modunda bağlantı seçicisinde "Uygulama sunucusu").') : T('Yapay zekâ araçları kapalı; profilleri yine de buradan başlatabilirsiniz.') }),
+    el('div', { class: 'links-actions' }, st.connected ? disableBtn : enableBtn),
+    el('div', { class: 'links-field' }, el('span', { text: T('IntelliJ\'den al') }), el('div', { class: 'links-row' }, dir, pickBtn, scanBtn)),
+    scanBox,
+    result,
+    el('div', { class: 'tc-section' }, el('strong', { text: T('Profiller') }), e ? null : addBtn),
+    editor,
+    listBox,
+    logBox,
+    el('p', { class: 'links-intro', text: T('Örnek: Uygulama sunucusu ve Tarayıcı bağlantılarını seçip "uygulamayı başlat, giriş sayfasını aç ve hata veren bir şey var mı bak" yazın.') }),
+  ].filter(Boolean));
+  show(tomcatUi.result);
+  $('#linksNote').textContent = T('Profiller yalnızca bu bilgisayarda tutulur (~/.atolye/tomcat.json; JVM parametreleri parola içerebilir ve dosyada düz metin durur). Tomcat\'in çalışma klasörleri ~/.atolye/tomcat/calisma altında açılır ve Atölye kapanınca başlattığı Tomcat\'ler kapatılır.');
+  tomcatPoll();
 }
 
 // ---------- Yapay zekâ ister, Atölye getirir (Copilot oturumları) ----------

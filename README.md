@@ -346,6 +346,33 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
     alınmıştır: yapay zekâya veri olarak verilir, yönerge olarak değil.
   - Fikirhane çalışmıyorsa ya da uygulama gezilmemişse araç bunu söyler ve tarayıcı işi eskisi gibi sürer. Copilot
     oturumunda araçlar kuruluş politikasıyla kapalıysa okuma işlemleri **Veri getir** ile yapılır.
+- **Uygulama sunucusu** (Geliştirici modunda), geliştiricinin IntelliJ'de "Run" dediğinde olanı Atölye'de tekrarlar:
+  proje derlenir, bilgisayarda **kurulu** Tomcat JVM parametreleriyle başlatılır ve uygulama dağıtılır. Docker ya da yeni
+  bir kurulum gerekmez; yapay zekâ uygulamayı başlatıp loglarını okuyabilir ve Tarayıcı bağlantısıyla test edebilir.
+  - **IntelliJ'den al**: proje klasörünü seçip **Tara** deyin. Okunanlar (hiçbirine yazılmaz): `.idea/workspace.xml`,
+    `.run/*.run.xml` ve `.idea/runConfigurations/*.xml` içindeki yerel Tomcat çalıştırma ayarı (VM options, ortam
+    değişkenleri, artifact, context path, ayrı JRE), `.idea/misc.xml` (proje JDK'sı), IntelliJ'in kendi ayar klasöründeki
+    `applicationServers.xml` (Tomcat'in yeri) ve `jdk.table.xml` (JDK yolları). Derleme komutu Maven projesinden üretilir:
+    `mvnw.cmd`, yoksa IntelliJ'de seçili Maven, yoksa PATH'teki `mvn`, yoksa IntelliJ ile gelen Maven; IntelliJ'de ayrı bir
+    `settings.xml` seçiliyse `-s` ile verilir; çok modüllü projede yalnızca web modülü derlenir (`-pl … -am`). Bulunamayan
+    alanlar uyarıyla gösterilir ve profilde elle düzeltilir; **Elle profil ekle** de vardır.
+  - Kurulu Tomcat'e dokunulmaz: her çalıştırmada `~/.atolye/tomcat/calisma` altında ayrı bir çalışma klasörü
+    (`CATALINA_BASE`) açılır, Tomcat'in `conf` klasörü oraya kopyalanır (daha önce dağıtılmış uygulamaların context
+    dosyaları hariç), HTTP bağlayıcısı boş bir porta alınıp yalnızca `127.0.0.1`'e bağlanır, AJP kapatılır, kapatma portu
+    rastgele komutla boş bir porta alınır. Uygulama, derlenen klasörü ya da `.war`'ı gösteren bir context dosyasıyla
+    dağıtılır; uygulamanın kendi `META-INF/context.xml`'i (JNDI kaynakları) korunur. `bin\setenv.bat` içindeki basit
+    `CATALINA_OPTS` / `JAVA_OPTS` satırları da uygulanır. IntelliJ'deki Tomcat açıkken de çalışır (port elle sabitlenmediyse).
+  - Uygulama cevap verince **Çalışıyor** olur ve adresi gösterilir; Tomcat açılıp uygulama başlatılamadıysa (ör.
+    listener hatası) uyarı ve konsoldaki hata satırları gösterilir. Loglar: derleme, konsol ve çalışma klasöründeki
+    `logs\*.log` dosyaları.
+  - Gizlilik: profiller `~/.atolye/tomcat.json` içinde düz metin durur (JVM parametreleri parola içerebilir). Adında
+    password, secret, token, key gibi sözcük geçen parametrelerin değerleri tarayıcıya `********` olarak gelir (değiştirmeden
+    kaydedilirse kayıtlı değer korunur) ve loglarda `***` ile gizlenir. Yapay zekâ parametrelerin yalnızca **adlarını**
+    görür. Derleme ve Tomcat süreçlerine Atölye'nin anahtarları (`ANTHROPIC_*`, `COPILOT_*`, `ATOLYE_*`) verilmez.
+  - **Yapay zekâ kullanabilsin** açılınca araçlar sunulur: `tomcat_list`, `tomcat_status`, `tomcat_logs` (okuma),
+    `tomcat_start`, `tomcat_stop` (izin sorulur). Araç sunucusu işi kendisi yapmaz, isteği Atölye sunucusunun iç kapısına
+    (`/ic/tomcat`, her açılışta yeni anahtar) iletir; böylece Tomcat süreçleri oturumdan bağımsızdır ve Atölye kapanınca
+    kapatılır. Atölye zorla kapatılıp bir Tomcat açık kalırsa, sonraki açılışta kayıtlı kapatma komutuyla kapatılır.
 - **İlk repom** sekmesi, ilk kez depo indirecekler içindir: depo adreslerini yapıştırıp (Bitbucket bağlıysa listeden
   işaretleyip) **Depoları indir** demek yeterli; birden fazla depo aynı anda seçilebilir. Depolar `~/repos` altına iner ve ayrı ayrı proje
   olarak eklenir; aynı klasörde birden fazla depo olunca o kök klasör de proje olarak eklenir (depoların tümü hakkında oradan soru sorulur).
