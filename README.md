@@ -297,6 +297,33 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
   (eksikse ne indirileceği bildirilir ve yalnızca onay verilirse `npm install -g` ile kurulur). Kurulu Chrome ya da Edge
   seçildiğinde tarayıcı da indirilmez. Ayar CLI dosyalarına `tarayici` adıyla yazılır. Açılan tarayıcı ayrı ve boş bir
   profildir; yapay zekâ açtığı sayfalardaki metinlerden etkilenebileceği için gerçek sistemlerde dikkatli kullanılmalıdır.
+- **Chrome** sekmesi (bütün modlarda), yapay zekânın **sizin kendi Chrome'unuzda** (ya da Edge'inizde) çalışmasını
+  sağlar: açık sayfayı okuma, formu örnek ya da verdiğiniz veriyle doldurma, düğmeye tıklama, ekran görüntüsü alma.
+  Tarayıcı bağlantısındaki Playwright'tan farkı, ayrı ve boş bir tarayıcı açmaması; açık oturumlarınız ve o an baktığınız
+  sayfa kullanılır ("bu formu örnek verilerle doldur, gönderme").
+  - Kurulum: **Etkinleştir**, sonra Chrome'da `chrome://extensions` (Edge'de `edge://extensions`) > **Geliştirici modu** >
+    **Paketlenmemiş öğe yükle** ile Atölye klasöründeki `chrome-eklentisi` klasörünü seçin (sekmedeki **Eklenti klasörünü
+    aç** düğmesi klasörü gösterir). Eklenti simgesine tıklayıp sekmedeki **eşleştirme kodunu** yapıştırın. Kuruluşunuz
+    paketlenmemiş eklentileri politikayla kapattıysa eklenti yüklenmez.
+  - Araçlar: `chrome_tabs`, `chrome_read`, `chrome_screenshot` (okuma), `chrome_open`, `chrome_fill`, `chrome_click`,
+    `chrome_press` (izin sorulur). `chrome_read` sayfanın metnini ve form alanlarını `[r12]` gibi kimliklerle verir;
+    `chrome_fill` alanları bu kimliklerle tek seferde doldurur (sayfaya gerçek yazımdaki gibi `input`/`change` olayları gider). Form
+    **gönderilmez**; gönderme düğmesine basmadan önce yapay zekâ size sorar.
+  - Sınırlar: yapay zekâ varsayılan olarak yalnızca eklentiden **"Bu sekmeyi paylaş"** dediğiniz sekmeleri ve kendi açtığı
+    sekmeleri kullanır (paylaşılan sekmelerde simgede "AI" yazar). Eklenti kurulurken hiçbir siteye erişim istemez
+    (yalnızca Atölye'nin yerel adresi); paylaşınca tarayıcı **o site için** izin sorar, verilen izinler eklentiden
+    kaldırılabilir. Yapay zekânın açtığı bir sitenin izni yoksa sekme açılır ama siz paylaşana kadar okunamaz. Ekran
+    görüntüsü, tarayıcı kuralı gereği yalnızca o sekmede eklenti simgesine tıkladıktan sonra (sayfa değişene kadar) ya da
+    "Bütün sekmelere izin ver" açıkken alınır. "Bütün sekmelere izin ver" ayrıca onay ister. Parola ve
+    dosya alanlarına yazılmaz, parola alanlarının değeri okunmaz. Eklentideki **Duraklat** her işlemi durdurur; son
+    işlemler eklentide listelenir. Yalnızca http/https sayfalarında, yalnızca ana çerçevede (iframe içleri hariç) çalışır.
+  - Güven: eklenti yalnızca bu bilgisayardaki Atölye'ye (`127.0.0.1`) bağlanır ve eşleştirme koduyla kimlik doğrular; kod
+    `~/.atolye/chrome.json` içinde durur, **Yeni kod üret** eskisini geçersiz kılar. Atölye'deki `/chrome` kapısı yalnızca
+    tarayıcı eklentisi kökeninden açılır, web sayfaları bağlanamaz. Araç sunucusu Atölye'ye her çalışmada yeniden üretilen
+    iç anahtarla ulaşır; ayar dosyalarına yalnızca `CHROME_ENABLED=1` yazılır. Sayfa içeriği yapay zekâ hizmetine gider.
+  - Mağaza: `npm run eklenti` eklentiyi Chrome Web Store / Edge Add-ons için `dist/atolye-chrome-<sürüm>.zip` olarak
+    paketler (önce manifest'i mağaza kurallarına göre denetler). Başvuru metinleri, izin gerekçeleri, inceleyici talimatı
+    `magaza/magaza-metinleri.md`, gizlilik politikası `magaza/gizlilik.md`, görseller `magaza/gorseller/` içindedir.
 - **Fikirhane** sekmesi (bütün modlarda), tarayıcı testlerini kısaltmak ve ucuzlatmak içindir.
   [Fikirhane](https://github.com/mustafaergan/fikirhane) bu bilgisayarda çalışan ayrı bir uygulamadır: bir web
   uygulamasını bir kez gezer; ekranlarını, alan ve düğmelerin Playwright seçicilerini, ekranlara gidiş yollarını ve
@@ -436,6 +463,7 @@ Kurumsal ağlarda TLS denetimi sertifikaları genelde yalnızca işletim sistemi
 - OpenAI uyumlu yerel modeller için köprü (`/kopru/…`) yalnızca bu bilgisayardan ve her açılışta yeniden üretilen bir
   anahtarla çağrılabilir; model sunucusunun asıl API anahtarı Atölye'nin dışına yalnızca o sunucuya giderken çıkar.
 - Token tarayıcıya hiçbir zaman gönderilmez; yalnızca Node.js sürecinde kalır.
+- Chrome eklentisinin kapısı (`/chrome`) yalnızca tarayıcı eklentisi kökeninden ve eşleştirme koduyla açılır.
 - Claude dosya düzenleyebilir ve komut çalıştırabilir. *İzinleri atla* modunu yalnızca güvendiğiniz klasörlerde kullanın.
 
 ## Mimari

@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -35,6 +36,7 @@ import * as testauto from './testauto.js';
 import * as commands from './commands.js';
 import * as settings from './settings.js';
 import * as teams from './teams.js';
+import * as chrome from './chrome.js';
 import * as oracleClient from './oracle-client.js';
 import { bridge, bridgeHandlers } from './kopru.js';
 import { searchSessions } from './search.js';
@@ -57,6 +59,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Outlook araçları Claude ya da Copilot oturumlarına hiçbir koşulda sunulmasın
   delete process.env.ATOLYE_YEREL_OTURUM;
   for (const k of ['ATOLYE_TEAMS_URL', 'ATOLYE_TEAMS_ANAHTAR']) delete process.env[k];
+  // Chrome eklentisinin iç kapısı: adres ve bu çalışmaya özgü anahtar ortama yazılır, bütün oturumlara geçer (bkz. chrome.js)
+  chrome.publishGate(port);
+  chrome.setEnabledCheck(() => integrations.chromeEnabled());
   // Eski sürümle eklenmiş skill'ler Copilot'un klasörüne de kopyalanır (bkz. settings.js syncSkills)
   try { const n = settings.syncSkills(); if (n) console.log(`[ayarlar] ${n} skill Copilot klasörüne kopyalandı`); } catch (err) { console.error(`[ayarlar] skill eşitlenemedi: ${err?.message || err}`); }
   const app = express();
@@ -429,6 +434,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     // Teams: araçlar açık mı (ayar dosyasında) ve bellekteki erişim anahtarının durumu
     const tk = teams.status();
     st.services.teams = { ...st.services.teams, ...tk, enabled: st.services.teams.connected, connected: st.services.teams.connected && tk.hasToken && !tk.expired };
+    // Chrome: eklentinin bağlı olup olmadığı ve eklentideki seçimler (eşleştirme kodu burada gönderilmez)
+    st.services.chrome = { ...st.services.chrome, ...chrome.status() };
     // Fikirhane açıksa dinlediği port da bildirilir (araçların kullanılamadığı oturumlarda adresi yönergeye yazmak için)
     if (st.services.fikirhane?.connected) { try { st.services.fikirhane.port = fikirhane.door(fikirhane.fikirhaneConfig({ FIKIRHANE_ENABLED: '1' })).port; } catch { /* Fikirhane çalışmıyor */ } }
     res.json(st);
@@ -477,6 +484,23 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.post('/ic/teams', wrap(async (req, res) => {
     const r = await teams.gateRequest(req.headers.authorization, req.body);
     if (r.status === 200) console.log(`[bağlantı] teams ${req.body?.op}: ${r.body.error ? r.body.error.slice(0, 160) : `tamam (${r.body.text.length} karakter)`}`);
+    res.status(r.status).json(r.body);
+  }));
+  // Chrome: kullanıcının Chrome'undaki Atölye eklentisi (bkz. chrome.js). Eşleştirme kodu yalnızca bu uçtan, Atölye'nin
+  // kendi arayüzüne verilir (Host/Origin denetimi yukarıda); eklenti onunla /chrome WebSocket'ine bağlanır.
+  const CHROME_DIR = path.join(ROOT, 'chrome-eklentisi');
+  app.get('/api/chrome', wrap(async (_req, res) => res.json({ ...chrome.status(), enabled: integrations.chromeEnabled(), code: chrome.pairingCode(), dir: CHROME_DIR, address: `http://127.0.0.1:${port}` })));
+  app.post('/api/chrome', wrap(async (_req, res) => { console.log('[bağlantı] chrome etkinleştirildi'); chrome.pairingCode(); res.json(integrations.setChrome(true)); }));
+  app.delete('/api/chrome', wrap(async (_req, res) => { console.log('[bağlantı] chrome kapatıldı'); const r = integrations.setChrome(false); chrome.disconnect(); res.json(r); }));
+  app.post('/api/chrome/kod', wrap(async (_req, res) => { console.log('[bağlantı] chrome eşleştirme kodu yenilendi'); res.json({ code: chrome.renewCode() }); }));
+  app.post('/api/chrome/klasor', wrap(async (_req, res) => {
+    // Eklenti klasörünü Windows Gezgini'nde açar (Chrome'da "Paketlenmemiş öğe yükle" ile seçilsin diye)
+    if (process.platform === 'win32') spawn('explorer.exe', [CHROME_DIR], { detached: true, stdio: 'ignore' }).unref();
+    res.json({ ok: process.platform === 'win32', dir: CHROME_DIR });
+  }));
+  app.post('/ic/chrome', wrap(async (req, res) => {
+    const r = await chrome.gateRequest(req.headers.authorization, req.body);
+    if (r.status === 200) console.log(`[bağlantı] chrome ${req.body?.op}: ${r.body.error ? r.body.error.slice(0, 160) : `tamam (${r.body.text.length} karakter${r.body.image ? ', görsel' : ''})`}`);
     res.status(r.status).json(r.body);
   }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
@@ -626,7 +650,15 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   const server = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true });
 
+  const chromeWss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
+  chromeWss.on('connection', (ws) => chrome.attach(ws));
+
   server.on('upgrade', (req, socket, head) => {
+    // Chrome eklentisi: yalnızca eklenti kökeninden; kimliği ilk mesajdaki eşleştirme koduyla doğrulanır (bkz. chrome.js)
+    if (req.url === '/chrome' && allowedHosts.has(req.headers.host) && chrome.isExtensionOrigin(req.headers.origin)) {
+      chromeWss.handleUpgrade(req, socket, head, (ws) => chromeWss.emit('connection', ws));
+      return;
+    }
     if (req.url !== '/ws' || !allowedHosts.has(req.headers.host) || !isAllowedOrigin(req.headers.origin)) {
       socket.destroy();
       return;

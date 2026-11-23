@@ -145,7 +145,8 @@ export function status() {
       hasToken: Boolean(env[envKey(s, 'token')]),
       // Outlook'ta "bağlı" = kullanıcı etkinleştirmiş; araçları yine de yalnızca yerel LLM oturumlarında sunulur
       // Teams de öyle; erişim anahtarının durumu sunucuda eklenir (bkz. server.js, teams.js)
-      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : Boolean(configFromEnv(s, env)),
+      // Chrome'da iç kapının adresi ayar dosyasında değil sunucunun ortamındadır; "bağlı" = kullanıcı etkinleştirmiş
+      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : s === 'chrome' ? env.CHROME_ENABLED === '1' : Boolean(configFromEnv(s, env)),
     };
   }
   out.services[BROWSER_SERVER] = browserStatus();
@@ -206,6 +207,18 @@ export function remove(service) {
   writeEnv(env);
   return status();
 }
+
+/** Chrome: ayar dosyasına yalnızca "açık" bilgisi yazılır (iç kapı ve eşleştirme kodu orada durmaz; bkz. chrome.js) */
+export function setChrome(enabled) {
+  const env = readEnv();
+  if (enabled) env.CHROME_ENABLED = '1';
+  else delete env.CHROME_ENABLED;
+  writeEnv(env);
+  return status();
+}
+
+/** Sunucu içi: Chrome bağlantısı açık mı (ayar dosyasından) */
+export const chromeEnabled = () => readEnv().CHROME_ENABLED === '1';
 
 /** Fikirhane: adres ya da anahtar yok (bu bilgisayarda çalışan ayrı uygulama); araçlar açılır ya da kapatılır (bkz. fikirhane.js) */
 export function setFikirhane(enabled) {

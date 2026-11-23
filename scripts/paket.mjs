@@ -30,7 +30,7 @@ fs.rmSync(path.join(dist, 'stage'), { recursive: true, force: true });
 fs.rmSync(zip, { force: true });
 fs.mkdirSync(stage, { recursive: true });
 
-const FILES = ['src', 'public', 'atolye.ps1', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', '.env.example'];
+const FILES = ['src', 'public', 'chrome-eklentisi', 'atolye.ps1', 'package.json', 'package-lock.json', 'README.md', 'LICENSE', '.env.example'];
 for (const f of FILES) fs.cpSync(path.join(ROOT, f), path.join(stage, f), { recursive: true });
 
 if (full) {

@@ -5,6 +5,7 @@
 import tls from 'node:tls';
 import { outlook } from './outlook.js';
 import { teamsClient } from './teams-client.js';
+import { chromeClient } from './chrome-client.js';
 import { oracle, postgres } from './database.js';
 import * as fikirhane from './fikirhane.js';
 
@@ -19,7 +20,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane', 'chrome'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -36,6 +37,12 @@ export function configFromEnv(service, env = process.env) {
   }
   // Fikirhane bu bilgisayarda çalışan ayrı bir uygulamadır: adres ya da anahtar yoktur, yalnızca açık/kapalı (bkz. fikirhane.js)
   if (service === 'fikirhane') return fikirhane.fikirhaneConfig(env);
+  // Chrome: kullanıcının Chrome'undaki Atölye eklentisi. Araç sunucusu isteği Atölye sunucusunun iç kapısına iletir
+  // (bkz. chrome.js); kapının adresi ve anahtarı sunucu açılırken kendi ortamına yazılır, bütün motorların oturumlarına geçer.
+  if (service === 'chrome') {
+    return env.CHROME_ENABLED === '1' && env.ATOLYE_CHROME_URL && env.ATOLYE_CHROME_ANAHTAR
+      ? { url: env.ATOLYE_CHROME_URL, token: env.ATOLYE_CHROME_ANAHTAR, email: '' } : null;
+  }
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
   if (!url || !token) return null;
@@ -763,4 +770,4 @@ export const reportportal = {
 };
 
 // Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
-export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane };
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane, chrome: chromeClient };

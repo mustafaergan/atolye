@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Atölye</title>
+  <link rel="stylesheet" href="acilir.css">
+</head>
+<body>
+  <header>
+    <img src="simge/32.png" alt="" width="20" height="20">
+    <strong>Atölye</strong>
+    <span id="durum" class="durum">…</span>
+  </header>
+
+  <p id="hata" class="hata" hidden></p>
+
+  <section id="sekmeBolum" hidden>
+    <div class="sekme">
+      <div class="sekme-ad" id="sekmeAd"></div>
+      <button id="paylas" type="button" class="birincil">Bu sekmeyi paylaş</button>
+    </div>
+    <p class="not" id="sekmeNot"></p>
+  </section>
+
+  <section class="secenekler">
+    <label><input type="checkbox" id="duraklat"> Duraklat (yapay zekâ hiçbir işlem yapamaz)</label>
+    <label><input type="checkbox" id="tumSekmeler"> Bütün sekmelere izin ver</label>
+  </section>
+
+  <section id="sitelerBolum" hidden>
+    <h2>İzin verilen siteler</h2>
+    <ul id="siteler" class="siteler"></ul>
+  </section>
+
+  <details id="kurulum">
+    <summary>Bağlantı ayarları</summary>
+    <label class="alan">Atölye adresi
+      <input id="adres" type="url" spellcheck="false" placeholder="http://127.0.0.1:3210">
+    </label>
+    <label class="alan">Eşleştirme kodu
+      <input id="kod" type="password" spellcheck="false" autocomplete="off" placeholder="Atölye > Bağlantılar > Chrome">
+    </label>
+    <div class="satir">
+      <button id="kaydet" type="button" class="birincil">Kaydet ve bağlan</button>
+      <button id="yeniden" type="button">Yeniden bağlan</button>
+    </div>
+    <p class="not">Kodu Atölye'de Bağlantılar &gt; Chrome bölümünden kopyalayın. Eklenti yalnızca bu bilgisayardaki Atölye'ye bağlanır.</p>
+  </details>
+
+  <section>
+    <h2>Son işlemler</h2>
+    <ol id="gunluk" class="gunluk"></ol>
+  </section>
+
+  <script src="acilir.js"></script>
+</body>
+</html>

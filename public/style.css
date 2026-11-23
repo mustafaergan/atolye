@@ -993,3 +993,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 @keyframes qflash { 0%, 35% { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
 @media (max-width: 600px) { .qnav { right: 4px; } .main.has-qnav .transcript { padding-right: 26px; } .q-tip { max-width: 220px; } }
 .msg-user { scroll-margin-top: 14px; }
+
+/* Bağlantılar > Chrome: eşleştirme kodu satırı */
+.chrome-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chrome-code code { font-family: var(--mono); font-size: 13px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); user-select: all; overflow-wrap: anywhere; }
