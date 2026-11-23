@@ -2,6 +2,8 @@
 // Türkçe metin anahtardır; İngilizce karşılığı aşağıdadır (bkz. public/i18n.js).
 export const EN = {
   'Adsız oturum': 'Untitled session',
+  'Fayda analizi için Ayarlar > Yerel LLM bölümünden bir model ekleyin.': 'Add a model under Settings > Local LLM to run the benefit analysis.',
+  'Bir fayda analizi zaten sürüyor.': 'A benefit analysis is already running.',
   'Özet için yerel model ya da oturum bulunamadı.': 'No local model or session was found for the summary.',
   'Konuşma kaydı okunamadı ya da boş.': 'The conversation record could not be read or is empty.',
   'Yerel model özet yazmadı (cevap gelmedi).': 'The local model did not write a summary (no answer).',

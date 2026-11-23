@@ -230,6 +230,13 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
   gelmez. Sekmenin başındaki **Disk kullanımı** özeti oturum kayıtlarının toplam boyutunu (motorlara göre), sohbete
   eklenen dosyaların (`~/.atolye/ekler`) ve klasörsüz sohbet dosyalarının (`~/.atolye/genel`) boyutunu ve en çok yer
   tutan oturumları gösterir; Atölye'nin kurulum klasörü bu sayılara dahil değildir.
+- **Fayda Analizi:** Atölye'deki oturumları tarar ve üst yönetim için kısa bir rapor hazırlar (yönetici özeti, ne için
+  kullanıldığı, sağlanan fayda ve tahmini zaman kazancı, öne çıkan örnekler, riskler, öneriler). Dönem (son 7/30/90 gün, 1 yıl,
+  bütün kayıtlar) ve raporu yazacak yerel model seçilir. Sayıları (oturum, soru, yapay zekânın yaptığı işlem, değiştirilen
+  dosya, bağlantı kullanımı, mesaj zamanlarından etkin çalışma süresi) Atölye kayıtlardan hesaplar ve rapora tablo olarak
+  ekler; yorumu ve zaman kazancı tahminini yerel model yazar. Yerel modele oturumların başlıkları ve ölçümleri gider,
+  konuşmaların kendisi gitmez; Claude Code ya da Copilot kullanılmaz. Son rapor saklanır; HTML (yazdırılabilir) ya da
+  Markdown olarak indirilebilir.
 
 **Klasör seçimi:** proje klasörü eklerken ya da skill klasörü seçerken pencerenin üstünde kısayollar bulunur: Ev klasörü,
 Masaüstü, Belgeler, İndirilenler, Bu bilgisayar (sürücüler) ve Atölye'deki proje klasörleri. Masaüstü ve Belgeler OneDrive'a ya da

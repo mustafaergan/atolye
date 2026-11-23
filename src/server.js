@@ -29,6 +29,7 @@ import { attachDir, KEEP_DAYS, saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import { userPlaces } from './places.js';
 import { fromCopilotEvents, localSummary } from './handoff.js';
+import * as benefit from './benefit.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
 import * as commands from './commands.js';
@@ -574,6 +575,27 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       console.error(`[aktarım] yerel özet alınamadı: ${err?.message || err}`);
       res.json({ ok: false, error: String(err?.message || err) });
     }
+  }));
+
+  // Fayda analizi (Ayarlar > Fayda Analizi): oturumlar taranır, sayılar Atölye'de hesaplanır, raporu seçilen yerel model
+  // yazar (bkz. benefit.js). Yerel modele oturumların başlıkları ve ölçümleri gider; konuşmaların kendisi gitmez.
+  app.get('/api/benefit', wrap(async (_req, res) => res.json(benefit.status())));
+  app.post('/api/benefit', wrap(async (req, res) => {
+    const lang = normalizeLang(req.query.lang);
+    const { days, localId } = req.body || {};
+    const local = localId ? settings.localConfig(String(localId)) : null;
+    if (!local) return res.json({ ok: false, error: msg(lang, 'Fayda analizi için Ayarlar > Yerel LLM bölümünden bir model ekleyin.') });
+    const model = local.name || local.model;
+    const r = benefit.start({
+      days: Number(days) || 0, lang, model, generalDir: GENERAL_DIR,
+      list: () => allSessions(lang),
+      read: (s) => (s.engine === 'copilot' ? fromCopilotEvents(transcript.read(s.id)) : getSessionMessages(s.id, { dir: s.cwd })),
+      ask: (text) => oneShot({ engine: 'claude', cwd: GENERAL_DIR, local, text, timeoutMs: 600_000 }),
+    });
+    if (!r.ok) return res.json({ ok: false, error: msg(lang, 'Bir fayda analizi zaten sürüyor.') });
+    console.log(`[fayda] analiz başladı (${Number(days) || 'bütün'} gün, ${model})`);
+    r.promise.then(() => { const st = benefit.status(); console.log(`[fayda] ${st.phase === 'done' ? `rapor hazır: ${st.last?.sessions} oturum` : `tamamlanamadı: ${st.code}${st.error ? ` ${st.error}` : ''}`}`); });
+    res.json({ ok: true, ...benefit.status() });
   }));
 
   // Klasör seçicideki kısayollar: ev klasörü, Masaüstü, Belgeler, İndirilenler (yalnızca var olanlar)

@@ -2193,7 +2193,7 @@ loadCommands();
 // ayarları, yerel LLM, skill klasörleri ve eski oturumların temizliği (bkz. src/settings.js).
 const settingsDlg = $('#settingsDialog');
 const settingsUi = { tab: 'app', data: null, busy: false, note: null };
-const SETTINGS_TABS = [['app', () => T('Uygulama')], ['claude', () => 'Claude Code'], ['copilot', () => 'GitHub Copilot'], ['local', () => T('Yerel LLM')], ['skills', () => T('Skill\'ler')], ['sessions', () => T('Oturumlar')]];
+const SETTINGS_TABS = [['app', () => T('Uygulama')], ['claude', () => 'Claude Code'], ['copilot', () => 'GitHub Copilot'], ['local', () => T('Yerel LLM')], ['skills', () => T('Skill\'ler')], ['sessions', () => T('Oturumlar')], ['benefit', () => T('Fayda Analizi')]];
 const sField = (label, input, hint) => el('label', { class: 'links-field' }, el('span', { text: label }), input, hint && el('small', { text: hint }));
 const sInput = (value, attrs = {}) => { const i = el('input', { type: 'text', spellcheck: 'false', autocomplete: 'off', ...attrs }); i.value = value || ''; return i; };
 const sNote = (text, kind = '') => el('div', { class: `links-result ${kind}`, text });
@@ -2206,7 +2206,7 @@ function renderSettings() {
   $('#settingsTabs').replaceChildren(...SETTINGS_TABS.map(([id, name]) => el('button', { type: 'button', class: 'links-tab', role: 'tab', 'aria-selected': String(id === settingsUi.tab), text: name(), onclick: () => { settingsUi.tab = id; settingsUi.note = null; renderSettings(); } })));
   const body = $('#settingsBody');
   if (!settingsUi.data) { body.replaceChildren(sNote(T('Ayarlar okunamadı. Atölye çalışıyor mu?'), 'err')); return; }
-  const parts = { app: settingsApp, claude: settingsClaude, copilot: settingsCopilot, local: settingsLocal, skills: settingsSkills, sessions: settingsSessions }[settingsUi.tab]();
+  const parts = { app: settingsApp, claude: settingsClaude, copilot: settingsCopilot, local: settingsLocal, skills: settingsSkills, sessions: settingsSessions, benefit: settingsBenefit }[settingsUi.tab]();
   body.replaceChildren(...[...parts.flat(), settingsUi.note && sNote(settingsUi.note.text, settingsUi.note.kind)].filter(Boolean));
 }
 const setNote = (text, kind = '') => { settingsUi.note = text ? { text, kind } : null; renderSettings(); };
@@ -2509,9 +2509,118 @@ function settingsSessions() {
   ];
 }
 
+// ---------- Fayda analizi ----------
+// Oturumlar sunucuda taranır ve sayılar hesaplanır; üst yönetim için raporu seçilen yerel model yazar (bkz. src/benefit.js).
+// Analiz arka planda sürer: sekme açıkken ilerleme birkaç saniyede bir okunur. Son rapor sunucuda saklanır.
+const benefitUi = { status: null, days: '30', localId: '', timer: null, loading: false };
+const BENEFIT_PERIODS = [['7', () => T('Son 7 gün')], ['30', () => T('Son 30 gün')], ['90', () => T('Son 90 gün')], ['365', () => T('Son 1 yıl')], ['0', () => T('Bütün kayıtlar')]];
+async function loadBenefit() {
+  benefitUi.loading = true;
+  benefitUi.status = await fetch('/api/benefit').then((r) => r.json()).catch(() => ({ failed: true }));
+  benefitUi.loading = false;
+}
+const benefitVisible = () => settingsUi.tab === 'benefit' && settingsDlg.open;
+function pollBenefit() {
+  clearTimeout(benefitUi.timer);
+  if (!benefitUi.status?.running) return;
+  benefitUi.timer = setTimeout(async () => {
+    if (!benefitVisible()) return; // sekme kapandı: açılınca yeniden okunur
+    await loadBenefit();
+    if (benefitVisible()) renderSettings();
+    pollBenefit();
+  }, 2000);
+}
+function downloadText(name, type, text) {
+  const a = el('a', { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+// Yönetime gönderilebilecek, tek başına açılan HTML (yazdırıp PDF yapılabilir)
+function benefitHtml(md) {
+  const css = 'body{font-family:"Segoe UI",Arial,sans-serif;max-width:820px;margin:40px auto;padding:0 24px;color:#1f1f1f;line-height:1.55}'
+    + 'h1{font-size:26px;margin-bottom:4px}h2{font-size:19px;margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}'
+    + 'table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ddd;padding:6px 10px;text-align:left;vertical-align:top}'
+    + 'th{background:#f5f5f5}em{color:#666}@media print{body{margin:0}}';
+  return `<!doctype html><html lang="${getLang()}"><head><meta charset="utf-8"><title>${T('Atölye Fayda Analizi')}</title><style>${css}</style></head><body>${DOMPurify.sanitize(marked.parse(md))}</body></html>`;
+}
+function settingsBenefit() {
+  const st = benefitUi.status;
+  if (!st) {
+    if (!benefitUi.loading) loadBenefit().then(() => { if (benefitVisible()) renderSettings(); pollBenefit(); });
+    return [sNote(T('Yükleniyor…'))];
+  }
+  const models = settingsUi.data.local?.models || [];
+  const intro = el('p', { class: 'links-intro', text: T('Atölye\'deki oturumları tarar ve üst yönetim için kısa bir fayda raporu hazırlar: ne için kullanıldığı, sağladığı fayda, tahmini zaman kazancı, öne çıkan örnekler ve öneriler. Sayıları Atölye kayıtlardan hesaplar; raporu seçtiğiniz yerel model yazar.') });
+  const privacy = el('p', { class: 'links-note', text: T('Yerel modele oturumların başlıkları ve ölçümleri gönderilir, konuşmaların kendisi gönderilmez. Claude Code ya da Copilot\'a hiçbir şey gitmez.') });
+  if (!models.length) return [intro, sNote(T('Raporu yazacak bir yerel model yok. Önce Yerel LLM sekmesinden bir model ekleyin.'), 'err'), privacy];
+
+  if (!models.some((m) => m.id === benefitUi.localId)) benefitUi.localId = models.find((m) => m.id === state.localId)?.id || models[0].id;
+  const period = el('select', { class: 'settings-select' }, ...BENEFIT_PERIODS.map(([v, name]) => el('option', { value: v, text: name() })));
+  period.value = benefitUi.days;
+  period.onchange = () => { benefitUi.days = period.value; };
+  const model = el('select', { class: 'settings-select' }, ...models.map((m) => el('option', { value: m.id, text: m.name || m.model })));
+  model.value = benefitUi.localId;
+  model.onchange = () => { benefitUi.localId = model.value; };
+  const startBtn = el('button', { type: 'button', class: 'btn primary', text: st.running ? T('Analiz sürüyor…') : T('Analizi başlat'), disabled: Boolean(st.running) });
+  startBtn.onclick = async () => {
+    startBtn.disabled = true;
+    const r = await sCall('/api/benefit', { days: Number(benefitUi.days), localId: benefitUi.localId });
+    benefitUi.status = r.ok ? r : { ...st, failed: false };
+    setNote(r.ok ? '' : r.error, r.ok ? '' : 'err');
+    pollBenefit();
+  };
+
+  // İlerleme ya da son denemenin sonucu
+  const secs = st.startedAt ? Math.max(0, Math.round((Date.now() - st.startedAt) / 1000)) : 0;
+  const ERR = {
+    empty: T('Bu dönemde konuşma içeren oturum bulunamadı. Daha uzun bir dönem seçin.'),
+    'no-answer': T('Yerel model raporu yazmadı (cevap gelmedi ya da süre doldu). Modelin çalıştığını Yerel LLM sekmesinden deneyin.'),
+  };
+  const progress = st.failed ? sNote(T('Analiz durumu okunamadı. Atölye çalışıyor mu?'), 'err')
+    : st.running ? sNote(st.phase === 'write'
+      ? T('{model} raporu yazıyor… ({s} sn) Yerel modelin hızına göre birkaç dakika sürebilir; pencereyi kapatabilirsiniz, analiz sürer.', { model: st.model, s: secs })
+      : T('Oturumlar taranıyor… {done} / {total}', { done: st.done, total: st.total || '…' }))
+    : st.phase === 'error' ? sNote(ERR[st.code] || T('Analiz tamamlanamadı: {error}', { error: st.error || st.code }), 'err')
+    : null;
+
+  // Son rapor
+  const last = st.last;
+  let report = null;
+  if (last?.markdown) {
+    const body = el('div', { class: 'msg-text benefit-report' });
+    renderMarkdown(body, last.markdown);
+    for (const b of body.querySelectorAll('.copy-code')) b.remove();
+    const stamp = new Date(last.at).toISOString().slice(0, 10);
+    const copyBtn = el('button', { type: 'button', class: 'btn', text: T('Kopyala') });
+    copyBtn.onclick = () => { navigator.clipboard?.writeText(last.markdown); copyBtn.textContent = T('Kopyalandı'); setTimeout(() => (copyBtn.textContent = T('Kopyala')), 1200); };
+    const when = new Date(last.at).toLocaleString(getLang() === 'en' ? 'en-GB' : 'tr-TR');
+    report = [
+      el('div', { class: 'usage-title', text: T('Son rapor: {date} · {n} oturum · {model}', { date: when, n: last.sessions, model: last.model }) }),
+      body,
+      el('div', { class: 'links-actions' },
+        el('button', { type: 'button', class: 'btn', text: T('HTML olarak indir'), title: T('Tarayıcıda açılıp yazdırılabilir ya da PDF olarak kaydedilebilir'), onclick: () => downloadText(`atolye-fayda-analizi-${stamp}.html`, 'text/html;charset=utf-8', benefitHtml(last.markdown)) }),
+        el('button', { type: 'button', class: 'btn', text: T('Markdown indir'), onclick: () => downloadText(`atolye-fayda-analizi-${stamp}.md`, 'text/markdown;charset=utf-8', last.markdown) }),
+        copyBtn),
+    ];
+  }
+  return [
+    intro,
+    el('div', { class: 'benefit-form' },
+      el('label', { class: 'links-field' }, el('span', { text: T('Dönem') }), period),
+      el('label', { class: 'links-field' }, el('span', { text: T('Raporu yazacak yerel model') }), model)),
+    el('div', { class: 'links-actions' }, startBtn),
+    progress,
+    privacy,
+    ...(report || []),
+  ];
+}
+
 $('#settingsBtn').onclick = async () => {
   settingsUi.note = null;
   settingsUi.usage = null;
+  benefitUi.status = null;
   await Promise.all([loadSettings(), loadEngines(true)]);
   renderSettings();
   settingsDlg.showModal();
