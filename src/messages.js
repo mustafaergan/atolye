@@ -2,6 +2,9 @@
 // Türkçe metin anahtardır; İngilizce karşılığı aşağıdadır (bkz. public/i18n.js).
 export const EN = {
   'Adsız oturum': 'Untitled session',
+  'Özet için yerel model ya da oturum bulunamadı.': 'No local model or session was found for the summary.',
+  'Konuşma kaydı okunamadı ya da boş.': 'The conversation record could not be read or is empty.',
+  'Yerel model özet yazmadı (cevap gelmedi).': 'The local model did not write a summary (no answer).',
   'Klasör bulunamadı: {dir}': 'Folder not found: {dir}',
   'Aktif oturum yok': 'No active session',
   'Oturum kapandı, yeniden açın': 'The session was closed, please reopen it',

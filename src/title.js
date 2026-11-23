@@ -3,6 +3,7 @@
 // ATOLYE_AI_TITLE=0: yapay zekâ başlığını kapatır (her oturumda küçük bir ek istek anlamına gelir).
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { CopilotSession } from './copilot.js';
+import { localEnv } from './settings.js';
 
 const MAX = 60;
 
@@ -36,13 +37,19 @@ const prompt = (lang, question, answer) => [
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(''), ms))]);
 
-async function claudeTitle({ cwd, model, text }) {
+async function claudeTitle({ cwd, model, text, local = null }) {
   let out = '';
   // Araçsız, tek turluk ve diske yazılmayan bir istek: oturum listesinde ayrı bir oturum olarak görünmez.
   // settingSources 'user': gateway adresi ve token ~/.claude/settings.json'dan gelir.
+  // local (yerel LLM ayarı) verilmişse istek o sunucuya ve modele gider (oturumlardakiyle aynı yol, bkz. session.js).
+  const env = local ? localEnv(local) : null;
   const q = query({
     prompt: text,
-    options: { cwd, model, maxTurns: 1, tools: [], persistSession: false, settingSources: ['user'], canUseTool: async () => ({ behavior: 'deny', message: 'başlık isteği' }) },
+    options: {
+      cwd, model: local ? local.model : model, maxTurns: 1, tools: [], persistSession: false, settingSources: ['user'],
+      canUseTool: async () => ({ behavior: 'deny', message: 'başlık isteği' }),
+      ...(env ? { env: { ...process.env, ...env }, extraArgs: { settings: JSON.stringify({ env }) } } : {}),
+    },
   });
   try {
     for await (const m of q) {
@@ -76,8 +83,8 @@ function copilotTitle({ cwd, text }) {
 }
 
 /** Seçili motora araçsız, tek seferlik bir istek gönderir ve yanıt metnini döndürür (süre dolarsa boş) */
-export function oneShot({ engine, cwd, model, text, timeoutMs = 60_000 }) {
-  return withTimeout(engine === 'copilot' ? copilotTitle({ cwd, text }) : claudeTitle({ cwd, model, text }), timeoutMs);
+export function oneShot({ engine, cwd, model, text, timeoutMs = 60_000, local = null }) {
+  return withTimeout(engine === 'copilot' ? copilotTitle({ cwd, text }) : claudeTitle({ cwd, model, text, local }), timeoutMs);
 }
 
 /** Konuşmaya yapay zekâdan başlık ister; olmazsa boş döner (başlık isteği asıl oturumu hiç etkilemez) */

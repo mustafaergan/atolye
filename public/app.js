@@ -642,7 +642,7 @@ function handleEvent(ev) {
     case 'effort': $('#effortSelect').value = ev.effort || ''; return;
     case 'credits': state.credits = ev.credits; return updateStatus();
     case 'capabilities': return setCapabilities(ev);
-    case 'error': clearTimeout(openWatch); setBusy(false); $('.boot-notice', dom.messages)?.remove(); notice(ev.message); if (ev.login === 'copilot') offerCopilotLogin(); return;
+    case 'error': clearTimeout(openWatch); setBusy(false); state.turnFailed = true; $('.boot-notice', dom.messages)?.remove(); notice(ev.message); if (ev.login === 'copilot') offerCopilotLogin(); return;
     case 'opened': applyOpened(ev); maybeOfferCopilotInstall(); return;
     case 'context': return onContext(ev);
     case 'live': return onLiveList(ev.sessions || []);
@@ -794,6 +794,7 @@ function renderAssistant(msg, fromHistory) {
       renderToolCard(b, fromHistory);
     }
   }
+  if (msg.error && !fromHistory) state.turnFailed = true;
   if (msg.error === 'authentication_failed' && !fromHistory)
     notice(T("Kimlik doğrulama başarısız. Şirket gateway token'ını (ANTHROPIC_AUTH_TOKEN) ~/.claude/settings.json ya da .env içinde kontrol edin."));
   scrollDown();
@@ -845,6 +846,8 @@ function renderResult(msg) {
   if (typeof msg.total_cost_usd === 'number') state.cost = msg.total_cost_usd;
   if (msg.copilot_credits) state.credits = msg.copilot_credits;
   trackResult(msg);
+  // Tur hatayla bittiyse (kullanıcının durdurması hariç) aktarım özeti bu yapay zekâdan beklenmez (bkz. handoffFallback)
+  if (msg.is_error || (msg.subtype !== 'success' && !/interrupt/i.test(String(msg.terminal_reason || '')))) state.turnFailed = true;
   const secs = (msg.duration_ms / 1000).toFixed(1);
   const parts = [T('{n} sn', { n: secs })];
   if (msg.num_turns) parts.push(T('{n} tur', { n: msg.num_turns }));
@@ -1319,6 +1322,7 @@ function activePrompt() {
 // ---------- Meşguliyet / çalışıyor göstergesi ----------
 function setBusy(busy) {
   const ended = state.busy && !busy;
+  if (!state.busy && busy) state.turnFailed = false; // yeni tur başlıyor
   state.busy = busy;
   if (ended && handoffUi.waiting) setTimeout(handoffTurnEnded, 0);
   if (busy) setWorking(T('Çalışıyor…'));
@@ -3588,7 +3592,8 @@ async function renderProxyTab() {
 // konuşmanın özetini yazar, kullanıcı özeti görüp düzenler ve onaylar; hedef motorda açılan yeni oturumun ilk mesajıyla
 // birlikte (gizli bağlam olarak) gönderilir. Konuşmanın kendisi taşınmaz: motorlar birbirinin kaydını okuyamaz, ayrıca
 // yerel modelin gördüğü içerik (Outlook, Teams, veritabanı) kullanıcının onayı olmadan buluta gitmemelidir.
-const handoffUi = { target: null, waiting: false, timer: null };
+const handoffUi = { target: null, waiting: false, timer: null, run: 0 };
+state.turnFailed = false; // son tur hatayla bitti (kimlik doğrulama, kota, ağ): özet o yapay zekâdan istenmez
 state.handoff = null;   // { text, liveId, from }: yeni oturumun ilk mesajıyla gönderilecek özet
 state.lastReply = '';   // son yapay zekâ yanıtının düz metni (özet buradan alınır)
 const HANDOFF_WAIT_MS = 180_000;
@@ -3603,16 +3608,48 @@ function handoffStage(title, ...children) {
   if (!handoffDlg().open) handoffDlg().showModal();
 }
 
+/**
+ * Konuşmayı yürüten yapay zekâ cevap veremiyorsa özetin yazdırılacağı yerel model: hedef yerelse o, değilse seçili
+ * yerel model, o da yoksa ilki. Sorunlu oturumun kendi modeli sayılmaz. Yerel model tanımlı değilse null.
+ */
+function handoffFallback() {
+  const broken = currentEngine() === 'yerel' ? state.sessionLocal || state.localId : null;
+  const all = localModels().filter((m) => m.id !== broken);
+  const t = handoffUi.target;
+  return (t?.engine === 'yerel' && all.find((m) => m.id === t.local)) || all.find((m) => m.id === state.localId) || all[0] || null;
+}
+
+/** Yedek yol: konuşma kaydı sunucuda okunur ve özet yerel modele yazdırılır (yalnızca şimdiki yapay zekâ hata verdiyse) */
+async function localHandoffSummary() {
+  const m = handoffFallback();
+  if (!m) return reviewHandoff('');
+  handoffUi.waiting = false;
+  clearTimeout(handoffUi.timer);
+  const run = ++handoffUi.run;
+  const from = aiName();
+  handoffStage(T('Özet yerel modelle hazırlanıyor…'), [
+    el('p', { class: 'links-intro', text: T('{from} şu an cevap veremiyor. Konuşma kaydı {model} yerel modeline gönderiliyor; özeti o yazacak ve düzenlemeniz için burada açılacak.', { from, model: m.name }) }),
+    el('div', { class: 'links-actions' },
+      el('button', { class: 'btn', type: 'button', text: T('Özeti kendim yazacağım'), onclick: () => reviewHandoff('') }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
+  ]);
+  const r = await sCall('/api/handoff/summary', { sessionId: state.sessionId, engine: currentEngine(), cwd: state.cwd, localId: m.id });
+  if (run !== handoffUi.run || !handoffDlg().open) return; // kullanıcı beklemedi: kendi yazıyor ya da vazgeçti
+  reviewHandoff(r.ok ? r.summary : '', r.ok ? { by: m.name, from } : { error: r.error });
+}
+
 /** Motor menüsünde başka bir motor seçildi ve açık konuşmada mesaj var: nasıl devam edileceği sorulur */
 function offerHandoff(o) {
   handoffUi.target = o;
   const name = engineNameOf(o);
+  const fallback = state.turnFailed ? handoffFallback() : null;
   handoffStage(T('{name} ile devam', { name }), [
     el('p', { class: 'links-intro', text: T('Bu konuşmada yazışma var. {name} ile nasıl devam etmek istersiniz?', { name }) }),
     el('ol', { class: 'links-steps' },
       el('li', { text: T('Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { name }) }),
       el('li', { text: T('Yeni oturum: {name} ile boş bir oturum açılır; bu konuşma listede kalır.', { name }) })),
     state.busy ? el('p', { class: 'links-intro', text: T('Şu an bir işlem sürüyor; özet için bitmesini bekleyin ya da yeni oturum açın.') }) : null,
+    fallback ? el('p', { class: 'links-intro', text: T('Son istek hatayla bitti: {from} şu an cevap veremiyor olabilir. "Bu konuşmayla devam et" derseniz özeti {model} yerel modeli konuşma kaydından yazar.', { from: aiName(), model: fallback.name }) }) : null,
     el('div', { class: 'links-actions' },
       el('button', { class: 'btn primary', type: 'button', text: T('Bu konuşmayla devam et'), disabled: state.busy, onclick: startHandoffSummary }),
       el('button', { class: 'btn', type: 'button', text: T('Yeni oturum'), onclick: () => { handoffDlg().close(); switchEngine(o); } }),
@@ -3622,6 +3659,8 @@ function offerHandoff(o) {
 
 /** Şimdiki oturumdan aktarım özeti istenir; yanıt bitince düzenleme ekranı açılır */
 function startHandoffSummary() {
+  // Son istek hatayla bittiyse aynı yapay zekâdan özet beklemek boşuna: doğrudan yerel modele yazdırılır
+  if (state.turnFailed && handoffFallback()) return void localHandoffSummary();
   handoffUi.waiting = true;
   state.lastReply = '';
   handoffStage(T('Özet hazırlanıyor…'), [
@@ -3632,17 +3671,21 @@ function startHandoffSummary() {
   ]);
   sendToAi(T('Bu konuşmayı başka bir yapay zekâ oturumuna devredeceğim. Onun kaldığımız yerden devam edebilmesi için bir aktarım özeti yaz: amaç, şimdiye kadar öğrenilenler ve alınan kararlar (gerekli kimlikler, dosya yolları ve sayılarla), yapılanlar ve sıradaki adım. Araç kullanma; yalnızca özeti yaz, giriş ya da kapanış cümlesi ekleme.'));
   clearTimeout(handoffUi.timer);
-  handoffUi.timer = setTimeout(() => { if (handoffUi.waiting) reviewHandoff(state.lastReply); }, HANDOFF_WAIT_MS);
+  handoffUi.timer = setTimeout(() => { if (handoffUi.waiting) handoffTurnEnded(); }, HANDOFF_WAIT_MS);
 }
 
 /** Yanıt bittiğinde (setBusy(false)) çağrılır: özet bekleniyorsa düzenleme ekranını açar */
 function handoffTurnEnded() {
   if (!handoffUi.waiting || !handoffDlg().open) { handoffUi.waiting = false; return; }
-  reviewHandoff(state.lastReply);
+  // Özet isteği de hatayla bittiyse (ya da yanıt gelmediyse) ve yerel model tanımlıysa özet ona yazdırılır
+  const failed = state.turnFailed || !state.lastReply;
+  if (failed && handoffFallback()) return void localHandoffSummary();
+  reviewHandoff(failed ? '' : state.lastReply);
 }
 
-function reviewHandoff(summary) {
+function reviewHandoff(summary, info = {}) {
   handoffUi.waiting = false;
+  handoffUi.run++; // bekleyen yerel özet isteği varsa sonucu artık kullanılmaz
   clearTimeout(handoffUi.timer);
   const o = handoffUi.target;
   const name = engineNameOf(o);
@@ -3661,6 +3704,8 @@ function reviewHandoff(summary) {
   } });
   handoffStage(T('Aktarılacak özet'), [
     summary ? null : el('p', { class: 'links-intro', text: T('Özet alınamadı. Yeni oturumun bilmesi gerekenleri aşağıya kendiniz yazabilirsiniz.') }),
+    !summary && info.error ? el('div', { class: 'links-result err', text: info.error }) : null,
+    summary && info.by ? el('div', { class: 'links-result', text: T('Bu özeti {model} yerel modeli konuşma kaydından yazdı, çünkü {from} cevap veremedi. Eksik ya da yanlış olabilir; gözden geçirin.', { model: info.by, from: info.from }) }) : null,
     fromLocal && toCloud
       ? el('div', { class: 'links-result err' }, el('span', { text: usedPrivate
         ? T('Dikkat: bu konuşmada Outlook ya da Teams verisi okundu. Aşağıdaki özet {name} hizmetine (buluta) gönderilecek; e-posta ve mesaj içeriklerinden paylaşmak istemediklerinizi silin.', { name })
@@ -3686,7 +3731,7 @@ function renderHandoffCard() {
   dom.empty.hidden = true;
   dom.messages.prepend(card);
 }
-handoffDlg().addEventListener('close', () => { handoffUi.waiting = false; clearTimeout(handoffUi.timer); });
+handoffDlg().addEventListener('close', () => { handoffUi.waiting = false; handoffUi.run++; clearTimeout(handoffUi.timer); });
 $('#handoffClose').onclick = () => handoffDlg().close();
 
 // ---------- Oracle istemcisi (Oracle sekmesinin altında) ----------

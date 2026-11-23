@@ -24,10 +24,11 @@ import * as fikirhane from './fikirhane.js';
 import { applyUpdate, checkUpdate } from './update.js';
 import * as repo from './repo.js';
 import { recentLog } from './log.js';
-import { shortTitle } from './title.js';
+import { oneShot, shortTitle } from './title.js';
 import { attachDir, KEEP_DAYS, saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import { userPlaces } from './places.js';
+import { fromCopilotEvents, localSummary } from './handoff.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
 import * as commands from './commands.js';
@@ -551,6 +552,28 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     if (req.query.engine === 'copilot') { store.deleteCopilotSession(req.params.id); transcript.remove(req.params.id); }
     else { await deleteSession(req.params.id, { dir }); store.deleteLocalSession(req.params.id); }
     res.json({ ok: true });
+  }));
+
+  // Aktarım özetinin yedek yolu: konuşmayı yürüten yapay zekâ cevap veremiyorsa (kimlik doğrulama, kota, ağ) kayıt
+  // diskten okunur ve özet yerel modele yazdırılır (bkz. handoff.js). Kayıt yalnızca seçilen yerel modele gider.
+  app.post('/api/handoff/summary', wrap(async (req, res) => {
+    const lang = req.query.lang;
+    const { sessionId, engine, cwd, localId } = req.body || {};
+    const local = localId ? settings.localConfig(String(localId)) : null;
+    if (!local || !sessionId) return res.json({ ok: false, error: msg(lang, 'Özet için yerel model ya da oturum bulunamadı.') });
+    const dir = cwd ? String(cwd) : defaultCwd;
+    try {
+      const r = await localSummary({
+        read: async () => (engine === 'copilot' ? fromCopilotEvents(transcript.read(String(sessionId))) : getSessionMessages(String(sessionId), { dir })),
+        ask: (text) => oneShot({ engine: 'claude', cwd: dir, local, text, timeoutMs: 180_000 }),
+      });
+      console.log(`[aktarım] özet yerel modele yazdırıldı (${local.name || local.model}): ${r.ok ? `${r.summary.length} karakter` : r.code}`);
+      res.json(r.ok ? { ok: true, summary: r.summary, model: local.name || local.model }
+        : { ok: false, error: r.code === 'empty' ? msg(lang, 'Konuşma kaydı okunamadı ya da boş.') : msg(lang, 'Yerel model özet yazmadı (cevap gelmedi).') });
+    } catch (err) {
+      console.error(`[aktarım] yerel özet alınamadı: ${err?.message || err}`);
+      res.json({ ok: false, error: String(err?.message || err) });
+    }
   }));
 
   // Klasör seçicideki kısayollar: ev klasörü, Masaüstü, Belgeler, İndirilenler (yalnızca var olanlar)
