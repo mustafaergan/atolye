@@ -218,6 +218,29 @@ export const upstreamHeaders = (key) => ({ 'content-type': 'application/json', a
 // yinelenir ve sunucunun bunu istediği hatırlanır.
 const plain = new Set();
 
+// ---------- Görsel okuyamayan modeller ----------
+// Kullanıcı görsel ekler ya da bir araç (ekran görüntüsü, görsel dosya okuma) görsel döndürürse görsel konuşma geçmişinde
+// kalır ve sonraki her istekte modele yeniden gider. Model görsel okuyamıyorsa her istek aynı hatayla düşer ve oturum
+// kilitlenir. Bu yüzden: model görseli reddederse görseller kısa bir metin notuna çevrilip istek bir kez yinelenir; o model
+// için bu hatırlanır ve sonraki isteklerde görseller baştan çıkarılır. Görselin kendisi kaybolmaz, yalnızca bu modele gitmez.
+const textOnly = new Set(); // `${kimlik}:${model}`
+const IMAGE_ERROR = /multi-?modal|vision|image|görsel/i;
+export const IMAGE_NOTE = '[An image was attached here, but this model cannot read images, so it was not sent. If the image matters, tell the user this in their language and ask them to describe it in text.]';
+
+/** OpenAI isteğinde görsel var mı */
+export const hasImages = (payload) => (payload?.messages || []).some((m) => Array.isArray(m.content) && m.content.some((p) => p?.type === 'image_url'));
+
+/** Görselleri metin notuna çevirir (görselsiz mesajlar aynen kalır) */
+export function withoutImages(payload) {
+  return {
+    ...payload,
+    messages: payload.messages.map((m) => {
+      if (!Array.isArray(m.content) || !m.content.some((p) => p?.type === 'image_url')) return m;
+      return { ...m, content: m.content.map((p) => (p?.type === 'image_url' ? IMAGE_NOTE : p?.text || '')).filter(Boolean).join('\n\n') };
+    }),
+  };
+}
+
 async function callUpstream(cfg, payload, signal, fetchImpl) {
   const endpoint = openaiEndpoint(cfg.url);
   const post = (p) => fetchImpl(endpoint, { method: 'POST', signal, headers: upstreamHeaders(cfg.key), body: JSON.stringify(p) });
@@ -226,6 +249,8 @@ async function callUpstream(cfg, payload, signal, fetchImpl) {
   const res = await post(payload);
   if (res.status !== 400 && res.status !== 422) return res;
   const detail = await res.text().catch(() => '');
+  // Görsel reddi alan sorunu değildir: yalın istek denenmez, çağıran görselleri çıkarıp yineler
+  if (hasImages(payload) && IMAGE_ERROR.test(detail)) return new Response(detail, { status: res.status });
   const again = await post(slim());
   if (again.ok) { plain.add(cfg.id); return again; }
   await again.body?.cancel().catch(() => {});
@@ -272,21 +297,38 @@ export function bridgeHandlers({ configOf, fetchImpl = fetch, log = () => {} }) 
       const cfg = find(req, res);
       if (!cfg) return;
       const body = req.body || {};
-      const payload = toOpenAI(body, cfg.model);
+      const visionKey = `${cfg.id}:${cfg.model}`;
+      let payload = toOpenAI(body, cfg.model);
+      if (textOnly.has(visionKey) && hasImages(payload)) payload = withoutImages(payload);
       const inputEstimate = estimate(payload.messages) + estimate(payload.tools);
       const abort = new AbortController();
       res.on('close', () => { if (!res.writableEnded) abort.abort(); });
-      let up;
-      try {
-        up = await callUpstream(cfg, payload, abort.signal, fetchImpl);
-      } catch (err) {
-        if (abort.signal.aborted) return;
-        log(`sunucuya ulaşılamadı: ${err?.cause?.code || err?.message || err}`);
-        res.status(502).json(errorBody(502, `Model sunucusuna ulaşılamadı: ${err?.cause?.code || err?.message || err}`));
-        return;
+      const send = async () => {
+        try {
+          return await callUpstream(cfg, payload, abort.signal, fetchImpl);
+        } catch (err) {
+          if (abort.signal.aborted) return null;
+          log(`sunucuya ulaşılamadı: ${err?.cause?.code || err?.message || err}`);
+          res.status(502).json(errorBody(502, `Model sunucusuna ulaşılamadı: ${err?.cause?.code || err?.message || err}`));
+          return null;
+        }
+      };
+      let up = await send();
+      if (!up) return;
+      let detail = '';
+      if (!up.ok) {
+        detail = (await up.text().catch(() => '')).replace(/\s+/g, ' ').trim();
+        // Model görseli reddetti: görseller nota çevrilip bir kez yinelenir, bu model için hatırlanır
+        if (hasImages(payload) && IMAGE_ERROR.test(detail)) {
+          textOnly.add(visionKey);
+          log(`${cfg.model} görsel okuyamıyor (HTTP ${up.status}); görseller çıkarılıp yeniden deneniyor`);
+          payload = withoutImages(payload);
+          up = await send();
+          if (!up) return;
+          if (!up.ok) detail = (await up.text().catch(() => '')).replace(/\s+/g, ' ').trim();
+        }
       }
       if (!up.ok) {
-        const detail = (await up.text().catch(() => '')).replace(/\s+/g, ' ').trim();
         log(`HTTP ${up.status} ${detail.slice(0, 200)}`);
         res.status(up.status).json(errorBody(up.status, `Model sunucusu HTTP ${up.status} döndürdü. ${detail}`));
         return;

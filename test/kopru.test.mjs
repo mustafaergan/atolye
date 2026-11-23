@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import express from 'express';
-import { bridge, bridgeHandlers, fromOpenAI, looksOpenAI, openaiEndpoint, openaiModelsUrl, streamTranslator, thinkFilter, toOpenAI } from '../src/kopru.js';
+import { IMAGE_NOTE, bridge, bridgeHandlers, fromOpenAI, hasImages, withoutImages, looksOpenAI, openaiEndpoint, openaiModelsUrl, streamTranslator, thinkFilter, toOpenAI } from '../src/kopru.js';
 
 test('uç nokta: tam adres olduğu gibi kalır, kök adrese /v1/chat/completions eklenir', () => {
   assert.equal(openaiEndpoint('https://gateway.example.com/chat/completions'), 'https://gateway.example.com/chat/completions');
@@ -82,6 +82,55 @@ test('akış çevirisi: metin geldikçe, araç çağrıları sonda; olay sıras�
   assert.deepEqual(events[5][1].content_block, { type: 'tool_use', id: 'c1', name: 'Read', input: {} });
   assert.deepEqual(events.at(-2)[1], { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { input_tokens: 30, output_tokens: 9 } });
   assert.equal(events[0][1].message.usage.input_tokens, 7);
+});
+
+test('görsel okuyamayan model: görsel reddedilince nota çevrilip yinelenir, sonraki isteklerde baştan çıkarılır', async () => {
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      seen.push(body);
+      res.setHeader('content-type', 'application/json');
+      if (hasImages(body)) { res.statusCode = 400; return res.end(JSON.stringify({ error: { message: `${body.model} is not a multimodal model`, type: 'BadRequestError', code: 400 } })); }
+      res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: 'Görseli göremiyorum, anlatır mısınız?' } }] }));
+    });
+  });
+  await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+  const cfg = { id: 'metin', kind: 'openai', url: `http://127.0.0.1:${upstream.address().port}/chat/completions`, model: 'metin-modeli', key: '' };
+  const app = express();
+  app.use(express.json({ limit: '5mb' }));
+  const h = bridgeHandlers({ configOf: () => cfg });
+  app.post('/kopru/:id/v1/messages', (req, res) => h.messages(req, res));
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const call = (body) => fetch(`http://127.0.0.1:${server.address().port}/kopru/metin/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': bridge.secret }, body: JSON.stringify(body) });
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } };
+  const first = { model: 'x', max_tokens: 50, messages: [{ role: 'user', content: [image, { type: 'text', text: 'Bu ekrandaki kayıtlar neden bulunamıyor?' }] }] };
+  try {
+    const r1 = await call(first);
+    assert.equal(r1.status, 200, 'oturum kilitlenmez');
+    assert.equal((await r1.json()).content[0].text, 'Görseli göremiyorum, anlatır mısınız?');
+    assert.equal(seen.length, 2, 'görselle bir kez denenir, sonra görselsiz yinelenir');
+    assert.equal(seen[1].messages[0].content, `${IMAGE_NOTE}\n\nBu ekrandaki kayıtlar neden bulunamıyor?`);
+
+    // Geçmişte görsel kalmış ikinci soru: görsel baştan çıkarılır, tek istek gider
+    const second = { ...first, messages: [...first.messages, { role: 'assistant', content: 'Görseli göremiyorum.' }, { role: 'user', content: 'Issues in Release şeklinde bağlı kayıtlar' }] };
+    seen.length = 0;
+    assert.equal((await call(second)).status, 200);
+    assert.equal(seen.length, 1);
+    assert.ok(!hasImages(seen[0]));
+    assert.equal(seen[0].messages.at(-1).content, 'Issues in Release şeklinde bağlı kayıtlar');
+  } finally { server.close(); upstream.close(); }
+
+  // Yardımcılar: görselsiz mesaja dokunulmaz
+  const p = { messages: [{ role: 'system', content: 'kural' }, { role: 'user', content: [{ type: 'text', text: 'a' }, { type: 'image_url', image_url: { url: 'data:x' } }] }] };
+  assert.equal(hasImages(p), true);
+  const q = withoutImages(p);
+  assert.equal(q.messages[0], p.messages[0]);
+  assert.equal(q.messages[1].content, `a\n\n${IMAGE_NOTE}`);
+  assert.equal(hasImages(q), false);
 });
 
 test('köprü uçtan uca: anahtar denetimi, akış, akışsız yanıt, alan reddedilince yalın istek ve hata aktarımı', async () => {

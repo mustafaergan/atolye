@@ -207,6 +207,9 @@ Sol üstteki dişli **Ayarlar** penceresini açar:
     Adres `/chat/completions` ile biten tam hâliyle (ör. `https://gateway.sirket.com/chat/completions`) ya da kök
     olarak (`http://localhost:8000`, sonuna `/v1/chat/completions` eklenir) yazılabilir. API anahtarı `Authorization:
     Bearer` başlığıyla gönderilir ve Claude Code sürecine verilmez.
+    Model görsel okuyamıyorsa ("not a multimodal model" gibi bir hata dönerse) köprü görselleri kısa bir notla değiştirip
+    isteği yineler ve bunu o model için hatırlar: görsel eklenmiş bir oturum kilitlenmez, model görseli göremediğini
+    söyleyip devam eder.
 
   Tür, adres `/chat/completions` ile bitiyorsa kendiliğinden seçilir; emin değilseniz **Bağlantıyı dene** hangisinin
   çalıştığını bulur. Liste `~/.atolye/yerel-llm.json` dosyasında durur. Küçük modeller araç kullanımında (dosya
