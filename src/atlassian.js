@@ -7,6 +7,7 @@ import { outlook } from './outlook.js';
 import { teamsClient } from './teams-client.js';
 import { chromeClient } from './chrome-client.js';
 import { tomcatClient } from './tomcat-client.js';
+import { tempoClient } from './tempo.js';
 import { oracle, postgres } from './database.js';
 import * as fikirhane from './fikirhane.js';
 
@@ -21,7 +22,7 @@ function trustSystemCertificates() {
   } catch { /* eski Node */ }
 }
 
-export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane', 'chrome', 'tomcat'];
+export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane', 'chrome', 'tomcat', 'tempo'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
@@ -50,6 +51,12 @@ export function configFromEnv(service, env = process.env) {
     const url = env.ATOLYE_TOMCAT_URL || process.env.ATOLYE_TOMCAT_URL;
     const token = env.ATOLYE_TOMCAT_ANAHTAR || process.env.ATOLYE_TOMCAT_ANAHTAR;
     return env.TOMCAT_ENABLED === '1' && url && token ? { url, token, email: '' } : null;
+  }
+  // Tempo (Jira'nın iş kaydı eklentisi): kendi adresi ya da anahtarı yoktur, Jira bağlantısınınkiler kullanılır;
+  // ayar dosyasında yalnızca "açık" bilgisi ve kullanıcının kendi kuralları (TEMPO_NOTES) durur (bkz. tempo.js)
+  if (service === 'tempo') {
+    const jiraCfg = env.TEMPO_ENABLED === '1' ? configFromEnv('jira', env) : null;
+    return jiraCfg ? { ...jiraCfg, notes: String(env.TEMPO_NOTES || '') } : null;
   }
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
@@ -93,7 +100,7 @@ export function errorSummary(raw = '') {
   return body.slice(0, 300);
 }
 
-async function call(cfg, url, { method = 'GET', body, text = false, headers = {} } = {}) {
+export async function call(cfg, url, { method = 'GET', body, text = false, headers = {} } = {}) {
   trustSystemCertificates();
   const basic = `Basic ${Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64')}`;
   const bearer = `Bearer ${cfg.token}`;
@@ -778,4 +785,4 @@ export const reportportal = {
 };
 
 // Graylog iki ortamla bağlanır: 'graylog' test, 'graylogprod' canlı (prod); istemci aynıdır, adres ve belirteç ayrıdır
-export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane, chrome: chromeClient, tomcat: tomcatClient };
+export const clients = { jira, confluence, bitbucket, graylog, graylogprod: graylog, jenkins, fortify, weblogic, sonarqube, reportportal, outlook, teams: teamsClient, oracle, postgres, fikirhane, chrome: chromeClient, tomcat: tomcatClient, tempo: tempoClient(call) };

@@ -280,6 +280,16 @@ bir satır eklemek yeterlidir.
 Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanmış açık kayıtları listele", "ABC-123'ü oku",
 "Confluence'ta kurulum dokümanını bul", "şu deponun açık çekme isteklerini incele".
 
+- **Tempo (timesheet)** sekmesi, Jira'daki Tempo Timesheets eklentisine (Server / Data Center) iş kaydı girmeyi açar.
+  Ayrı anahtar gerekmez, Jira bağlantısının adresi ve belirteci kullanılır; ayar dosyasına yalnızca `TEMPO_ENABLED` ve
+  isteğe bağlı kurallarınız (`TEMPO_NOTES`, ör. "Cuma günleri 1 saat toplantı") yazılır. Araçlar: `tempo_profile`
+  (son 90 günün kayıtlarından öğrenilenler: hangi işe ne kadar, zorunlu alanlar, açıklama kalıbı, son iki hafta),
+  `tempo_status` (gün gün gerekli / girilen / eksik süre; takvim Tempo'dan okunur, okunamazsa hafta içi 8 saat),
+  `tempo_log_work` (birden fazla kayıt tek çağrıda; zorunlu alanlar her iş için geçmişteki en sık değerle, açıklama
+  öğrenilen kalıpla doldurulur; biri bile hatalıysa hiçbiri gönderilmez) ve `tempo_delete_worklog`. Kuruma özel alan
+  adları kodda yoktur, hepsi geçmiş kayıtlardan çalışma anında öğrenilir. Kullanım: mesaj kutusundaki **Bağlantı**
+  seçicisinden Tempo'yu seçip "bu haftanın timesheet'ini dolduralım" yazın; yapay zekâ önce önerisini tablo hâlinde
+  gösterip sorar, onayınız olmadan kayıt girmez (girerken Atölye ayrıca izin ister).
 - **Proxy** sekmesi, şirket ağı internete proxy üzerinden çıkıyorsa GitHub Copilot için kullanılır: adres, kullanıcı adı,
   parola ve proxy kullanılmayacak adresler girilir; **Kaydet ve sına** proxy üzerinden GitHub'a ulaşılabildiğini denetler.
   Ayar yalnızca Atölye'nin başlattığı Copilot süreçlerine verilir (Claude Code ve diğer programlar etkilenmez) ve `.env`

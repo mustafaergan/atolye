@@ -3126,14 +3126,14 @@ const ROLES = {
   analist: {
     name: () => T('Analist'),
     work: 'ask',
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'tarayici', 'chrome', 'fikirhane', 'repo', 'proxy'],
+    tabs: ['jira', 'tempo', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'tarayici', 'chrome', 'fikirhane', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
     work: 'agent',
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
+    tabs: ['jira', 'tempo', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -3308,7 +3308,7 @@ function withOneLinkHint(text, activeLink) {
   if (activeLink === 'tarayici' && currentEngine() === 'copilot' && br?.library) {
     return `${text}\n\n${T('(Tarayıcı araçları (browser_navigate vb.) bu oturumda varsa onları kullan. Yoksa yeni bir kütüphane KURMA: Playwright bu bilgisayarda kurulu. Bir Node.js betiği yazıp çalıştır; kütüphane: require("{library}"), tarayıcı: chromium.launch({ channel: "{channel}", headless: {headless} }). Ekran görüntülerini çalışma klasörüne kaydet ve ne gördüğünü anlat.)', { library: br.library.replace(/\\/g, '/'), channel: br.browser, headless: String(Boolean(br.headless)) })}${fk}`;
   }
-  const tc = activeLink === 'tomcat' ? ` ${tomcatHint()}` : '';
+  const tc = activeLink === 'tomcat' ? ` ${tomcatHint()}` : activeLink === 'tempo' ? ` ${tempoHint()}` : '';
   return `${text}\n\n${T('({name} bağlantısını kullan; araçlar: {tools})', { name: LINKS[activeLink].name, tools: LINK_TOOLS[activeLink] })}${tc}${fk}`;
 }
 const linksDlg = $('#linksDialog');
@@ -3331,7 +3331,7 @@ function renderLinksBadge() {
 // her satırda kurulu olup olmadığı görünür. Yeni bir bağlantı eklerken kimliğini aşağıdaki gruplardan birine yazın;
 // yazılmazsa "Diğer" grubunda çıkar.
 const LINK_GROUPS = [
-  [() => T('İş ve doküman'), ['jira', 'confluence']],
+  [() => T('İş ve doküman'), ['jira', 'tempo', 'confluence']],
   [() => T('Kod ve kalite'), ['bitbucket', 'jenkins', 'fortify', 'sonarqube']],
   [() => T('Kayıt ve sunucu'), ['graylog', 'graylogprod', 'weblogic', 'tomcat']],
   [() => T('Veritabanı'), ['oracle', 'postgres']],
@@ -3431,6 +3431,7 @@ function renderLinks() {
   if (links.tab === 'fikirhane') return renderFikirhaneTab();
   if (links.tab === 'chrome') return renderChromeTab();
   if (links.tab === 'tomcat') return renderTomcatTab();
+  if (links.tab === 'tempo') return renderTempoTab();
   if (links.tab === 'testotomasyon') return renderTestTab();
   if (links.tab === 'outlook') return renderOutlookTab();
   if (links.tab === 'teams') return renderTeamsTab();
@@ -3964,7 +3965,7 @@ const TEAMS_SCOPES = { 'Chat.Read': ['Chat.ReadWrite'], 'ChannelMessage.Read.All
 function renderTeamsTab() {
   const st = links.status?.services?.teams || {};
   const result = el('div', { class: 'links-result' });
-  const show = (r) => { teamsUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(el('span', { text: r.text }), r.ok === false ? askErrorButton('Teams', r.text) : null); } };
+  const show = (r) => { teamsUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(...[el('span', { text: r.text }), r.ok === false ? askErrorButton('Teams', r.text) : null].filter(Boolean)); } };
   const token = el('input', { type: 'password', placeholder: T('Graph Explorer > Access token sekmesindeki değeri buraya yapıştırın'), spellcheck: 'false', autocomplete: 'off' });
   const finish = async (r) => {
     await loadLinks();
@@ -4016,6 +4017,58 @@ function renderTeamsTab() {
   $('#linksNote').textContent = f ? T('Yalnızca "Teams açık" bilgisi Claude Code ve Copilot CLI ayar dosyalarına yazılır: {claude} ve {copilot}. Erişim anahtarı ve mesajlar hiçbir yere kaydedilmez.', f) : '';
 }
 
+// ---------- Tempo (timesheet) bağlantısı ----------
+// Jira'nın iş kaydı eklentisi. Ayrı adres ya da anahtar yoktur: Jira bağlantısınınkiler kullanılır. Burada yalnızca açılır,
+// sınanır ve kullanıcının kendi kuralları yazılır. Ne girileceğini yapay zekâ geçmiş kayıtlardan öğrenip sohbette sorar.
+LINKS.tempo = { name: T('Tempo (timesheet)') };
+LINK_TOOLS.tempo = 'tempo_profile, tempo_status, tempo_log_work, tempo_delete_worklog';
+const tempoHint = () => T('(Timesheet için önce tempo_profile ile geçmiş düzenimi ve tempo_status ile eksik günleri öğren. Hangi güne, hangi işe, kaç saat gireceğini geçmişime göre bir tablo hâlinde öner ve bana sor; ben onaylamadan tempo_log_work çağırma. Onaylananları tek çağrıda gir, sonra tempo_status ile kontrol et.)');
+const tempoUi = { result: null, notes: null };
+function renderTempoTab() {
+  const st = links.status?.services?.tempo || {};
+  if (tempoUi.notes === null) tempoUi.notes = st.notes || '';
+  const result = el('div', { class: 'links-result' });
+  const show = (r) => { tempoUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(...[el('span', { text: r.text }), r.ok === false ? askErrorButton('Tempo', r.text) : null].filter(Boolean)); } };
+  const notes = el('textarea', { rows: '4', placeholder: T('ör. Günde 8 saat. Cuma günleri 1 saat Sprint Ritüelleri. İzin günlerini izin kaydına gir. Toplantıları en çok çalıştığım işe yaz.'), spellcheck: 'false' });
+  notes.value = tempoUi.notes;
+  notes.oninput = () => { tempoUi.notes = notes.value; };
+  const testNow = async () => {
+    show({ text: T('Tempo sınanıyor…') });
+    const r = await fetch(`/api/integrations/tempo/test?lang=${getLang()}`, { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    show(r.ok ? { ok: true, text: T('Tempo bağlantısı çalışıyor: {user}', { user: r.user }) } : { ok: false, text: r.error || '?' });
+  };
+  const saveBtn = el('button', { class: 'btn primary', type: 'button', disabled: !st.jira, text: st.enabled ? T('Kaydet ve sına') : T('Etkinleştir ve sına') });
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    try {
+      await fetch('/api/tempo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notes: tempoUi.notes }) });
+      await loadLinks();
+      await testNow();
+    } finally { saveBtn.disabled = false; }
+    if (links.tab === 'tempo') { const keep = tempoUi.result; renderLinks(); show(keep); }
+  };
+  const removeBtn = el('button', { class: 'btn ghost', type: 'button', text: T('Bağlantıyı kaldır'), onclick: async () => {
+    await fetch('/api/tempo', { method: 'DELETE' }).catch(() => {});
+    tempoUi.result = null;
+    await loadLinks();
+    if (links.tab === 'tempo') renderLinks();
+  } });
+  $('#linksBody').replaceChildren(
+    el('ol', { class: 'links-steps' },
+      el('li', { text: T('Bu bağlantı, Jira\'daki Tempo eklentisine iş kaydı (timesheet) girer. Ayrı bir anahtar gerekmez: Jira bağlantınızın adresi ve kişisel erişim belirteci kullanılır.') }),
+      el('li', { text: T('Yapay zekâ önce geçmiş kayıtlarınızı okur: hangi işlere ne kadar girdiğinizi, zorunlu alanlara (ör. hizmet, hesap) hangi değerleri seçtiğinizi ve açıklama kalıbınızı öğrenir; eksik günleri bulur.') }),
+      el('li', { text: T('Sonra ne gireceğini tablo hâlinde önerip size sorar; siz onaylamadan kayıt girmez. Girerken Atölye ayrıca izin ister.') }),
+      el('li', { text: T('Kullanmak için mesaj kutusunun altındaki "Bağlantı" seçicisinden Tempo\'yu seçip "bu haftanın timesheet\'ini dolduralım" gibi yazın.') })),
+    ...(st.jira ? [] : [el('div', { class: 'links-result err', text: T('Önce Jira bağlantısını kurun; Tempo onun adresini ve anahtarını kullanır.') })]),
+    el('label', { class: 'links-field' }, el('span', { text: T('Kurallarım (isteğe bağlı)') }), notes, el('small', { text: T('Yapay zekâ öneri yaparken geçmiş kayıtlarınızla birlikte bunlara da uyar.') })),
+    el('div', { class: 'links-actions' }, saveBtn, st.enabled ? removeBtn : null),
+    result,
+    el('p', { class: 'links-intro', text: T('Örnek: "Bu ayki eksik günlerimi göster ve geçen haftaki gibi doldur" ya da "bugüne 6 saat Java güncellemesi, 2 saat sprint gir".') }));
+  show(tempoUi.result);
+  const f = links.status?.files;
+  $('#linksNote').textContent = f ? T('Yalnızca "Tempo açık" bilgisi ve kurallarınız Claude Code ve Copilot CLI ayar dosyalarına yazılır: {claude} ve {copilot}. Jira anahtarı Jira bağlantısında durur.', f) : '';
+}
+
 // ---------- Outlook bağlantısı ----------
 // Bilgisayardaki klasik Outlook'tan okuma; adres ya da anahtar yok, yalnızca etkinleştirilir ve sınanır.
 // Sekmesi ve araçları yalnızca yerel LLM oturumunda vardır (bkz. roleTabs ve src/atlassian.js configFromEnv)
@@ -4024,7 +4077,7 @@ const outlookUi = { result: null };
 function renderOutlookTab() {
   const st = links.status?.services?.outlook || {};
   const result = el('div', { class: 'links-result' });
-  const show = (r) => { outlookUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(el('span', { text: r.text }), r.ok === false ? askErrorButton('Outlook', r.text) : null); } };
+  const show = (r) => { outlookUi.result = r; result.hidden = !r; if (r) { result.className = `links-result ${r.ok ? 'ok' : r.ok === false ? 'err' : ''}`; result.replaceChildren(...[el('span', { text: r.text }), r.ok === false ? askErrorButton('Outlook', r.text) : null].filter(Boolean)); } };
   const testNow = async () => {
     show({ text: T('Outlook\'a bağlanılıyor… Outlook kapalıysa açılması biraz sürebilir.') });
     const r = await fetch(`/api/integrations/outlook/test?lang=${getLang()}`, { method: 'POST' }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));

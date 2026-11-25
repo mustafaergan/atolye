@@ -573,6 +573,13 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     if (r.status === 200) console.log(`[bağlantı] chrome ${req.body?.op}: ${r.body.error ? r.body.error.slice(0, 160) : `tamam (${r.body.text.length} karakter${r.body.image ? ', görsel' : ''})`}`);
     res.status(r.status).json(r.body);
   }));
+  // Tempo (timesheet): Jira bağlantısını kullanır; burada yalnızca açılır/kapatılır ve kullanıcının kuralları kaydedilir
+  app.post('/api/tempo', wrap(async (req, res) => {
+    const st = integrations.setTempo(true, typeof req.body?.notes === 'string' ? req.body.notes : undefined);
+    console.log('[bağlantı] tempo açıldı');
+    res.json(st);
+  }));
+  app.delete('/api/tempo', wrap(async (_req, res) => { console.log('[bağlantı] tempo kapatıldı'); res.json(integrations.setTempo(false)); }));
   app.post('/api/integrations/:service', wrap(async (req, res) => {
     try {
       const st = integrations.save(req.params.service, req.body || {});

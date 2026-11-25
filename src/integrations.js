@@ -150,6 +150,8 @@ export function status() {
     };
   }
   out.services[BROWSER_SERVER] = browserStatus();
+  // Tempo: Jira'nın adresi ve anahtarıyla çalışır; açık olsa bile Jira kurulu değilse bağlı sayılmaz
+  out.services.tempo = { ...out.services.tempo, enabled: env.TEMPO_ENABLED === '1', notes: env.TEMPO_NOTES || '', jira: Boolean(configFromEnv('jira', env)) };
   return out;
 }
 
@@ -160,7 +162,7 @@ const check = (service) => { if (!SERVICES.includes(service)) throw new Error('B
 
 export function save(service, { url, email, token }) {
   check(service);
-  if (['outlook', 'teams', 'tomcat'].includes(service)) throw new Error('Bu bağlantı buradan kaydedilmez'); // kendi uçları var
+  if (['outlook', 'teams', 'tomcat', 'tempo'].includes(service)) throw new Error('Bu bağlantı buradan kaydedilmez'); // kendi uçları var
   const env = readEnv();
   const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
   if (['oracle', 'postgres'].includes(service)) {
@@ -225,6 +227,19 @@ export function setFikirhane(enabled) {
   const env = readEnv();
   if (enabled) env.FIKIRHANE_ENABLED = '1';
   else delete env.FIKIRHANE_ENABLED;
+  writeEnv(env);
+  return status();
+}
+
+/** Tempo: araçlar açılır ya da kapatılır; kullanıcının kendi kuralları (serbest metin) yapay zekâya geçmişle birlikte verilir */
+export function setTempo(enabled, notes) {
+  const env = readEnv();
+  if (enabled) env.TEMPO_ENABLED = '1';
+  else delete env.TEMPO_ENABLED;
+  if (notes !== undefined) {
+    const text = String(notes || '').replace(/\r\n?/g, '\n').trim().slice(0, 2000);
+    if (text) env.TEMPO_NOTES = text; else delete env.TEMPO_NOTES;
+  }
   writeEnv(env);
   return status();
 }
