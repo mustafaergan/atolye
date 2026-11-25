@@ -82,6 +82,11 @@
           <span data-i18n>Komutlar</span>
           <span class="links-count commands-count" id="commandsCount" hidden></span>
         </button>
+        <button class="links-btn jobs-btn" id="jobsBtn" type="button" title="Zamanlanmış işler: seçtiğiniz gün ve saatlerde bir komutu kendiliğinden çalıştırın" data-i18n-attr="title">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span data-i18n>İşler</span>
+          <span class="links-count" id="jobsCount" hidden></span>
+        </button>
         <div class="engine-wrap" id="engineWrap">
           <button class="engine-btn" id="engineBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Yapay zekâ motoru: yeni oturumların motorunu ve listede hangi motorların oturumlarının görüneceğini seçin" data-i18n-attr="title">
             <span class="engine-btn-icon" id="engineBtnIcon"></span>
@@ -263,6 +268,16 @@
       </div>
       <div class="links-tabs" id="settingsTabs" role="tablist"></div>
       <div class="links-body" id="settingsBody"></div>
+    </div>
+  </dialog>
+
+  <dialog id="jobsDialog" class="dialog links-dialog commands-dialog jobs-dialog">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="jobsTitle"></h2>
+        <button class="icon-btn" id="jobsClose" type="button" aria-label="Pencereyi kapat" data-i18n-attr="aria-label"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="links-body" id="jobsBody"></div>
     </div>
   </dialog>
 

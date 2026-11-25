@@ -1723,6 +1723,7 @@ function withGeneralFirst(list) {
 /** Sunucudaki durumu uygular (açılışta ve başka bir sekme değişiklik yaptığında) */
 function applyServerState(st, { load = true, render = true } = {}) {
   if (!st || !Array.isArray(st.projects)) return;
+  setJobs(st.jobs);
   const before = new Set(state.projects.map(pathKey));
   state.projects = withGeneralFirst(st.projects);
   // Bu sekmede açık olan klasör listede kalsın (başka sekmede kaldırılmış olsa bile)
@@ -1832,7 +1833,7 @@ function sessionRows(dir) {
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i];
     const other = !engineShown(r.engine || r.run?.engine || 'claude', r.local || r.run?.local, shown);
-    if (other && !(r.run && (r.run.busy || r.run.waiting || r.run.tasks))) rows.splice(i, 1);
+    if (other && !(r.run && (r.run.busy || r.run.waiting || r.run.tasks)) && !jobOf(r.id)) rows.splice(i, 1);
   }
   rows.sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0)); // kararlı sıralama: çalışanlar üste
 
@@ -1860,10 +1861,12 @@ function sessionRow(s) {
   const local = s.local || s.run?.local || null;
   const shown = shownEngines();
   const multi = shown.size > 1;
-  const item = el('button', { class: `session-item ${active ? 'active' : ''}`, type: 'button', title: s.title },
+  const job = jobOf(s.id);
+  const item = el('button', { class: `session-item ${active ? 'active' : ''} ${job ? 'job' : ''}`, type: 'button', title: job ? `${s.title}\n${T('Zamanlanmış iş: {name}', { name: job.name })}` : s.title },
     // Birden çok motor listeleniyorsa hangisinin oturumu olduğu baştaki simgeden anlaşılır; tek motorda simge çıkmaz
     multi ? engineIcon(engine, local) : null,
     status,
+    job ? el('span', { class: 's-job', title: T('Zamanlanmış iş: {name} ({when})', { name: job.name, when: jobSchedule(job) }) }, icon(ICONS.clock)) : null,
     el('span', { class: 's-title', text: s.title }),
     // Tek motor listelenirken etiket yalnızca diğer motorda hâlâ çalışan oturumda çıkar
     !multi && !s.draft && !engineShown(engine, local, shown)
@@ -3979,6 +3982,235 @@ function reviewHandoff(summary, info = {}) {
   ]);
   box.focus();
 }
+
+// ---------- Zamanlanmış işler (bkz. src/jobs.js) ----------
+// Kullanıcı bir iş kurar: hangi yapay zekâ, hangi bağlantılar, komut, klasör, Ask/Agent kipi, günler ve saatler.
+// Sunucu zamanı gelince işin kendi oturumunu açar (hep aynı oturum) ve komutu gönderir. İş oturumları sol listede
+// saat simgesiyle görünür.
+ICONS.clock = '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>';
+state.jobs = [];
+const jobsDlg = $('#jobsDialog');
+const jobsUi = { view: 'list', list: [], form: null };
+const jobOf = (sessionId) => (sessionId ? state.jobs.find((j) => j.sessionId === sessionId) || null : null);
+const JOB_DAYS = [[1, 'Pzt'], [2, 'Sal'], [3, 'Çar'], [4, 'Per'], [5, 'Cum'], [6, 'Cmt'], [0, 'Paz']];
+
+function setJobs(jobs) {
+  state.jobs = Array.isArray(jobs) ? jobs : [];
+  const n = state.jobs.filter((j) => j.enabled).length;
+  $('#jobsCount').hidden = !n;
+  $('#jobsCount').textContent = String(n);
+  if (jobsDlg.open && jobsUi.view === 'list') loadJobs().then(renderJobs);
+}
+
+function jobSchedule(j) {
+  const d = [...j.days].sort();
+  const days = d.length === 7 ? T('Her gün')
+    : String(d) === '1,2,3,4,5' ? T('Hafta içi')
+      : String(d) === '0,6' ? T('Hafta sonu')
+        : JOB_DAYS.filter(([n]) => d.includes(n)).map(([, name]) => T(name)).join(', ');
+  return `${days} · ${j.times.join(', ')}`;
+}
+const jobWhen = (ms) => new Date(ms).toLocaleString(getLang() === 'en' ? 'en-GB' : 'tr-TR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+function jobStatus(j) {
+  if (j.running) return { text: T('Şu an çalışıyor…'), kind: '' };
+  const next = j.enabled ? (j.nextRun ? T('Sonraki: {when}', { when: jobWhen(j.nextRun) }) : '') : T('Duraklatıldı');
+  if (!j.lastRun || !j.lastStatus) return { text: next || T('Henüz çalışmadı'), kind: '' };
+  const last = {
+    ok: T('Son çalışma {when}: tamamlandı', { when: timeAgo(j.lastRun) }),
+    error: T('Son çalışma {when}: hata — {error}', { when: timeAgo(j.lastRun), error: j.lastError || '?' }),
+    skipped: T('Son çalışma {when}: atlandı — {error}', { when: timeAgo(j.lastRun), error: j.lastError || '' }),
+    interrupted: T('Son çalışma {when}: Atölye kapandığı için yarım kaldı', { when: timeAgo(j.lastRun) }),
+    running: T('Son çalışma {when}', { when: timeAgo(j.lastRun) }),
+  }[j.lastStatus] || '';
+  return { text: [last, next].filter(Boolean).join(' · '), kind: j.lastStatus === 'error' ? 'err' : j.lastStatus === 'ok' ? 'ok' : '' };
+}
+
+async function loadJobs() {
+  const r = await fetch('/api/jobs').then((x) => x.json()).catch(() => null);
+  jobsUi.list = r?.jobs || [];
+}
+async function openJobs() {
+  await Promise.all([loadJobs(), links.status ? null : loadLinks()]);
+  jobsUi.view = 'list';
+  renderJobs();
+  if (!jobsDlg.open) jobsDlg.showModal();
+}
+const renderJobs = () => (jobsUi.view === 'form' ? renderJobForm() : renderJobList());
+
+function openJobSession(j) {
+  jobsDlg.close();
+  const live = state.running.find((r) => r.sessionId === j.sessionId);
+  openSession({ sessionId: j.sessionId, liveId: live?.liveId, cwd: j.cwd, engine: j.engine, local: j.local });
+}
+
+function renderJobList() {
+  $('#jobsTitle').textContent = T('Zamanlanmış işler');
+  const act = (text, onclick, attrs = {}) => el('button', { class: 'btn small', type: 'button', text, onclick, ...attrs });
+  const rows = jobsUi.list.map((j) => {
+    const st = jobStatus(j);
+    return el('div', { class: `job-row ${j.enabled ? '' : 'off'}` },
+      el('div', { class: 'job-main' },
+        el('div', { class: 'job-name' }, engineIcon(j.engine, j.local), el('b', { text: j.name }),
+          el('span', { class: `job-work ${j.work}`, text: j.work === 'agent' ? 'Agent' : 'Ask', title: j.work === 'agent' ? T('İzin sormadan dosya düzenleyebilir ve komut çalıştırabilir') : T('Yalnızca okur; dosya değiştirmez') })),
+        el('div', { class: 'job-meta', text: `${jobSchedule(j)} · ${isGeneral(j.cwd) ? T('Klasörsüz sohbet') : folderOf(j.cwd)}`, title: j.cwd }),
+        el('div', { class: `job-meta ${st.kind}`, text: st.text })),
+      el('div', { class: 'job-actions' },
+        act(T('Şimdi çalıştır'), async () => {
+          const r = await sCall(`/api/jobs/${j.id}/run`, {});
+          const why = r.error === 'busy' ? T('oturum başka bir işle meşgul') : r.error;
+          if (!r.ok && r.error !== 'running') alert(T('İş çalıştırılamadı: {error}', { error: why }));
+          await loadJobs(); renderJobs();
+        }, { disabled: j.running }),
+        j.sessionId && act(T('Oturumu aç'), () => openJobSession(j)),
+        act(T('Düzenle'), () => editJob(j)),
+        act(j.enabled ? T('Duraklat') : T('Sürdür'), async () => { await sCall(`/api/jobs/${j.id}/enabled`, { enabled: !j.enabled }); await loadJobs(); renderJobs(); }),
+        act(T('Sil'), async () => {
+          if (!confirm(T('"{name}" işi silinsin mi? Oturumu ve konuşması listede kalır.', { name: j.name }))) return;
+          await sCall(`/api/jobs/${j.id}`, null, 'DELETE'); await loadJobs(); renderJobs();
+        }, { class: 'btn small danger' })));
+  });
+  $('#jobsBody').replaceChildren(
+    el('p', { class: 'links-intro', text: T('Zamanlanmış işler seçtiğiniz gün ve saatlerde kendiliğinden çalışır; her iş hep kendi oturumunda devam eder (yapay zekâ önceki çalıştırmaları görür). Atölye açık olmalıdır; kapalıyken kaçırılan çalıştırma, o gün içinde açılınca bir kez yapılır.') }),
+    ...(rows.length ? rows : [sNote(T('Henüz zamanlanmış iş yok.'))]),
+    el('div', { class: 'links-actions' }, el('button', { class: 'btn primary', type: 'button', text: T('Yeni iş'), onclick: () => editJob(null) })));
+}
+
+/** Seçilen motorda kullanılabilecek kurulu bağlantılar (yerel LLM'de Outlook, Teams, Tempo da gelir) */
+function jobLinkChoices(engine) {
+  const tabs = engine === 'yerel' ? withJiraTempo(withOutlook(currentRole().tabs)) : currentRole().tabs;
+  return Object.entries(links.status?.services || {}).filter(([id, s]) => s.connected && LINKS[id] && tabs.includes(id)).map(([id]) => id);
+}
+/** Mesajın sonuna eklenecek bağlantı notları (normal gönderimdekiyle aynı) */
+function jobLinkHint(ids) {
+  if (!ids.length) return '';
+  const hints = ids.map((id) => withOneLinkHint('', id).trim()).filter(Boolean).join('\n');
+  return ids.length < 2 ? hints : `${T('(Bu soruda {n} bağlantı birlikte seçili: {names}. Gerekiyorsa hepsinden veri topla, sonuçları bağlantılar arasında ilişkilendir ve tek bir özet hâlinde sun.)', { n: ids.length, names: linkNames(ids) })}\n${hints}`;
+}
+
+function editJob(job) {
+  const opts = engineOptions();
+  const first = opts.find((o) => o.key === activeEngineKey()) || opts[0];
+  jobsUi.form = job
+    ? { ...job, key: job.engine === 'yerel' ? `yerel:${job.local}` : job.engine, links: [...job.links], days: [...job.days], times: [...job.times] }
+    : { id: null, name: '', key: first?.key || 'copilot', links: [], prompt: '', cwd: '', work: 'ask', days: [1, 2, 3, 4, 5], times: ['09:00'], enabled: true };
+  jobsUi.error = '';
+  jobsUi.view = 'form';
+  renderJobs();
+}
+
+function renderJobForm() {
+  const f = jobsUi.form;
+  $('#jobsTitle').textContent = f.id ? T('İşi düzenle') : T('Yeni zamanlanmış iş');
+  const opts = engineOptions();
+  const engineOf = () => opts.find((o) => o.key === f.key) || { engine: 'copilot' };
+  const step = (n, title, ...kids) => el('div', { class: 'job-step' }, el('div', { class: 'job-step-title' }, el('span', { class: 'job-step-n', text: String(n) }), el('span', { text: title })), ...kids);
+
+  const name = sInput(f.name, { placeholder: T('ör. Sabah hata özeti') });
+  name.oninput = () => { f.name = name.value; };
+
+  const engineSel = el('select', { onchange: (e) => { f.key = e.target.value; f.links = f.links.filter((id) => jobLinkChoices(engineOf().engine).includes(id)); renderJobForm(); } },
+    ...opts.map((o) => el('option', { value: o.key, text: o.label || o.name })));
+  engineSel.value = f.key;
+
+  const choices = jobLinkChoices(engineOf().engine);
+  const linkBox = choices.length
+    ? el('div', { class: 'job-checks' }, ...choices.map((id) => {
+      const box = el('input', { type: 'checkbox' });
+      box.checked = f.links.includes(id);
+      box.onchange = () => {
+        f.links = box.checked ? [...f.links, id].slice(0, 4) : f.links.filter((x) => x !== id);
+        renderJobForm();
+      };
+      return el('label', { class: 'job-check' }, box, el('span', { text: LINKS[id].name }));
+    }))
+    : sNote(T('Bu yapay zekâ için kurulu bağlantı yok. Gerekirse sağ üstteki Bağlantılar\'dan ekleyin.'));
+
+  const prompt = el('textarea', { rows: '5', placeholder: T('Yapay zekâ ne yapsın? ör. "Dünden beri açılan kritik Jira kayıtlarını listele ve kısaca özetle."') });
+  prompt.value = f.prompt;
+  prompt.oninput = () => { f.prompt = prompt.value; };
+
+  const folder = el('div', { class: 'job-folder' },
+    el('span', { class: 'job-folder-path', text: f.cwd ? (isGeneral(f.cwd) ? T('Klasörsüz sohbet') : f.cwd) : T('Seçilmedi') }),
+    el('button', { class: 'btn small', type: 'button', text: T('Klasör seç…'), onclick: async () => {
+      const dir = await pickFolder({ start: f.cwd && !isGeneral(f.cwd) ? f.cwd : state.cwd, title: T('İşin çalışacağı klasör'), ok: T('Bu klasörü seç') });
+      if (dir) { f.cwd = dir; renderJobForm(); }
+    } }),
+    el('button', { class: 'btn small', type: 'button', text: T('Klasörsüz'), onclick: () => { f.cwd = state.config.generalDir; renderJobForm(); } }));
+
+  const work = el('div', { class: 'job-works' }, ...[
+    ['ask', 'Ask', T('Yalnızca okur ve rapor eder; dosya değiştirmez. İzin sormadan çalışır.')],
+    ['agent', 'Agent', T('Dosya düzenleyebilir, silebilir ve komut çalıştırabilir; siz başında olmadığınız için hiçbir işlemde izin sorulmaz.')],
+  ].map(([v, label, hint]) => {
+    const r = el('input', { type: 'radio', name: 'jobWork', value: v });
+    r.checked = f.work === v;
+    r.onchange = () => { f.work = v; };
+    return el('label', { class: 'job-work-opt' }, r, el('b', { text: label }), el('small', { text: hint }));
+  }));
+
+  const days = el('div', { class: 'job-checks days' }, ...JOB_DAYS.map(([n, label]) => {
+    const box = el('input', { type: 'checkbox' });
+    box.checked = f.days.includes(n);
+    box.onchange = () => { f.days = box.checked ? [...f.days, n] : f.days.filter((d) => d !== n); };
+    return el('label', { class: 'job-check' }, box, el('span', { text: T(label) }));
+  }));
+  const times = el('div', { class: 'job-times' },
+    ...f.times.map((t, i) => {
+      const input = el('input', { type: 'time', value: t });
+      input.onchange = () => { f.times[i] = input.value; };
+      return el('span', { class: 'job-time' }, input, f.times.length > 1 && el('button', { class: 'icon-btn', type: 'button', title: T('Kaldır'), onclick: () => { f.times.splice(i, 1); renderJobForm(); } }, icon('<path d="M6 6l12 12M18 6L6 18"/>')));
+    }),
+    el('button', { class: 'btn small', type: 'button', text: T('Saat ekle'), onclick: () => { f.times.push('14:00'); renderJobForm(); } }));
+
+  const enabled = el('input', { type: 'checkbox' });
+  enabled.checked = f.enabled !== false;
+  enabled.onchange = () => { f.enabled = enabled.checked; };
+
+  $('#jobsBody').replaceChildren(...[
+    sField(T('İşin adı'), name),
+    step(1, T('Hangi yapay zekâ yapsın?'), engineSel, el('small', { class: 'job-hint', text: T('Şu an seçili motordan bağımsızdır.') })),
+    step(2, T('Gereken bağlantılar'), linkBox),
+    step(3, T('Komut'), prompt),
+    step(4, T('Klasör'), folder, el('small', { class: 'job-hint', text: T('Kodla ilgili bir işse kodun bulunduğu klasörü seçin; iş o klasörde çalışır ve klasör sol listede görünür.') })),
+    step(5, T('Çalışma kipi'), work),
+    step(6, T('Ne zaman?'), days, times),
+    f.id ? el('label', { class: 'job-check' }, enabled, el('span', { text: T('Etkin') })) : null,
+    jobsUi.error ? sNote(jobsUi.error, 'err') : null,
+    el('div', { class: 'links-actions' },
+      el('button', { class: 'btn primary', type: 'button', text: T('Kaydet'), onclick: saveJob }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => { jobsUi.view = 'list'; renderJobs(); } })),
+  ].filter(Boolean));
+  if (!f.id && !f.name) name.focus();
+}
+
+async function saveJob() {
+  const f = jobsUi.form;
+  const o = engineOptions().find((x) => x.key === f.key);
+  const previous = f.id ? jobsUi.list.find((j) => j.id === f.id) : null;
+  if (f.work === 'agent' && previous?.work !== 'agent'
+    && !confirm(T('Agent kipinde bu iş, siz başında değilken hiçbir işlemde izin sormadan dosya düzenleyebilir, silebilir ve komut çalıştırabilir. Bu riskleri kabul ediyor musunuz?'))) return;
+  const body = {
+    id: f.id || undefined, name: f.name, engine: o?.engine, local: o?.local || null, links: f.links, linkHint: jobLinkHint(f.links),
+    prompt: f.prompt, cwd: f.cwd, work: f.work, days: f.days, times: f.times.filter(Boolean), enabled: f.enabled !== false,
+  };
+  const r = await sCall('/api/jobs', body);
+  if (!r.ok) {
+    jobsUi.error = {
+      name: T('İşe bir ad verin.'), engine: T('Yapay zekâyı seçin.'), local: T('Yerel modeli seçin.'), prompt: T('Komutu yazın.'),
+      cwd: T('İşin çalışacağı klasörü seçin (ya da Klasörsüz).'), days: T('En az bir gün seçin.'), times: T('En az bir saat girin.'),
+      'too-many': T('En fazla 50 iş kurulabilir.'),
+    }[r.error] || String(r.error || '?');
+    return renderJobForm();
+  }
+  // İşin klasörü sol listede açık görünsün
+  if (!isGeneral(r.job.cwd)) { setCollapsed(pathKey(r.job.cwd), false); addProject(r.job.cwd); }
+  await loadJobs();
+  jobsUi.view = 'list';
+  renderJobs();
+}
+
+$('#jobsBtn').onclick = () => openJobs();
+$('#jobsClose').onclick = () => jobsDlg.close();
+jobsDlg.addEventListener('click', (e) => { if (e.target === jobsDlg) jobsDlg.close(); });
 
 // ---------- Bağlam doldu ----------
 // Konuşma modelin bir seferde okuyabileceğinden uzunsa (ör. çok büyük bir araç çıktısından sonra) her yeni istek aynı

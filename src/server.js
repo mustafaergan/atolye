@@ -21,6 +21,7 @@ import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
 import { detectCopilot, startLogin, loginStatus, cancelLogin, startInstall, installStatus } from './copilot.js';
 import { claudeLogin } from './claude-auth.js';
+import { cleanJob, createScheduler, nextRun } from './jobs.js';
 import * as integrations from './integrations.js';
 import * as fikirhane from './fikirhane.js';
 import { applyUpdate, checkUpdate } from './update.js';
@@ -79,6 +80,24 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   });
   // Klasörsüz sohbet listede her zaman arayüz tarafından en üste konur; kayda yazılmaz
   const notGeneral = (p) => typeof p === 'string' && p && !samePath(p, GENERAL_DIR);
+
+  // Zamanlanmış işler (bkz. jobs.js): motor o an kullanılabilir mi, klasör duruyor mu denetlenir
+  const scheduler = createScheduler({
+    manager,
+    store,
+    general: (cwd) => samePath(cwd, GENERAL_DIR),
+    canRun: async (job) => {
+      if (samePath(job.cwd, GENERAL_DIR)) await fs.mkdir(GENERAL_DIR, { recursive: true });
+      const stat = await fs.stat(job.cwd).catch(() => null);
+      const lang = 'tr';
+      if (!stat?.isDirectory()) return msg(lang, 'Klasör bulunamadı: {dir}', { dir: job.cwd });
+      if (job.engine === 'copilot' && !(await detectCopilot()).available) return 'GitHub Copilot CLI bulunamadı.';
+      if (job.engine === 'yerel' && !settings.localConfig(job.local)) return 'Yerel model artık tanımlı değil (Ayarlar > Yerel LLM).';
+      if (job.engine === 'claude' && !(await claudeLogin()).loggedIn) return 'Claude Code\'a giriş yapılmamış.';
+      return null;
+    },
+  });
+  if (process.env.ATOLYE_JOBS === '0') scheduler.stop();
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
   const isAllowedOrigin = (origin) =>
     !origin || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
@@ -608,6 +627,30 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   }));
 
   // Hangi yapay zekâ motorları kullanılabilir? (Claude Code her zaman; GitHub Copilot CLI kuruluysa)
+  // ---------- Zamanlanmış işler ----------
+  const jobView = (j) => ({ ...j, running: scheduler.isRunning(j.id), nextRun: nextRun(j) });
+  app.get('/api/jobs', wrap(async (_req, res) => res.json({ jobs: store.jobs().map(jobView) })));
+  app.post('/api/jobs', wrap(async (req, res) => {
+    const previous = req.body?.id ? store.jobs().find((j) => j.id === req.body.id) : null;
+    if (req.body?.id && !previous) return res.status(404).json({ ok: false, error: 'not-found' });
+    if (!previous && store.jobs().length >= 50) return res.status(400).json({ ok: false, error: 'too-many' });
+    let job;
+    try { job = cleanJob(req.body || {}, previous); } catch (err) { return res.status(400).json({ ok: false, error: err.code || err.message }); }
+    store.setJob(job);
+    if (notGeneral(job.cwd)) store.addProject(job.cwd);
+    console.log(`[iş] ${previous ? 'güncellendi' : 'eklendi'}: "${job.name}" (${job.engine}, ${job.work}, ${job.days.join(',')} ${job.times.join(',')})`);
+    res.json({ ok: true, job: jobView(job) });
+  }));
+  app.post('/api/jobs/:id/enabled', wrap(async (req, res) => {
+    const job = store.jobs().find((j) => j.id === req.params.id);
+    if (!job) return res.status(404).json({ ok: false, error: 'not-found' });
+    // Yeniden etkinleştirilen iş, bugün geçmiş saatler için hemen çalışmasın
+    store.setJob({ ...job, enabled: Boolean(req.body?.enabled), ...(req.body?.enabled ? { since: Date.now() } : {}) });
+    res.json({ ok: true });
+  }));
+  app.post('/api/jobs/:id/run', wrap(async (req, res) => res.json(await scheduler.run(req.params.id, { reason: 'elle' }))));
+  app.delete('/api/jobs/:id', wrap(async (req, res) => { store.deleteJob(req.params.id); res.json({ ok: true }); }));
+
   app.get('/api/engines', wrap(async (req, res) => {
     const local = settings.localStatus();
     // Claude Code'a giriş yapılmamışsa seçicide gösterilmez (bkz. claude-auth.js)

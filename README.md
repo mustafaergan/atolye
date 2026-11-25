@@ -473,6 +473,28 @@ Claude gateway'i içindir. Copilot CLI başka bir yerdeyse `.env` içinde `COPIL
 
 **Bağlam penceresi ve bağlamın dolması.** Copilot oturumlarında mesaj kutusunun altındaki **Bağlam** seçicisi modelin bir seferde okuyabileceği konuşma uzunluğunu seçer (varsayılan ya da uzun; boyutlar modele göre değişir, uzun bağlam daha çok kredi harcar). Copilot bu seçeneği kendisi sunuyorsa hemen uygulanır; sunmuyorsa Copilot `--context long_context` ile yeniden başlatılır ve aynı oturum kaldığı yerden yüklenir. Seçim tarayıcıda saklanır, Copilot oturumları hep onunla açılır. Konuşma modelin sınırını aşarsa (ör. çok büyük bir araç çıktısından sonra) her istek aynı hatayla biter ve `/compact` da çalışmaz; Atölye bunu fark edince bir kart gösterir: önce **bağlamı büyütüp aynı oturumda devam etmeyi**, olmazsa yeni oturuma geçmeyi önerir (konuşma kaydını kırpıp taşımak — yapay zekâ gerekmez —, yerel modelle özetleyip taşımak ya da boş oturum). Bağlam doluyken yazılan `/compact` Copilot'a gönderilmez, bu kart açılır.
 
+### Zamanlanmış işler
+
+Üst çubuktaki **İşler** düğmesiyle bir komutu seçtiğiniz gün ve saatlerde kendiliğinden çalıştırabilirsiniz (ör. hafta içi her
+sabah 09:00'da "dünden beri açılan kritik kayıtları özetle"). İş kurulurken sırayla seçilir:
+
+1. **Yapay zekâ**: Claude Code, GitHub Copilot ya da tanımlı bir yerel model (o an seçili motordan bağımsız).
+2. **Bağlantılar**: kurulu bağlantılardan gerekenler (en fazla 4). Yerel model seçilirse Outlook, Teams ve Tempo da listelenir.
+3. **Komut**.
+4. **Klasör**: kodla ilgili bir işse kodun bulunduğu klasör; ya da klasörsüz sohbet. Klasör sol listeye eklenir.
+5. **Çalışma kipi**: **Ask** yalnızca okur, dosya değiştirmez. **Agent** dosya düzenleyebilir, silebilir ve komut
+   çalıştırabilir; siz başında olmadığınız için hiçbir işlemde izin sorulmaz (kaydederken bu risk ayrıca onaylatılır).
+6. **Günler ve saatler** (birden çok saat girilebilir).
+
+Her iş hep **kendi oturumunda** çalışır: ilk çalıştırmada oturum açılır, sonrakiler aynı oturuma devam eder (yapay zekâ önceki
+çalıştırmaları görür). İş oturumları sol listede saat simgesiyle ve işin adıyla görünür. Yapay zekâya kullanıcının başında
+olmadığı, soru sormadan işi bitirip özetlemesi gerektiği gizli bir notla söylenir. İşler pencereden elle de çalıştırılabilir,
+duraklatılabilir, düzenlenebilir.
+
+İşler Atölye çalışırken yürür (otomatik başlatma açıksa bilgisayar açılınca başlar). Atölye kapalıyken kaçırılan bir çalıştırma,
+o gün içinde açılınca bir kez yapılır. Yeni kurulan ya da saati değiştirilen iş, o günün geçmiş saatleri için çalışmaz. İşler
+`~/.atolye/durum.json` içinde saklanır; zamanlayıcı `ATOLYE_JOBS=0` ile kapatılabilir.
+
 ### Harcama göstergesi
 
 Bazı kurumsal gateway'ler, Claude Code token'ıyla çağrılabilen bir harcama özeti sunar:

@@ -231,6 +231,35 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .links-actions .btn.end { margin-left: auto; }
 .handoff-wait { display: flex; align-items: center; gap: 6px; padding: 10px 12px; margin: 4px 0 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; color: var(--text-2); }
 .handoff-wait .btn-spin { margin-right: 2px; color: var(--accent, currentColor); }
+.s-job { display: inline-flex; color: var(--accent); flex: none; }
+.s-job svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.jobs-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.job-row { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+.job-row.off { opacity: .6; }
+.job-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.job-name { display: flex; align-items: center; gap: 6px; }
+.job-work { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); }
+.job-work.agent { background: var(--err-soft); color: var(--err); }
+.job-meta { font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.job-meta.err { color: var(--err); }
+.job-meta.ok { color: #2e9e5b; }
+.job-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; flex: none; max-width: 50%; }
+.job-step { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.job-step-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; }
+.job-step-n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11.5px; }
+.job-step select, .job-step textarea { font: inherit; font-size: 13.5px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.job-hint { color: var(--text-3); font-size: 12px; }
+.job-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.job-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; cursor: pointer; }
+.job-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.job-folder-path { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.job-works { display: flex; flex-direction: column; gap: 6px; }
+.job-work-opt { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 8px; cursor: pointer; }
+.job-work-opt small { color: var(--text-2); font-size: 12.5px; }
+.job-times { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.job-time { display: inline-flex; align-items: center; gap: 2px; }
+.job-time input { font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+@media (max-width: 600px) { .job-row { flex-direction: column; } .job-actions { max-width: none; justify-content: flex-start; } }
 .context-grow { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 10px 0 6px; }
 .context-grow small { color: var(--text-3); font-size: 12px; }
 .context-or { margin-top: 8px; font-size: 13px; color: var(--text-2); }

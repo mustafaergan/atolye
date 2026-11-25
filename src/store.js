@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { loadJob } from './jobs.js';
 
 const DIR = path.join(os.homedir(), '.atolye');
 // ATOLYE_STATE_FILE: testlerde gerçek proje listesine dokunmamak için
@@ -41,7 +42,9 @@ function normalize(d = {}) {
   // Kullanıcının elle sıraladığı oturumlar: { <klasör anahtarı>: [oturum kimlikleri, üstten alta] }
   const sessionOrder = {};
   if (d.sessionOrder && typeof d.sessionOrder === 'object') for (const [k, v] of Object.entries(d.sessionOrder)) { const ids = strings(v).slice(0, 500); if (ids.length) sessionOrder[k] = ids; }
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, localModels, sessionOrder };
+  // Zamanlanmış işler (bkz. jobs.js)
+  const jobs = (Array.isArray(d.jobs) ? d.jobs : []).map(loadJob).filter(Boolean).slice(0, 50);
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, localModels, sessionOrder, jobs };
 }
 
 export class StateStore {
@@ -66,6 +69,24 @@ export class StateStore {
     fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
     fs.renameSync(tmp, this.file);
     if (broadcast) for (const fn of this.listeners) fn(this.data);
+  }
+
+  // ---------- Zamanlanmış işler ----------
+  jobs() {
+    return this.data.jobs.map((j) => ({ ...j }));
+  }
+  /** İşi ekler ya da (aynı kimlikliyse) değiştirir; değişiklik açık sekmelere bildirilir */
+  setJob(job) {
+    const at = this.data.jobs.findIndex((j) => j.id === job.id);
+    if (at >= 0) this.data.jobs[at] = { ...job };
+    else this.data.jobs.push({ ...job });
+    this.#save(true);
+    return job;
+  }
+  deleteJob(id) {
+    const before = this.data.jobs.length;
+    this.data.jobs = this.data.jobs.filter((j) => j.id !== id);
+    if (this.data.jobs.length !== before) this.#save(true);
   }
 
   addProject(dir) {
