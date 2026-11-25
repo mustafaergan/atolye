@@ -371,6 +371,8 @@ pre.out.err { color: var(--err); }
   box-shadow: var(--shadow); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
 }
 .prompt-card.resolved { border-color: var(--border); box-shadow: none; opacity: .75; }
+.prompt-card.auto { box-shadow: none; }
+.prompt-card.auto .result-note { color: var(--accent); font-weight: 600; }
 .prompt-card h3 { margin: 0; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
 .prompt-card h3 svg { color: var(--accent); }
 .prompt-card .why { font-size: 13px; color: var(--text-2); margin: 0; }

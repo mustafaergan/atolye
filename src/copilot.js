@@ -643,7 +643,7 @@ export class CopilotSession {
       const oid = allow ? o.pick('allow_once', 'allow_always') : o.pick('reject_once', 'reject_always');
       o.resolve(oid ? { outcome: { outcome: 'selected', optionId: oid } } : { outcome: { outcome: 'cancelled' } });
     }
-    this.emit({ type: 'permission_resolved', id, behavior: decision.behavior, always: Boolean(decision.always) });
+    this.emit({ type: 'permission_resolved', id, behavior: decision.behavior, always: Boolean(decision.always), ...(decision.auto ? { auto: String(decision.auto) } : {}) });
     if (allow && decision.always) {
       this.allowed.add(p.group);
       for (const [otherId, other] of this.pending) {

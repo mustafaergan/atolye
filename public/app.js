@@ -644,7 +644,7 @@ function handleEvent(ev) {
     case 'tasks': return setTasks(ev.tasks || []);
     case 'permission': return renderPermission(ev);
     case 'question': return renderQuestion(ev);
-    case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always);
+    case 'permission_resolved': return resolvePrompt(ev.id, ev.behavior, ev.always, ev.auto);
     case 'mode':
       if (state.work === 'plan' && ev.mode !== 'plan' && currentEngine() === 'claude') { state.agentMode = ev.mode; return setWork('agent', { notify: false }); }
       return setMode(ev.mode, false);
@@ -1259,9 +1259,7 @@ function renderPermission(ev) {
         el('span', { class: 'kbd', text: T('Enter izin ver · Esc reddet') })),
       el('div', { class: 'deny-note' }, note));
   }
-  state.prompts.set(id, card);
-  append(card);
-  scrollDown(true);
+  showPromptCard(id, card);
 }
 
 const ALWAYS_LABEL = {
@@ -1309,24 +1307,34 @@ function renderQuestion(ev) {
     el('div', { class: 'actions' },
       el('button', { class: 'btn primary', type: 'button', text: T('Cevapla'), onclick: submit }),
       el('button', { class: 'btn ghost', type: 'button', text: T('Atla'), onclick: () => answer(id, { behavior: 'deny', message: T('Kullanıcı soruyu cevaplamadı.') }) })));
-  state.prompts.set(id, card);
-  append(card);
-  scrollDown(true);
+  showPromptCard(id, card);
 }
 
 function answer(id, decision) {
   wsSend({ type: 'answer', id, decision });
 }
 
-function resolvePrompt(id, behavior, always = false) {
+// Kart çizilmeden önce gelen "çözüldü" bilgisi: kart çizilince uygulanır (bkz. showPromptCard)
+const earlyResolved = new Map();
+function resolvePrompt(id, behavior, always = false, auto = '') {
   const card = state.prompts.get(id);
-  if (!card) return;
+  if (!card) { earlyResolved.set(id, { behavior, always, auto }); return; }
   state.prompts.delete(id);
-  card.classList.add('resolved');
-  for (const b of card.querySelectorAll('button, input')) b.disabled = true;
-  const label = T(behavior === 'allow' ? (always ? 'Bu oturum boyunca izin verildi' : 'İzin verildi') : behavior === 'deny' ? 'Reddedildi' : 'İptal edildi');
+  // Zamanlanmış işin kendisinin verdiği cevap: kart turuncu çerçevesiyle kalır, ne olduğu yazılır
+  card.classList.add(auto ? 'auto' : 'resolved');
+  for (const b of card.querySelectorAll('button, input, textarea')) b.disabled = true;
+  const label = auto
+    ? (behavior === 'allow' ? T('Zamanlanmış iş bu işleme otomatik izin verdi') : T('Zamanlanmış iş: kimse cevaplayamadığı için yapay zekâ en makul varsayımla devam etti'))
+    : T(behavior === 'allow' ? (always ? 'Bu oturum boyunca izin verildi' : 'İzin verildi') : behavior === 'deny' ? 'Reddedildi' : 'İptal edildi');
   $('.actions', card)?.replaceChildren(el('span', { class: 'result-note', text: label }));
   $('.deny-note', card)?.remove();
+}
+function showPromptCard(id, card) {
+  state.prompts.set(id, card);
+  append(card);
+  scrollDown(true);
+  const early = earlyResolved.get(id);
+  if (early) { earlyResolved.delete(id); resolvePrompt(id, early.behavior, early.always, early.auto); }
 }
 
 function activePrompt() {

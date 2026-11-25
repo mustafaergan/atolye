@@ -511,6 +511,8 @@ export const EN = {
   "GitHub Copilot'u kur": 'Install GitHub Copilot',
   'Gerek yok, Claude Code kullanacağım': 'No need, I will use Claude Code',
   'Şimdilik gerek yok': 'Not now',
+  "Zamanlanmış iş bu işleme otomatik izin verdi": "The scheduled job allowed this automatically",
+  "Zamanlanmış iş: kimse cevaplayamadığı için yapay zekâ en makul varsayımla devam etti": "Scheduled job: nobody could answer, so the AI continued with the most reasonable assumption",
   "Oturum:": "Session:",
   "Kod:": "Code:",
   "yok (kodla ilgili değil)": "none (not about code)",

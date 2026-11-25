@@ -169,8 +169,10 @@ export function createScheduler({ manager, store, canRun = async () => null, gen
     };
     running.set(id, { entry });
     unsubscribe = manager.subscribe(entry, (ev) => {
-      if (ev.type === 'permission') entry.agent.answer(ev.id, { behavior: 'allow' });
-      else if (ev.type === 'question') entry.agent.answer(ev.id, { behavior: 'deny', message: QUESTION_ANSWER });
+      // Cevap bir sonraki turda verilir: olay önce diğer abonelere (açık sekmelere) ulaşsın; yoksa arayüze "çözüldü"
+      // bilgisi izin kartından önce gider ve kart cevap bekliyor gibi açık kalır
+      if (ev.type === 'permission') setTimeout(() => entry.agent.answer(ev.id, { behavior: 'allow', auto: 'job' }), 0);
+      else if (ev.type === 'question') setTimeout(() => entry.agent.answer(ev.id, { behavior: 'deny', message: QUESTION_ANSWER, auto: 'job' }), 0);
       else if (ev.type === 'sdk' && ev.msg?.type === 'system' && ev.msg.subtype === 'init' && ev.msg.session_id && !job.sessionId) {
         job.sessionId = ev.msg.session_id;
         update(id, { sessionId: ev.msg.session_id });

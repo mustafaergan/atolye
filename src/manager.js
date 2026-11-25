@@ -203,6 +203,8 @@ export class SessionManager {
 
   #onEvent(entry, ev) {
     entry.lastActivity = Date.now();
+    // Zamanlanmış işin oturumunun başlığı işin adıdır: motorun (Copilot) kendi verdiği başlık yok sayılır
+    if (ev.type === 'session_title' && (entry.job || this.store?.jobs?.().some((j) => j.sessionId && j.sessionId === entry.agent.sessionId))) return;
     if (ev.type === 'error') console.warn(`[oturum] ${entry.engine}: ${ev.message}`);
     if (entry.engine === 'yerel' && entry.sent && entry.agent.sessionId) this.store?.recordLocalSession(entry.agent.sessionId, entry.local?.id);
     if (entry.engine === 'copilot') {

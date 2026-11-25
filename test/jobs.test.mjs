@@ -101,7 +101,9 @@ test('çalıştırma: oturum açılır, izinler onaylanır, soru reddedilir, otu
     m.emit(e, { type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: 'oturum-9' } });
     m.emit(e, { type: 'permission', id: 'p1', toolName: 'Bash' });
     m.emit(e, { type: 'question', id: 'q1' });
-    assert.deepEqual(m.answers.map((a) => [a.id, a.behavior]), [['p1', 'allow'], ['q1', 'deny']]);
+    assert.equal(m.answers.length, 0, 'cevap olay bütün abonelere ulaştıktan sonra verilir');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(m.answers.map((a) => [a.id, a.behavior, a.auto]), [['p1', 'allow', 'job'], ['q1', 'deny', 'job']]);
     assert.equal(store.jobs()[0].sessionId, 'oturum-9');
     e.agent.sessionId = 'oturum-9';
     m.emit(e, { type: 'sdk', msg: { type: 'result', is_error: false } });

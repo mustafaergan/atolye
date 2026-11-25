@@ -352,7 +352,7 @@ export class AgentSession {
     } else {
       p.resolve({ behavior: 'allow', updatedInput: input });
     }
-    this.emit({ type: 'permission_resolved', id, behavior: decision.behavior, always: Boolean(decision.always) });
+    this.emit({ type: 'permission_resolved', id, behavior: decision.behavior, always: Boolean(decision.always), ...(decision.auto ? { auto: String(decision.auto) } : {}) });
 
     if (decision.always && decision.behavior === 'allow' && !NEVER_ALWAYS.has(toolName)) {
       const group = allowanceGroup(toolName);
