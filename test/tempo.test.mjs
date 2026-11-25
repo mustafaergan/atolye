@@ -81,8 +81,11 @@ test('öğrenme: açıklama kalıbı, iş/proje/genel öncelikli alan değerleri
   assert.equal(commentTemplate([wl(1, 'A-1', today, 1, '1', '', 'x'), wl(2, 'A-2', today, 1, '1', '', 'y')]), '', 'kalıp yoksa boş');
 });
 
-test('Tempo bağlantısı: Jira ayarını kullanır, açılmadıkça araçlar sunulmaz', () => {
-  const env = { JIRA_URL: 'https://jira.example.com/', JIRA_TOKEN: 'gizli' };
+test('Tempo bağlantısı: Jira ayarını kullanır, açılmadıkça ve yerel LLM oturumu değilse araçlar sunulmaz', () => {
+  const cloud = { JIRA_URL: 'https://jira.example.com/', JIRA_TOKEN: 'gizli', TEMPO_ENABLED: '1' };
+  assert.equal(configFromEnv('tempo', cloud), null, 'Claude Code / Copilot oturumunda Tempo yok');
+  assert.ok(!availableTools(cloud).some((t) => t.name.startsWith('tempo_')));
+  const env = { JIRA_URL: 'https://jira.example.com/', JIRA_TOKEN: 'gizli', ATOLYE_YEREL_OTURUM: '1' };
   assert.equal(configFromEnv('tempo', env), null);
   assert.ok(!availableTools(env).some((t) => t.name.startsWith('tempo_')));
   const on = { ...env, TEMPO_ENABLED: '1', TEMPO_NOTES: 'Cuma 1 saat toplantı' };
@@ -90,7 +93,7 @@ test('Tempo bağlantısı: Jira ayarını kullanır, açılmadıkça araçlar su
   const tools = availableTools(on).filter((t) => t.name.startsWith('tempo_'));
   assert.deepEqual(tools.map((t) => t.name), ['tempo_profile', 'tempo_status', 'tempo_log_work', 'tempo_delete_worklog']);
   assert.equal(tools.find((t) => t.name === 'tempo_log_work').annotations.readOnlyHint, false, 'yazan araç izinle çalışır');
-  assert.equal(configFromEnv('tempo', { TEMPO_ENABLED: '1' }), null, 'Jira yoksa Tempo da yok');
+  assert.equal(configFromEnv('tempo', { TEMPO_ENABLED: '1', ATOLYE_YEREL_OTURUM: '1' }), null, 'Jira yoksa Tempo da yok');
 });
 
 test('ayar: aç/kapat ve kurallar yalnızca TEMPO_* olarak yazılır, Jira anahtarı tekrar yazılmaz', () => {

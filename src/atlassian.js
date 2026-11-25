@@ -53,9 +53,11 @@ export function configFromEnv(service, env = process.env) {
     return env.TOMCAT_ENABLED === '1' && url && token ? { url, token, email: '' } : null;
   }
   // Tempo (Jira'nın iş kaydı eklentisi): kendi adresi ya da anahtarı yoktur, Jira bağlantısınınkiler kullanılır;
-  // ayar dosyasında yalnızca "açık" bilgisi ve kullanıcının kendi kuralları (TEMPO_NOTES) durur (bkz. tempo.js)
+  // ayar dosyasında yalnızca "açık" bilgisi ve kullanıcının kendi kuralları (TEMPO_NOTES) durur (bkz. tempo.js).
+  // Outlook ve Teams gibi yalnızca yerel LLM oturumlarında sunulur (kullanıcı kararı): iş kayıtları ve geçmiş yerel
+  // modele okutulur, Claude Code ve Copilot oturumlarında Tempo araçları yoktur.
   if (service === 'tempo') {
-    const jiraCfg = env.TEMPO_ENABLED === '1' ? configFromEnv('jira', env) : null;
+    const jiraCfg = env.ATOLYE_YEREL_OTURUM === '1' && env.TEMPO_ENABLED === '1' ? configFromEnv('jira', env) : null;
     return jiraCfg ? { ...jiraCfg, notes: String(env.TEMPO_NOTES || '') } : null;
   }
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');

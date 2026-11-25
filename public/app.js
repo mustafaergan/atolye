@@ -3126,14 +3126,14 @@ const ROLES = {
   analist: {
     name: () => T('Analist'),
     work: 'ask',
-    tabs: ['jira', 'tempo', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'tarayici', 'chrome', 'fikirhane', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'tarayici', 'chrome', 'fikirhane', 'repo', 'proxy'],
     emptyProject: 'analistProject',
     emptyGeneral: 'analistGeneral',
   },
   gelistirici: {
     name: () => T('Geliştirici'),
     work: 'agent',
-    tabs: ['jira', 'tempo', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -3146,10 +3146,12 @@ ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi') };
 ROLES.test = { ...ROLES.analist, name: () => T('Test') };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
-// Outlook ve Teams her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar ve mesajlar yalnızca yerel modele okutulur)
+// Outlook, Teams ve Tempo her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar, mesajlar ve iş kayıtları yalnızca
+// yerel modele okutulur). Tempo Jira'nın hemen arkasında listelenir; diğerleri tarayıcıdan önce.
 const LOCAL_ONLY_TABS = ['outlook', 'teams'];
+const withJiraTempo = (tabs) => { const at = tabs.indexOf('jira'); return at < 0 ? [...tabs, 'tempo'] : [...tabs.slice(0, at + 1), 'tempo', ...tabs.slice(at + 1)]; };
 const withOutlook = (tabs) => { const at = tabs.indexOf('tarayici'); return at < 0 ? [...tabs, ...LOCAL_ONLY_TABS] : [...tabs.slice(0, at), ...LOCAL_ONLY_TABS, ...tabs.slice(at)]; };
-const roleTabs = () => (currentEngine() === 'yerel' ? withOutlook(currentRole().tabs) : currentRole().tabs);
+const roleTabs = () => (currentEngine() === 'yerel' ? withJiraTempo(withOutlook(currentRole().tabs)) : currentRole().tabs);
 function applyRole() {
   const sel = $('#roleSelect');
   sel.replaceChildren(...['analist', 'sahip', 'test', 'gelistirici'].filter((id) => ROLES[id]).map((id) => el('option', { value: id, text: ROLES[id].name() })));
@@ -4056,9 +4058,10 @@ function renderTempoTab() {
   $('#linksBody').replaceChildren(
     el('ol', { class: 'links-steps' },
       el('li', { text: T('Bu bağlantı, Jira\'daki Tempo eklentisine iş kaydı (timesheet) girer. Ayrı bir anahtar gerekmez: Jira bağlantınızın adresi ve kişisel erişim belirteci kullanılır.') }),
+      el('li', { text: T('Yalnızca yerel LLM oturumlarında kullanılır: iş kayıtlarınız ve geçmişiniz yalnızca seçtiğiniz yerel modele okutulur; Claude Code ve GitHub Copilot oturumlarında Tempo araçları bulunmaz.') }),
       el('li', { text: T('Yapay zekâ önce geçmiş kayıtlarınızı okur: hangi işlere ne kadar girdiğinizi, zorunlu alanlara (ör. hizmet, hesap) hangi değerleri seçtiğinizi ve açıklama kalıbınızı öğrenir; eksik günleri bulur.') }),
       el('li', { text: T('Sonra ne gireceğini tablo hâlinde önerip size sorar; siz onaylamadan kayıt girmez. Girerken Atölye ayrıca izin ister.') }),
-      el('li', { text: T('Kullanmak için mesaj kutusunun altındaki "Bağlantı" seçicisinden Tempo\'yu seçip "bu haftanın timesheet\'ini dolduralım" gibi yazın.') })),
+      el('li', { text: T('Kullanmak için yerel LLM oturumu açın, mesaj kutusunun altındaki "Bağlantı" seçicisinden Tempo\'yu seçip "bu haftanın timesheet\'ini dolduralım" gibi yazın.') })),
     ...(st.jira ? [] : [el('div', { class: 'links-result err', text: T('Önce Jira bağlantısını kurun; Tempo onun adresini ve anahtarını kullanır.') })]),
     el('label', { class: 'links-field' }, el('span', { text: T('Kurallarım (isteğe bağlı)') }), notes, el('small', { text: T('Yapay zekâ öneri yaparken geçmiş kayıtlarınızla birlikte bunlara da uyar.') })),
     el('div', { class: 'links-actions' }, saveBtn, st.enabled ? removeBtn : null),

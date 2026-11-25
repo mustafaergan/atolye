@@ -151,7 +151,9 @@ export function status() {
   }
   out.services[BROWSER_SERVER] = browserStatus();
   // Tempo: Jira'nın adresi ve anahtarıyla çalışır; açık olsa bile Jira kurulu değilse bağlı sayılmaz
-  out.services.tempo = { ...out.services.tempo, enabled: env.TEMPO_ENABLED === '1', notes: env.TEMPO_NOTES || '', jira: Boolean(configFromEnv('jira', env)) };
+  // (araçları yine de yalnızca yerel LLM oturumlarında sunulur; "bağlı" = etkinleştirilmiş ve Jira kurulu)
+  const jiraOn = Boolean(configFromEnv('jira', env));
+  out.services.tempo = { ...out.services.tempo, connected: env.TEMPO_ENABLED === '1' && jiraOn, enabled: env.TEMPO_ENABLED === '1', notes: env.TEMPO_NOTES || '', jira: jiraOn };
   return out;
 }
 
@@ -291,7 +293,7 @@ export async function test(service) {
     return { ok: false, error: r.error || 'not-configured', ...(/NJS-116|NJS-138|NJS-112/.test(r.error || '') ? { needsClient: true } : {}) };
   }
   // Sınamayı kullanıcı arayüzden yapar (sonuç yapay zekâya gitmez): Outlook'ta oturum işareti burada verilir
-  const cfg = configFromEnv(service, { ...readEnv(), ...(service === 'outlook' ? { ATOLYE_YEREL_OTURUM: '1' } : {}) });
+  const cfg = configFromEnv(service, { ...readEnv(), ...(['outlook', 'tempo'].includes(service) ? { ATOLYE_YEREL_OTURUM: '1' } : {}) });
   if (!cfg) return { ok: false, error: 'not-configured' };
   try {
     return { ok: true, user: await clients[service].whoami(cfg) };
