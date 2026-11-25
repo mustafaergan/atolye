@@ -229,6 +229,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .btn.danger { color: var(--err); border-color: var(--err); }
 .btn.small { padding: 4px 10px; font-size: 12.5px; color: var(--text-2); }
 .links-actions .btn.end { margin-left: auto; }
+.handoff-wait { display: flex; align-items: center; gap: 6px; padding: 10px 12px; margin: 4px 0 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; color: var(--text-2); }
+.handoff-wait .btn-spin { margin-right: 2px; color: var(--accent, currentColor); }
+.handoff-time { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-3); }
 .commands-dialog .links-field textarea { font-family: inherit; font-size: 13.5px; line-height: 1.45; }
 
 /* ---------- Messages ---------- */

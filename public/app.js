@@ -3794,23 +3794,56 @@ function handoffFallback() {
   return (t?.engine === 'yerel' && all.find((m) => m.id === t.local)) || all.find((m) => m.id === state.localId) || all[0] || null;
 }
 
-/** Yedek yol: konuşma kaydı sunucuda okunur ve özet yerel modele yazdırılır (yalnızca şimdiki yapay zekâ hata verdiyse) */
+/**
+ * Aktarım özetini kim yazar: yerel model tanımlıysa o (konuşma kaydından; konuşma bulut motorunda olsa da özet yerelde
+ * yazılır), yoksa şimdiki yapay zekâ (Copilot ya da Claude). Açık oturum zaten sorunsuz bir yerel modelse özeti kendisi
+ * yazar (null döner). Yerel model yoksa da null.
+ */
+function handoffWriter() {
+  if (!state.sessionId) return null;
+  if (currentEngine() === 'yerel' && !state.turnFailed) return null;
+  return handoffFallback();
+}
+
+/**
+ * Özet beklenirken gösterilen satır: dönen simge, ne beklendiği ve geçen süre. Pencerenin içeriği değişince (satır
+ * sayfadan kalkınca) sayaç kendiliğinden durur.
+ */
+function handoffWaitLine(text) {
+  const time = el('span', { class: 'handoff-time', text: T('{n} sn', { n: 0 }) });
+  const row = el('div', { class: 'handoff-wait', role: 'status' }, el('span', { class: 'btn-spin' }), el('span', { text }), time);
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    if (!row.isConnected) return clearInterval(timer);
+    time.textContent = T('{n} sn', { n: Math.round((Date.now() - t0) / 1000) });
+  }, 1000);
+  return row;
+}
+
+/** Konuşma kaydı sunucuda okunur ve özet yerel modele yazdırılır; olmazsa şimdiki yapay zekâya sorulur */
 async function localHandoffSummary() {
   const m = handoffFallback();
   if (!m) return reviewHandoff('');
   handoffUi.waiting = false;
+  handoffUi.localTried = true;
   clearTimeout(handoffUi.timer);
   const run = ++handoffUi.run;
   const from = aiName();
+  const broken = state.turnFailed || handoffUi.aiTried;
   handoffStage(T('Özet yerel modelle hazırlanıyor…'), [
-    el('p', { class: 'links-intro', text: T('{from} şu an cevap veremiyor. Konuşma kaydı {model} yerel modeline gönderiliyor; özeti o yazacak ve düzenlemeniz için burada açılacak.', { from, model: m.name }) }),
+    el('p', { class: 'links-intro', text: broken
+      ? T('{from} şu an cevap veremiyor. Konuşma kaydı {model} yerel modeline gönderiliyor; özeti o yazacak ve düzenlemeniz için burada açılacak.', { from, model: m.name })
+      : T('Konuşma kaydı {model} yerel modeline gönderiliyor; özeti o yazacak ve düzenlemeniz için burada açılacak.', { model: m.name }) }),
+    handoffWaitLine(T('{model} özeti yazıyor…', { model: m.name })),
     el('div', { class: 'links-actions' },
       el('button', { class: 'btn', type: 'button', text: T('Özeti kendim yazacağım'), onclick: () => reviewHandoff('') }),
       el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
   ]);
   const r = await sCall('/api/handoff/summary', { sessionId: state.sessionId, engine: currentEngine(), cwd: state.cwd, localId: m.id });
   if (run !== handoffUi.run || !handoffDlg().open) return; // kullanıcı beklemedi: kendi yazıyor ya da vazgeçti
-  reviewHandoff(r.ok ? r.summary : '', r.ok ? { by: m.name, from } : { error: r.error });
+  // Yerel model yazamadıysa ve şimdiki yapay zekâ sağlamsa özet ona sorulur
+  if (!r.ok && !broken && !state.busy) return aiHandoffSummary();
+  reviewHandoff(r.ok ? r.summary : '', r.ok ? { by: m.name, from: broken ? from : null } : { error: r.error });
 }
 
 /** Motor menüsünde başka bir motor seçildi ve açık konuşmada mesaj var: nasıl devam edileceği sorulur */
@@ -3818,11 +3851,14 @@ function offerHandoff(o) {
   handoffUi.target = o;
   const name = engineNameOf(o);
   const fallback = state.turnFailed ? handoffFallback() : null;
+  const writer = handoffWriter();
   handoffStage(T('{name} ile devam', { name }), [
     el('p', { class: 'links-intro', text: T('Bu konuşmada yazışma var. {name} ile nasıl devam etmek istersiniz?', { name }) }),
     el('ol', { class: 'links-steps' },
       el('li', { text: T('Yeni oturum: {name} ile boş bir oturum açılır; bu konuşma listede kalır.', { name }) }),
-      el('li', { text: T('Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { name }) })),
+      el('li', { text: writer
+        ? T('Bu konuşmayla devam et: {model} yerel modeli konuşma kaydından özet yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { model: writer.name, name })
+        : T('Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { name }) })),
     state.busy ? el('p', { class: 'links-intro', text: T('Şu an bir işlem sürüyor; özet için bitmesini bekleyin ya da yeni oturum açın.') }) : null,
     fallback ? el('p', { class: 'links-intro', text: T('Son istek hatayla bitti: {from} şu an cevap veremiyor olabilir. "Bu konuşmayla devam et" derseniz özeti {model} yerel modeli konuşma kaydından yazar.', { from: aiName(), model: fallback.name }) }) : null,
     // Önerilen yol yeni oturumdur; özetle aktarım daha küçük bir düğmeyle en sonda durur
@@ -3835,12 +3871,20 @@ function offerHandoff(o) {
 
 /** Şimdiki oturumdan aktarım özeti istenir; yanıt bitince düzenleme ekranı açılır */
 function startHandoffSummary() {
-  // Son istek hatayla bittiyse aynı yapay zekâdan özet beklemek boşuna: doğrudan yerel modele yazdırılır
-  if (state.turnFailed && handoffFallback()) return void localHandoffSummary();
+  handoffUi.localTried = false;
+  handoffUi.aiTried = false;
+  // Özeti öncelikle yerel model yazar (bkz. handoffWriter); yoksa şimdiki yapay zekâ
+  if (handoffWriter()) return void localHandoffSummary();
+  aiHandoffSummary();
+}
+/** Özeti şimdiki oturumdaki yapay zekâya yazdırır (yerel model yoksa ya da yazamadıysa) */
+function aiHandoffSummary() {
+  handoffUi.aiTried = true;
   handoffUi.waiting = true;
   state.lastReply = '';
   handoffStage(T('Özet hazırlanıyor…'), [
     el('p', { class: 'links-intro', text: T('Şimdiki yapay zekâ konuşmanın özetini yazıyor. Özet bu konuşmanın sonuna da eklenir; bitince düzenlemeniz için burada açılır.') }),
+    handoffWaitLine(T('{model} özeti yazıyor…', { model: aiName() })),
     el('div', { class: 'links-actions' },
       el('button', { class: 'btn', type: 'button', text: T('Özeti kendim yazacağım'), onclick: () => reviewHandoff('') }),
       el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
@@ -3855,7 +3899,7 @@ function handoffTurnEnded() {
   if (!handoffUi.waiting || !handoffDlg().open) { handoffUi.waiting = false; return; }
   // Özet isteği de hatayla bittiyse (ya da yanıt gelmediyse) ve yerel model tanımlıysa özet ona yazdırılır
   const failed = state.turnFailed || !state.lastReply;
-  if (failed && handoffFallback()) return void localHandoffSummary();
+  if (failed && handoffFallback() && !handoffUi.localTried) return void localHandoffSummary();
   reviewHandoff(failed ? '' : state.lastReply);
 }
 
@@ -3881,7 +3925,9 @@ function reviewHandoff(summary, info = {}) {
   handoffStage(T('Aktarılacak özet'), [
     summary ? null : el('p', { class: 'links-intro', text: T('Özet alınamadı. Yeni oturumun bilmesi gerekenleri aşağıya kendiniz yazabilirsiniz.') }),
     !summary && info.error ? el('div', { class: 'links-result err', text: info.error }) : null,
-    summary && info.by ? el('div', { class: 'links-result', text: T('Bu özeti {model} yerel modeli konuşma kaydından yazdı, çünkü {from} cevap veremedi. Eksik ya da yanlış olabilir; gözden geçirin.', { model: info.by, from: info.from }) }) : null,
+    summary && info.by ? el('div', { class: 'links-result', text: info.from
+      ? T('Bu özeti {model} yerel modeli konuşma kaydından yazdı, çünkü {from} cevap veremedi. Eksik ya da yanlış olabilir; gözden geçirin.', { model: info.by, from: info.from })
+      : T('Bu özeti {model} yerel modeli konuşma kaydından yazdı. Eksik ya da yanlış olabilir; gözden geçirin.', { model: info.by }) }) : null,
     fromLocal && toCloud
       ? el('div', { class: 'links-result err' }, el('span', { text: usedPrivate
         ? T('Dikkat: bu konuşmada Outlook ya da Teams verisi okundu. Aşağıdaki özet {name} hizmetine (buluta) gönderilecek; e-posta ve mesaj içeriklerinden paylaşmak istemediklerinizi silin.', { name })

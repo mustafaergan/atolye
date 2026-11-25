@@ -53,8 +53,9 @@ async function claudeTitle({ cwd, model, text, local = null }) {
   });
   try {
     for await (const m of q) {
-      if (m.type === 'assistant' && !m.parent_tool_use_id) out += (m.message?.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
-      if (m.type === 'result') break;
+      // API hatası (bağlantı kurulamadı, kimlik vb.) yanıt gibi gelir: metni başlık ya da özet sayılmaz
+      if (m.type === 'assistant' && !m.parent_tool_use_id && !m.error) out += (m.message?.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
+      if (m.type === 'result') { if (m.is_error) out = ''; break; }
     }
   } finally {
     try { q.close?.(); } catch { /* yoksay */ }
