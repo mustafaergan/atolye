@@ -862,7 +862,9 @@ a.check-update { color: var(--text-2); }
 .links-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; }
 
 /* ---------- Sürükleyerek genişletme / daraltma ---------- */
-.sidebar { position: relative; }
+/* Yalnızca geniş ekranda: dar ekranda kenar çubuğu çekmecedir (position: fixed); bu kural onu ezerse çekmece ızgarada
+   kendi satırını kaplar ve ekranın üst yarısı boş kalır (bölünmüş ekran, dar pencere) */
+@media (min-width: 821px) { .sidebar { position: relative; } }
 .resizer { position: absolute; top: 0; bottom: 0; width: 9px; cursor: col-resize; z-index: 5; touch-action: none; }
 .resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; border-radius: 2px; background: transparent; transition: background .15s; }
 .resizer:hover::after, .resizer.dragging::after { background: var(--accent); }
