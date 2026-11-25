@@ -73,6 +73,11 @@ export const EN = {
   'Bu Copilot sürümü eski oturumu yüklemeyi desteklemiyor; yeni bir oturum açıldı.':
     'This Copilot version cannot load the previous session; a new session was started.',
   'Copilot durdu: {reason}': 'Copilot stopped: {reason}',
+  'Copilot çalışırken bağlam boyutu değiştirilemez; önce durdurun.': 'The context size cannot be changed while Copilot is working; stop it first.',
+  'Uzun bağlama geçildi: Copilot yeniden başlatıldı ve konuşma kaldığı yerden yüklendi. Yeni sınır, Bağlam panelinde ilk yanıttan sonra görünür; değişmezse bu model uzun bağlamı desteklemiyor demektir.':
+    'Switched to long context: Copilot was restarted and the conversation was loaded where it left off. The new limit shows in the Context panel after the first reply; if it does not change, this model does not support long context.',
+  'Varsayılan bağlama dönüldü: Copilot yeniden başlatıldı ve konuşma kaldığı yerden yüklendi.':
+    'Back to the default context: Copilot was restarted and the conversation was loaded where it left off.',
   'Oturum yanıt vermiyordu ve kapatıldı. Listeden yeniden açabilirsiniz.': 'The session was not responding and was closed. You can reopen it from the list.',
   'Geçerli bir adres girin (https://… ile başlamalı)': 'Enter a valid address (it must start with https://…)',
   'API anahtarı gerekli': 'An API key is required',

@@ -42,6 +42,10 @@ let usageEvents = false;
 
 const effortOptions = (current) => [{ id: 'reasoning_effort', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: current,
   options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }];
+// FAKE_CONTEXT_OPTION: bağlam penceresi bir yapılandırma seçeneği olarak sunulur; yoksa yalnızca "--context" bayrağı vardır
+const contextOptions = (current) => (process.env.FAKE_CONTEXT_OPTION ? [{ id: 'context_window', name: 'Context Window', category: 'context', type: 'select', currentValue: current,
+  options: [{ value: 'default', name: '400K' }, { value: 'long_context', name: '1.1M' }] }] : []);
+const LONG = process.argv.includes('long_context'); // "--context long_context" ile başlatıldı
 
 acp.agent({ name: 'sahte-copilot' })
   .onRequest('initialize', (ctx) => {
@@ -57,12 +61,14 @@ acp.agent({ name: 'sahte-copilot' })
       update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'compact', description: 'Konuşmayı özetle' }, { name: 'review', description: 'Kod incelemesi' }] },
     });
     sessions.get(sessionId).effort = 'medium';
-    return { sessionId, models: { availableModels: MODELS, currentModelId: 'sahte-hizli' }, configOptions: effortOptions('medium') };
+    return { sessionId, models: { availableModels: MODELS, currentModelId: 'sahte-hizli' }, configOptions: [...effortOptions('medium'), ...contextOptions('default')] };
   })
   .onRequest('session/set_config_option', (ctx) => {
-    if (ctx.params.configId !== 'reasoning_effort') throw new Error('bilinmeyen seçenek');
-    sessions.get(ctx.params.sessionId).effort = ctx.params.value;
-    return { configOptions: effortOptions(ctx.params.value) };
+    const s = sessions.get(ctx.params.sessionId);
+    if (ctx.params.configId === 'reasoning_effort') s.effort = ctx.params.value;
+    else if (ctx.params.configId === 'context_window' && process.env.FAKE_CONTEXT_OPTION) s.context = ctx.params.value;
+    else throw new Error('bilinmeyen seçenek');
+    return { configOptions: [...effortOptions(s.effort), ...contextOptions(s.context || 'default')] };
   })
   .onRequest('session/set_model', (params) => params, (ctx) => {
     if (!MODELS.some((m) => m.modelId === ctx.params.modelId)) throw new Error('bilinmeyen model');
@@ -90,6 +96,8 @@ acp.agent({ name: 'sahte-copilot' })
     const text = prompt.filter((b) => b.type === 'text').map((b) => b.text).join('');
     s.history.push({ role: 'user', text });
     const cx = ctx.client;
+    // Bağlam taşması: uzun bağlam yokken DOLDUR içeren istek gerçek Copilot'un hatasıyla reddedilir
+    if (text.includes('DOLDUR') && !LONG && s.context !== 'long_context') throw new acp.RequestError(-32603, "Execution failed: Request exceeds the model's prompt budget after reserving output (509859 tokens; limit 272000). Reduce context or compact before continuing.");
     try {
       if (text.includes('yavaş')) {
         await send(cx, sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Uzun bir iş başlıyor…' } });
@@ -129,7 +137,7 @@ acp.agent({ name: 'sahte-copilot' })
         { content: 'Portu düzelt', priority: 'high', status: 'completed' },
         { content: 'Testleri çalıştır', priority: 'medium', status: 'in_progress' },
       ] });
-      await send(cx, sessionId, { sessionUpdate: 'usage_update', used: 42000, size: 200000 });
+      await send(cx, sessionId, { sessionUpdate: 'usage_update', used: 42000, size: LONG || s.context === 'long_context' ? 1000000 : 200000 });
       if (usageEvents) await cx.notify('github.com/copilot/sessionEvent', { sessionId, type: 'session.usage_checkpoint', data: { totalNanoAiu: 1500000000, totalPremiumRequests: 1 } });
       await send(cx, sessionId, { sessionUpdate: 'session_info_update', title: 'Port düzeltmesi' });
       await send(cx, sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\n\nBitti: port **3000** oldu.' } });

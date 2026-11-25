@@ -39,7 +39,7 @@ export class SessionManager {
   }
 
   /** Var olan canlı oturumu döndürür ya da yenisini (gerekirse devam ettirerek) başlatır. */
-  async open({ liveId, sessionId, cwd, mode, model, effort, role, general = false, lang = 'tr', engine = 'claude', work = 'agent', localId }) {
+  async open({ liveId, sessionId, cwd, mode, model, effort, context, role, general = false, lang = 'tr', engine = 'claude', work = 'agent', localId }) {
     const existing = this.find({ liveId, sessionId });
     if (existing) return existing;
 
@@ -82,6 +82,7 @@ export class SessionManager {
       resume: sessionId || undefined,
       model,
       effort,
+      context,
       permissionMode: mode,
       work,
       general,

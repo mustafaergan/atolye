@@ -30,7 +30,7 @@ import { oneShot, shortTitle } from './title.js';
 import { attachDir, KEEP_DAYS, saveAttachments } from './attachments.js';
 import * as transcript from './transcript.js';
 import { userPlaces } from './places.js';
-import { fromCopilotEvents, localSummary } from './handoff.js';
+import { fromCopilotEvents, localSummary, transcriptText } from './handoff.js';
 import * as benefit from './benefit.js';
 import * as proxy from './proxy.js';
 import * as testauto from './testauto.js';
@@ -661,6 +661,17 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
 
   // Aktarım özetinin yedek yolu: konuşmayı yürüten yapay zekâ cevap veremiyorsa (kimlik doğrulama, kota, ağ) kayıt
   // diskten okunur ve özet yerel modele yazdırılır (bkz. handoff.js). Kayıt yalnızca seçilen yerel modele gider.
+  // Bağlam dolunca yapay zekâsız taşıma: konuşma kaydının kırpılmış metni (baş ve son, araç çıktıları kısaltılmış).
+  // Yeni oturuma aktarılabilecek en uzun metne (manager.HANDOFF_MAX) sığar; hiçbir modele gönderilmez.
+  app.post('/api/handoff/transcript', wrap(async (req, res) => {
+    const lang = req.query.lang;
+    const { sessionId, engine, cwd } = req.body || {};
+    const dir = cwd ? String(cwd) : defaultCwd;
+    const messages = !sessionId ? [] : engine === 'copilot' ? fromCopilotEvents(transcript.read(String(sessionId))) : await getSessionMessages(String(sessionId), { dir });
+    const text = transcriptText(messages, { head: 3000, tail: 16000 });
+    res.json(text ? { ok: true, text } : { ok: false, error: msg(lang, 'Konuşma kaydı okunamadı ya da boş.') });
+  }));
+
   app.post('/api/handoff/summary', wrap(async (req, res) => {
     const lang = req.query.lang;
     const { sessionId, engine, cwd, localId } = req.body || {};
@@ -808,6 +819,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
         mode: MODES.has(m.mode) ? m.mode : 'default',
         model: m.model || undefined,
         effort: typeof m.effort === 'string' && m.effort ? m.effort : undefined,
+        context: typeof m.context === 'string' && m.context ? m.context : undefined,
         general: samePath(cwd, GENERAL_DIR),
         role: typeof m.role === 'string' ? m.role : undefined,
         work: validWork(m.work),
@@ -896,6 +908,10 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
           return;
         case 'set_effort':
           if (current) await timed(current.agent.setEffort(typeof m.effort === 'string' ? m.effort : ''), 'düşünme seviyesi');
+          return;
+        case 'set_context':
+          // Copilot yeniden başlatılıp oturum yüklenebilir (büyük oturumda uzun sürer): zaman aşımı yok
+          if (current?.agent.setContext) await current.agent.setContext(typeof m.context === 'string' ? m.context : '');
           return;
         case 'get_context': {
           // Sadece isteyen bağlantıya gider; olay tamponuna yazılmaz

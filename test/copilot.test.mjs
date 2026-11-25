@@ -248,6 +248,54 @@ test('düşünme seviyesi Copilot\'un sunduğu seçeneklerden gelir ve değişti
   s2.close();
 });
 
+test('bağlam penceresi: Copilot seçenek sunmuyorsa "--context long_context" ile yeniden başlatılır; aynı oturum yüklenir', async () => {
+  const { s, events } = run(() => ({ behavior: 'allow' }));
+  await until(() => events.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.deepEqual(events.filter((e) => e.type === 'capabilities').at(-1).context, { current: 'default', options: [{ value: 'default' }, { value: 'long_context' }], restart: true });
+  const id = s.sessionId;
+  s.send('merhaba');
+  await until(() => sdk(events, 'result').length === 1);
+  assert.equal(s.usage.size, 200000);
+  await s.setContext('long_context');
+  assert.equal(s.sessionId, id, 'aynı oturum');
+  assert.ok(events.some((e) => e.type === 'sdk' && e.msg.subtype === 'local_command_output' && /Uzun bağlama geçildi/.test(e.msg.content)));
+  assert.equal(events.filter((e) => e.type === 'capabilities').at(-1).context.current, 'long_context');
+  assert.ok(!events.some((e) => e.type === 'error' || e.type === 'session_ended'), 'eski sürecin kapanması hata sayılmaz');
+  assert.ok(!sdk(events, 'assistant').some((m) => JSON.stringify(m).includes('önceki cevap')), 'yüklenirken yeniden gönderilen geçmiş ekrana gelmez');
+  s.send('tekrar');
+  await until(() => sdk(events, 'result').length === 2);
+  assert.equal(s.usage.size, 1000000, 'yeni sınır');
+  await s.setContext('uydurma'); // tanınmayan değer yok sayılır
+  assert.equal(events.filter((e) => e.type === 'capabilities').at(-1).context.current, 'long_context');
+  s.close();
+
+  // Kaydedilen tercih: oturum baştan uzun bağlamla açılır (yeniden başlatma gerekmez)
+  const events2 = [];
+  const s2 = new CopilotSession({ cwd, context: 'long_context', emit: (e) => events2.push(e) });
+  s2.start();
+  await until(() => events2.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+  assert.equal(events2.filter((e) => e.type === 'capabilities').at(-1).context.current, 'long_context');
+  s2.close();
+});
+
+test('bağlam penceresi: Copilot seçenek olarak sunuyorsa o kullanılır, yeniden başlatılmaz', async () => {
+  process.env.FAKE_CONTEXT_OPTION = '1';
+  try {
+    const { s, events } = run(() => ({ behavior: 'allow' }));
+    await until(() => events.some((e) => e.type === 'sdk' && e.msg.subtype === 'init'));
+    const caps = events.filter((e) => e.type === 'capabilities').at(-1);
+    assert.deepEqual(caps.context, { current: 'default', restart: false, options: [{ value: 'default', name: '400K', description: '' }, { value: 'long_context', name: '1.1M', description: '' }] });
+    assert.equal(caps.effort.options.length, 3, 'düşünme seviyesi ayrı kalır');
+    assert.equal(caps.models.length, 2, 'bağlam seçeneği model sanılmaz');
+    await s.setContext('long_context');
+    assert.equal(events.filter((e) => e.type === 'capabilities').at(-1).context.current, 'long_context');
+    assert.ok(!events.some((e) => e.type === 'sdk' && e.msg.subtype === 'local_command_output'), 'yeniden başlatma yok');
+    s.close();
+  } finally {
+    delete process.env.FAKE_CONTEXT_OPTION;
+  }
+});
+
 test('Copilot CLI yalnızca PATH\'te değil, bilinen kurulum klasörlerinde de aranır; VS Code yönlendiricisi sayılmaz', async () => {
   const { copilotCandidates } = await import('../src/copilot.js');
   const env = {

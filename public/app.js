@@ -390,7 +390,7 @@ function openLive({ liveId = null, sessionId = null, isNew = false, cwd = state.
     append(box);
   }, OPEN_WATCH_MS);
   // Her motorun kendi model seçimi vardır: Claude modeli Copilot'a (ya da tersi) gönderilmez
-  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, role: state.role, work: state.work, lang: getLang(), engine, local: engine === 'yerel' ? local || state.localId : null });
+  wsSend({ type: 'open', new: isNew, liveId, sessionId, cwd, mode: state.mode, model: isNew ? null : modelFor(engine) || null, effort: isNew ? null : store.get(effortKey(engine), '') || null, context: engine === 'copilot' ? store.get(CONTEXT_KEY, '') || null : null, role: state.role, work: state.work, lang: getLang(), engine, local: engine === 'yerel' ? local || state.localId : null });
 }
 
 // ---------- Yapay zekâ motoru (Claude Code / GitHub Copilot / yerel modeller) ----------
@@ -602,6 +602,7 @@ function rememberOpen() {
 // sonra bu çalışmada oluşan olaylar (akış, araçlar, bekleyen izinler).
 function applyOpened(ev) {
   clearTimeout(openWatch);
+  state.contextFull = false;
   state.liveId = ev.liveId;
   state.sessionEngine = ev.engine || 'claude';
   state.sessionLocal = ev.local || null;
@@ -857,6 +858,7 @@ function renderResult(msg) {
   trackResult(msg);
   // Tur hatayla bittiyse (kullanıcının durdurması hariç) aktarım özeti bu yapay zekâdan beklenmez (bkz. handoffFallback)
   if (msg.is_error || (msg.subtype !== 'success' && !/interrupt/i.test(String(msg.terminal_reason || '')))) state.turnFailed = true;
+  const contextFull = msg.is_error && CONTEXT_FULL.test(String(msg.result || ''));
   const secs = (msg.duration_ms / 1000).toFixed(1);
   const parts = [T('{n} sn', { n: secs })];
   if (msg.num_turns) parts.push(T('{n} tur', { n: msg.num_turns }));
@@ -879,6 +881,7 @@ function renderResult(msg) {
   loadSessions();
   loadSpend(); // sunucu 1 dk önbelleklediği için her turda script çalışmaz
   if (currentEngine() === 'copilot') loadCopilotQuota();
+  if (contextFull) offerContextRescue();
 }
 
 // Sağ üstteki Copilot göstergesi: kalan kota (Copilot CLI'ın yerel önbelleğinden) ve bu oturumda harcanan kredi
@@ -1412,8 +1415,9 @@ const currentEngine = () => state.sessionEngine || state.engine;
 const modelKey = (engine) => (engine === 'copilot' ? 'atolye:model:copilot' : 'atolye:model');
 const modelFor = (engine) => store.get(modelKey(engine), '');
 
-function setCapabilities({ models = [], commands = [], effort = null }) {
+function setCapabilities({ models = [], commands = [], effort = null, context = null }) {
   renderEffort(effort);
+  renderContextChoice(context);
   state.commands = commands;
   const copilot = currentEngine() === 'copilot';
   const options = models.filter((m) => m.value && m.value !== 'default').map((m) => el('option', { value: m.value, text: m.name || m.value, title: m.description || '' }));
@@ -1441,6 +1445,36 @@ $('#effortSelect').addEventListener('change', () => {
   store.set(effortKey(currentEngine()), effort);
   wsSend({ type: 'set_effort', effort });
 });
+
+// Bağlam penceresi (yalnızca Copilot): Copilot'un kendi seçenekleri (ör. 400K / 1.1M; modele göre değişir) ya da
+// Copilot bunları bildirmiyorsa varsayılan / uzun. Seçim bu bilgisayarda saklanır ve Copilot oturumları hep onunla açılır.
+const CONTEXT_KEY = 'atolye:copilotContext';
+state.contextChoice = null; // { current, options, restart }
+const contextLabel = (o, choice) => (choice?.restart
+  ? (o.value === 'long_context' ? T('Bağlam: uzun') : T('Bağlam: varsayılan'))
+  : T('Bağlam: {size}', { size: o.name || o.value }));
+function renderContextChoice(choice) {
+  state.contextChoice = choice && Array.isArray(choice.options) && choice.options.length > 1 ? choice : null;
+  const sel = $('#contextSelect');
+  $('#contextWrap').hidden = !state.contextChoice;
+  if (!state.contextChoice) return;
+  sel.replaceChildren(...choice.options.map((o) => el('option', { value: o.value, title: o.description || '', text: contextLabel(o, choice) })));
+  sel.value = choice.current || '';
+}
+/** Seçeneklerden "uzun" olanı: Copilot'un adlandırmasıyla long_context ya da listedeki son (en büyük) seçenek */
+function longContextValue(choice = state.contextChoice) {
+  if (!choice) return null;
+  return (choice.options.find((o) => /long/i.test(o.value)) || choice.options.at(-1))?.value || null;
+}
+function applyContext(value) {
+  if (!value || value === state.contextChoice?.current) return;
+  store.set(CONTEXT_KEY, value);
+  if (state.contextChoice?.restart) notice(T('Copilot yeni bağlam boyutuyla yeniden başlatılıyor; konuşma kaldığı yerden yüklenecek…'), 'info');
+  state.contextFull = false;
+  $('.context-card', dom.messages)?.remove();
+  wsSend({ type: 'set_context', context: value });
+}
+$('#contextSelect').addEventListener('change', () => applyContext($('#contextSelect').value));
 
 function setModelValue(model) {
   state.model = model;
@@ -1471,6 +1505,8 @@ function send() {
   const text = dom.input.value.trim();
   if (!text && !state.attachments.length) return;
   if (text === '/clear' || text === '/new') { newSession(); dom.input.value = ''; autoGrow(); return; }
+  // Bağlam taşmışken /compact da aynı sınıra takılır ve takılıp kalır: gönderilmez, taşıma seçenekleri gösterilir
+  if (/^\/compact\b/.test(text) && state.contextFull) { dom.input.value = ''; autoGrow(); offerContextRescue(); return; }
   const images = state.attachments.filter((a) => !a.file).map(({ mediaType, data }) => ({ mediaType, data }));
   const files = state.attachments.filter((a) => a.file).map(({ name, data }) => ({ name, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
@@ -3925,6 +3961,7 @@ function reviewHandoff(summary, info = {}) {
   handoffStage(T('Aktarılacak özet'), [
     summary ? null : el('p', { class: 'links-intro', text: T('Özet alınamadı. Yeni oturumun bilmesi gerekenleri aşağıya kendiniz yazabilirsiniz.') }),
     !summary && info.error ? el('div', { class: 'links-result err', text: info.error }) : null,
+    summary && info.trimmed ? el('div', { class: 'links-result', text: T('Bu metin konuşma kaydından kırpılarak çıkarıldı (başı ve sonu; araç çıktıları kısaltıldı), yapay zekâ yazmadı. Gerekmeyen yerleri silebilir, önemli bir ayrıntıyı ekleyebilirsiniz.') }) : null,
     summary && info.by ? el('div', { class: 'links-result', text: info.from
       ? T('Bu özeti {model} yerel modeli konuşma kaydından yazdı, çünkü {from} cevap veremedi. Eksik ya da yanlış olabilir; gözden geçirin.', { model: info.by, from: info.from })
       : T('Bu özeti {model} yerel modeli konuşma kaydından yazdı. Eksik ya da yanlış olabilir; gözden geçirin.', { model: info.by }) }) : null,
@@ -3938,6 +3975,53 @@ function reviewHandoff(summary, info = {}) {
     el('div', { class: 'links-actions' }, go, el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
   ]);
   box.focus();
+}
+
+// ---------- Bağlam doldu ----------
+// Konuşma modelin bir seferde okuyabileceğinden uzunsa (ör. çok büyük bir araç çıktısından sonra) her yeni istek aynı
+// hatayla biter; /compact da çalışmaz, çünkü sıkıştırmak için de konuşmanın tamamı modele gönderilmelidir. Bu durumda
+// yeni oturuma geçmek için üç yol sunulur: kaydı kırpıp taşımak (yapay zekâ gerekmez, anında), yerel modelle
+// özetleyip taşımak, boş yeni oturum.
+const CONTEXT_FULL = /prompt budget|prompt is too long|maximum context length|context_length_exceeded|context (length|window)[^.]{0,60}(exceed|limit)|exceeds? (the )?(model'?s )?(maximum )?(context|token limit)|too many tokens/i;
+state.contextFull = false;
+
+function offerContextRescue() {
+  state.contextFull = true;
+  $('.context-card', dom.messages)?.remove();
+  const target = engineOptions().find((x) => x.key === activeEngineKey())
+    || { key: activeEngineKey(), engine: currentEngine(), local: state.sessionLocal, name: engineLabel(currentEngine()) };
+  const local = handoffFallback();
+  // Copilot daha büyük bir bağlam sunuyorsa ilk öneri odur: aynı oturum kaldığı yerden sürer
+  const long = longContextValue();
+  const grow = long && long !== state.contextChoice?.current ? state.contextChoice.options.find((o) => o.value === long) : null;
+  const growName = grow && !state.contextChoice.restart ? grow.name : null;
+  const card = el('div', { class: 'login-card context-card' }, el('div', { class: 'login-body' },
+    el('div', {}, el('b', { text: T('Bağlam doldu.') }), el('span', { text: ` ${grow
+      ? T('Konuşma, modelin şu anki bağlam penceresinden uzun. Bağlamı büyütürseniz bu oturum kaldığı yerden devam eder; büyütmezseniz yeni bir oturuma geçmeniz gerekir (/compact da çalışmaz, çünkü sıkıştırmak için de konuşmanın tamamı modele gönderilmelidir).')
+      : T('Konuşma, modelin bir seferde okuyabileceğinden uzun; bu oturumda yeni istekler aynı hatayla biter. /compact da çalışmaz, çünkü sıkıştırmak için de konuşmanın tamamı modele gönderilmelidir. Yeni bir oturumda devam edin:')}` })),
+    grow && el('div', { class: 'context-grow' },
+      el('button', { class: 'btn primary', type: 'button', text: growName ? T('Bağlamı {size} yap ve devam et', { size: growName }) : T('Bağlamı büyüt ve devam et'), onclick: () => applyContext(long) }),
+      el('small', { text: T('Daha çok kredi harcar. Seçiminiz bu bilgisayarda saklanır; Copilot oturumları bundan sonra hep bu bağlamla açılır (mesaj kutusunun altındaki "Bağlam" seçicisinden geri alabilirsiniz).') })),
+    grow && el('div', { class: 'context-or', text: T('Ya da yeni bir oturuma geçin:') }),
+    el('ul', { class: 'context-ways' },
+      el('li', { text: T('Kaydı kırpıp taşı: konuşmanın başı ve sonu (araç çıktıları kısaltılmış) yeni oturuma verilir. Yapay zekâ gerekmez, hemen hazır olur.') }),
+      local && el('li', { text: T('{model} ile özetle: yerel model konuşma kaydından özet yazar; daha derli toplu ama biraz sürer.', { model: local.name }) }),
+      el('li', { text: T('Boş yeni oturum: hiçbir şey taşınmaz.') })),
+    el('div', { class: 'login-actions' },
+      el('button', { class: grow ? 'btn' : 'btn primary', type: 'button', text: T('Kaydı kırpıp taşı'), onclick: () => carryTranscript(target) }),
+      local && el('button', { class: 'btn', type: 'button', text: T('{model} ile özetle', { model: local.name }), onclick: () => { handoffUi.target = target; startHandoffSummary(); } }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Boş yeni oturum'), onclick: () => newSession(state.cwd) }))));
+  append(card);
+  scrollDown(true);
+}
+
+/** Konuşma kaydının kırpılmış metni sunucudan alınır ve aktarım ekranında düzenlemeye açılır */
+async function carryTranscript(target) {
+  handoffUi.target = target;
+  handoffStage(T('Kayıt hazırlanıyor…'), [handoffWaitLine(T('Konuşma kaydı okunuyor…'))]);
+  const r = await sCall('/api/handoff/transcript', { sessionId: state.sessionId, engine: currentEngine(), cwd: state.cwd });
+  if (!handoffDlg().open) return;
+  reviewHandoff(r.ok ? r.text : '', r.ok ? { trimmed: true } : { error: r.error });
 }
 
 /** Yeni oturumun başında görünen kart: aktarılacak özet ilk mesajı bekliyor */

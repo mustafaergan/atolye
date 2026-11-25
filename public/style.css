@@ -231,6 +231,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .links-actions .btn.end { margin-left: auto; }
 .handoff-wait { display: flex; align-items: center; gap: 6px; padding: 10px 12px; margin: 4px 0 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; color: var(--text-2); }
 .handoff-wait .btn-spin { margin-right: 2px; color: var(--accent, currentColor); }
+.context-grow { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 10px 0 6px; }
+.context-grow small { color: var(--text-3); font-size: 12px; }
+.context-or { margin-top: 8px; font-size: 13px; color: var(--text-2); }
+.context-ways { margin: 8px 0 4px; padding-left: 20px; font-size: 13px; color: var(--text-2); }
+.context-ways li { margin: 2px 0; }
 .handoff-time { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-3); }
 .commands-dialog .links-field textarea { font-family: inherit; font-size: 13.5px; line-height: 1.45; }
 

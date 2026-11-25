@@ -237,15 +237,16 @@ export function describeSession(res) {
 
 // ---------- Oturum ----------
 export class CopilotSession {
-  constructor({ cwd, resume, permissionMode, model, effort, emit, lang = 'tr', skipReplay = false, work = 'agent' }) {
+  constructor({ cwd, resume, permissionMode, model, effort, context, emit, lang = 'tr', skipReplay = false, work = 'agent' }) {
     this.engine = 'copilot';
     this.work = validWork(work); // Agent / Ask / Plan (bkz. workmode.js)
     this.cwd = cwd;
     this.resume = resume;
     this.lang = lang;
     // Yerel kopyası olan oturum yüklenirken Copilot'un yeniden gönderdiği eski mesajlar arayüze iletilmez
+    this.skipReplay = skipReplay;
     this.emit = (ev) => {
-      if (this.loading && skipReplay && !['capabilities', 'model', 'session_title', 'error'].includes(ev.type)) return;
+      if (this.loading && this.skipReplay && !['capabilities', 'model', 'session_title', 'error'].includes(ev.type)) return;
       emit(ev);
     };
     this.hadHistory = skipReplay; // yerel kopyada konuşma var mı
@@ -259,6 +260,11 @@ export class CopilotSession {
     this.modelUsage = new Map(); // modelId -> kredi çarpanı
     this.wantEffort = effort || null; // arayüzde Copilot için son seçilen düşünme seviyesi
     this.effort = { id: null, current: '', options: [] }; // Copilot'un sunduğu düşünme seviyeleri
+    // Bağlam penceresi (ör. 400K / 1.1M; modele göre değişir). Copilot bunu bir yapılandırma seçeneği olarak sunuyorsa
+    // o kullanılır (contextOpt); sunmuyorsa Copilot "--context long_context" ile yeniden başlatılıp oturum yüklenir.
+    this.wantContext = /^[\w.-]{1,40}$/.test(String(context || '')) ? String(context) : null;
+    this.contextTier = this.wantContext === 'long_context' ? 'long_context' : 'default';
+    this.contextOpt = { id: null, current: '', options: [] };
     this.sessionId = resume || null;
     this.pending = new Map(); // izin id -> { resolve, toolCall, options }
     this.allowed = new Set();
@@ -288,15 +294,17 @@ export class CopilotSession {
 
   async #boot() {
     const t0 = Date.now();
-    const child = spawnCopilot(['--acp', '--stdio'], { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: copilotEnv() });
-    this.conn = new AcpConnection(child, {
+    const args = ['--acp', '--stdio', ...(this.contextTier === 'long_context' ? ['--context', 'long_context'] : [])];
+    const child = spawnCopilot(args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: copilotEnv() });
+    const conn = new AcpConnection(child, {
       onRequest: (method, params) => this.#onRequest(method, params),
       onNotification: (method, params) => {
         if (method === 'session/update') this.#onUpdate(params.update);
         else if (method === 'github.com/copilot/sessionEvent') this.#onSessionEvent(params);
       },
       onExit: () => {
-        if (this.closed) return;
+        // Bağlam değişirken bilerek kapatılan eski süreç hata sayılmaz
+        if (this.closed || this.conn !== conn) return;
         this.#setBusy(false);
         this.#cancelPending();
         this.emit({ type: 'error', message: msg(this.lang, 'Copilot CLI beklenmedik şekilde kapandı') });
@@ -304,6 +312,7 @@ export class CopilotSession {
         this.closed = true;
       },
     });
+    this.conn = conn;
     const init = await this.conn.request('initialize', {
       protocolVersion: PROTOCOL_VERSION,
       // _meta: Copilot'un oturum harcaması (AI kredisi) olaylarına abonelik; tanımayan sürümler yok sayar
@@ -353,6 +362,7 @@ export class CopilotSession {
       if (!this.wantModel && this.model === want) console.log(`[copilot] varsayılan model: ${want}`);
     }
     if (this.wantEffort && this.wantEffort !== this.effort.current) await this.setEffort(this.wantEffort).catch(() => {});
+    if (this.wantContext && this.contextOpt.id && this.wantContext !== this.contextOpt.current) await this.setContext(this.wantContext).catch(() => {});
     this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.#modelName() } });
     this.#drain();
   }
@@ -440,7 +450,12 @@ export class CopilotSession {
   #readModels(res) {
     // Düşünme seviyesi (Copilot'ta "thought_level" kategorisindeki yapılandırma seçeneği); modele göre değişebilir
     const eff = (res?.configOptions || []).find((o) => (o.category === 'thought_level' || /reasoning|effort|thought/i.test(o.id || '')) && Array.isArray(o.options));
+    // Bağlam penceresi seçeneği (Copilot sunuyorsa; adı ya da kategorisi "context" içerir)
+    const ctx = (res?.configOptions || []).find((o) => o !== eff && /context/i.test(`${o.category || ''} ${o.id || ''}`) && Array.isArray(o.options));
     if (res?.configOptions) {
+      this.contextOpt = ctx
+        ? { id: ctx.id, current: ctx.currentValue || '', options: ctx.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o])).filter((o) => o.value).map((o) => ({ value: o.value, name: o.name || o.value, description: o.description || '' })) }
+        : { id: null, current: '', options: [] };
       this.effort = eff
         ? { id: eff.id, current: eff.currentValue || '', options: eff.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o])).filter((o) => o.value).map((o) => ({ value: o.value, name: o.name || o.value, description: o.description || '' })) }
         : { id: null, current: '', options: [] };
@@ -451,7 +466,7 @@ export class CopilotSession {
       if (m?.modelId && typeof usage === 'string' && usage) this.modelUsage.set(m.modelId, usage);
     }
     const withUsage = (id, name) => (this.modelUsage.has(id) && !String(name).includes(this.modelUsage.get(id)) ? `${name} · ${this.modelUsage.get(id)}` : name);
-    const opt = (res?.configOptions || []).find((o) => (o.category === 'model' || /model/i.test(o.id || '')) && Array.isArray(o.options));
+    const opt = (res?.configOptions || []).find((o) => o !== ctx && (o.category === 'model' || /model/i.test(o.id || '')) && Array.isArray(o.options));
     if (opt) {
       const flat = opt.options.flatMap((o) => (Array.isArray(o.options) ? o.options : [o]));
       this.modelConfigId = opt.id;
@@ -477,7 +492,53 @@ export class CopilotSession {
     // Bilgisayardaki skill'ler, Copilot komut olarak bildirmese de "/" listesinde görünür (bkz. manager.js send)
     let skills = [];
     try { skills = skillCommands(this.commands, this.cwd, 'copilot'); } catch { /* skill listesi okunamazsa yalnızca Copilot'un komutları */ }
-    this.emit({ type: 'capabilities', models: this.models, commands: [...this.commands, ...skills], effort: { current: this.effort.current, hasDefault: false, options: this.effort.options } });
+    this.emit({ type: 'capabilities', models: this.models, commands: [...this.commands, ...skills], effort: { current: this.effort.current, hasDefault: false, options: this.effort.options }, context: this.#contextCaps() });
+  }
+
+  /** Arayüzdeki bağlam seçicisi: Copilot'un kendi seçenekleri ya da (yoksa) varsayılan / uzun bağlam */
+  #contextCaps() {
+    if (this.contextOpt.id) return { current: this.contextOpt.current, options: this.contextOpt.options, restart: false };
+    return { current: this.contextTier, options: [{ value: 'default' }, { value: 'long_context' }], restart: true };
+  }
+
+  /**
+   * Bağlam penceresini değiştirir. Copilot bunu bir seçenek olarak sunuyorsa hemen uygulanır. Sunmuyorsa Copilot
+   * "--context <seviye>" ile yeniden başlatılır ve aynı oturum yüklenir: konuşma Copilot'ta kaldığı yerden sürer.
+   */
+  async setContext(value) {
+    const v = String(value || '');
+    if (!this.sessionId || !/^[\w.-]{1,40}$/.test(v)) return;
+    if (this.contextOpt.id) {
+      if (v === this.contextOpt.current || !this.contextOpt.options.some((o) => o.value === v)) return;
+      const res = await this.conn.request('session/set_config_option', { sessionId: this.sessionId, configId: this.contextOpt.id, value: v });
+      this.contextOpt.current = v;
+      if (res?.configOptions) this.#readModels(res); else this.#sendCapabilities();
+      console.log(`[copilot] bağlam seçeneği: ${v}`);
+      return;
+    }
+    if (!['default', 'long_context'].includes(v) || v === this.contextTier) return;
+    if (this.busy) throw new Error(msg(this.lang, 'Copilot çalışırken bağlam boyutu değiştirilemez; önce durdurun.'));
+    const old = this.conn;
+    this.conn = null; // eski sürecin kapanması hata sayılmasın (bkz. onExit)
+    this.#cancelPending();
+    old?.close();
+    this.contextTier = v;
+    this.resume = this.sessionId;
+    this.skipReplay = true; // konuşma zaten ekranda: Copilot'un yeniden gönderdikleri gösterilmez
+    this.hadHistory = true;
+    this.wantModel = this.model || this.wantModel;
+    this.wantEffort = this.effort.current || this.wantEffort;
+    this.usage = null;
+    this.booted = false;
+    this.start();
+    await this.ready;
+    if (this.closed) return;
+    console.log(`[copilot] bağlam: ${v}; Copilot yeniden başlatıldı, oturum yüklendi`);
+    this.#sendCapabilities(); // yüklenen oturumda Copilot seçenekleri yeniden bildirmeyebilir
+    const note = v === 'long_context'
+      ? msg(this.lang, 'Uzun bağlama geçildi: Copilot yeniden başlatıldı ve konuşma kaldığı yerden yüklendi. Yeni sınır, Bağlam panelinde ilk yanıttan sonra görünür; değişmezse bu model uzun bağlamı desteklemiyor demektir.')
+      : msg(this.lang, 'Varsayılan bağlama dönüldü: Copilot yeniden başlatıldı ve konuşma kaldığı yerden yüklendi.');
+    this.emit({ type: 'sdk', msg: { type: 'system', subtype: 'local_command_output', content: note } });
   }
 
   #appendText(type, text) {
