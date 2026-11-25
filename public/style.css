@@ -227,6 +227,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .btn.learn { background: var(--learn); border-color: var(--learn); color: #fff; }
 .btn.learn:hover { filter: brightness(1.08); }
 .btn.danger { color: var(--err); border-color: var(--err); }
+.btn.small { padding: 4px 10px; font-size: 12.5px; color: var(--text-2); }
+.links-actions .btn.end { margin-left: auto; }
 .commands-dialog .links-field textarea { font-family: inherit; font-size: 13.5px; line-height: 1.45; }
 
 /* ---------- Messages ---------- */

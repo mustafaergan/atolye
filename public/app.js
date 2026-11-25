@@ -3821,14 +3821,15 @@ function offerHandoff(o) {
   handoffStage(T('{name} ile devam', { name }), [
     el('p', { class: 'links-intro', text: T('Bu konuşmada yazışma var. {name} ile nasıl devam etmek istersiniz?', { name }) }),
     el('ol', { class: 'links-steps' },
-      el('li', { text: T('Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { name }) }),
-      el('li', { text: T('Yeni oturum: {name} ile boş bir oturum açılır; bu konuşma listede kalır.', { name }) })),
+      el('li', { text: T('Yeni oturum: {name} ile boş bir oturum açılır; bu konuşma listede kalır.', { name }) }),
+      el('li', { text: T('Bu konuşmayla devam et: şimdiki yapay zekâ konuşmanın özetini yazar, siz görüp düzenlersiniz, onayladığınız özet {name} oturumuna aktarılır.', { name }) })),
     state.busy ? el('p', { class: 'links-intro', text: T('Şu an bir işlem sürüyor; özet için bitmesini bekleyin ya da yeni oturum açın.') }) : null,
     fallback ? el('p', { class: 'links-intro', text: T('Son istek hatayla bitti: {from} şu an cevap veremiyor olabilir. "Bu konuşmayla devam et" derseniz özeti {model} yerel modeli konuşma kaydından yazar.', { from: aiName(), model: fallback.name }) }) : null,
+    // Önerilen yol yeni oturumdur; özetle aktarım daha küçük bir düğmeyle en sonda durur
     el('div', { class: 'links-actions' },
-      el('button', { class: 'btn primary', type: 'button', text: T('Bu konuşmayla devam et'), disabled: state.busy, onclick: startHandoffSummary }),
-      el('button', { class: 'btn', type: 'button', text: T('Yeni oturum'), onclick: () => { handoffDlg().close(); switchEngine(o); } }),
-      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() })),
+      el('button', { class: 'btn primary', type: 'button', text: T('Yeni oturum'), onclick: () => { handoffDlg().close(); switchEngine(o); } }),
+      el('button', { class: 'btn ghost', type: 'button', text: T('Vazgeç'), onclick: () => handoffDlg().close() }),
+      el('button', { class: 'btn small end', type: 'button', text: T('Bu konuşmayla devam et'), disabled: state.busy, onclick: startHandoffSummary })),
   ]);
 }
 
