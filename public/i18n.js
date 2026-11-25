@@ -510,6 +510,8 @@ export const EN = {
   'GitHub Copilot bu bilgisayarda kurulu değil. Atölye sizin için kurabilir (npm ile indirilir; birkaç dakika sürebilir). Kurulumdan sonra GitHub girişi de buradan yapılır.': 'GitHub Copilot is not installed on this computer. Atölye can install it for you (downloaded with npm; it may take a few minutes). After the installation you also sign in to GitHub from here.',
   "GitHub Copilot'u kur": 'Install GitHub Copilot',
   'Gerek yok, Claude Code kullanacağım': 'No need, I will use Claude Code',
+  'Şimdilik gerek yok': 'Not now',
+  "Claude Code'a giriş yapılmamış, bu yüzden motor seçicide görünmüyor. Giriş için bir terminalde \"claude\" çalıştırıp /login yazın ya da buraya gateway adresi ve token girin.": "Claude Code is not signed in, so it is not shown in the engine selector. To sign in, run \"claude\" in a terminal and type /login, or enter a gateway address and token here.",
   'GitHub Copilot kuruluyor… Bu birkaç dakika sürebilir; bu sırada Claude Code ile çalışmaya devam edebilirsiniz.': 'Installing GitHub Copilot… This may take a few minutes; meanwhile you can keep working with Claude Code.',
   'GitHub Copilot kuruldu. Copilot oturumu açılıyor…': 'GitHub Copilot is installed. Opening a Copilot session…',
   'Bağlantılar': 'Connections',

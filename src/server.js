@@ -20,6 +20,7 @@ import { SessionManager } from './manager.js';
 import { StateStore } from './store.js';
 import { getSpend } from './spend.js';
 import { detectCopilot, startLogin, loginStatus, cancelLogin, startInstall, installStatus } from './copilot.js';
+import { claudeLogin } from './claude-auth.js';
 import * as integrations from './integrations.js';
 import * as fikirhane from './fikirhane.js';
 import { applyUpdate, checkUpdate } from './update.js';
@@ -609,7 +610,9 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Hangi yapay zekâ motorları kullanılabilir? (Claude Code her zaman; GitHub Copilot CLI kuruluysa)
   app.get('/api/engines', wrap(async (req, res) => {
     const local = settings.localStatus();
-    res.json({ claude: { available: true }, copilot: await detectCopilot({ force: req.query.refresh === '1' }), yerel: { available: local.configured, models: local.models.map(({ id, name, model }) => ({ id, name, model })) } });
+    // Claude Code'a giriş yapılmamışsa seçicide gösterilmez (bkz. claude-auth.js)
+    const claude = await claudeLogin();
+    res.json({ claude: { available: claude.loggedIn, via: claude.via }, copilot: await detectCopilot({ force: req.query.refresh === '1' }), yerel: { available: local.configured, models: local.models.map(({ id, name, model }) => ({ id, name, model })) } });
   }));
 
   app.get('/api/sessions', wrap(async (req, res) => {

@@ -241,7 +241,7 @@ function offerCopilotInstall(asked = false) {
     error ? null : el('div', { text: T('GitHub Copilot bu bilgisayarda kurulu değil. Atölye sizin için kurabilir (npm ile indirilir; birkaç dakika sürebilir). Kurulumdan sonra GitHub girişi de buradan yapılır.') }),
     el('div', { class: 'login-actions' },
       el('button', { class: 'btn primary', type: 'button', text: error ? T('Yeniden dene') : T("GitHub Copilot'u kur"), onclick: start }),
-      el('button', { class: 'btn ghost', type: 'button', text: T('Gerek yok, Claude Code kullanacağım'), onclick: () => { store.set(INSTALL_DISMISS, '1'); card.remove(); } })));
+      el('button', { class: 'btn ghost', type: 'button', text: claudeReady() ? T('Gerek yok, Claude Code kullanacağım') : T('Şimdilik gerek yok'), onclick: () => { store.set(INSTALL_DISMISS, '1'); card.remove(); } })));
   const render = (st) => {
     if (st.status === 'running') return show(el('div', {}, el('span', { class: 'btn-spin' }), T('GitHub Copilot kuruluyor… Bu birkaç dakika sürebilir; bu sırada Claude Code ile çalışmaya devam edebilirsiniz.')));
     clearInterval(installPoll);
@@ -411,6 +411,8 @@ state.listEngines = new Set((() => {
 const engineLabel = (e) => (e === 'copilot' ? 'Copilot' : e === 'yerel' ? T('Yerel') : 'Claude');
 const engineKey = (engine, local) => (engine === 'yerel' ? `yerel:${local || ''}` : engine || 'claude');
 const localModels = () => state.engines.yerel?.models || [];
+// Claude Code'a giriş yapılmamışsa seçicide gösterilmez (açık oturum eski bir Claude oturumuysa yine görünür)
+const claudeReady = () => state.engines.claude?.available !== false;
 const activeEngineKey = () => {
   const e = state.sessionEngine || state.engine;
   return engineKey(e, e === 'yerel' ? state.sessionLocal || state.localId : null);
@@ -426,16 +428,16 @@ function aiName() {
 function engineOptions() {
   const cp = state.engines.copilot || {};
   return [
-    { key: 'claude', engine: 'claude', name: 'Claude Code', label: 'Claude Code' },
+    (claudeReady() || activeEngineKey() === 'claude') && { key: 'claude', engine: 'claude', name: 'Claude Code', label: 'Claude Code' },
     // Kurulu değilken de seçilebilir: seçilince kurulum önerilir (terminale dönmek gerekmez)
     { key: 'copilot', engine: 'copilot', name: 'GitHub Copilot', label: cp.available ? 'GitHub Copilot' : T('GitHub Copilot (kurulu değil: kur…)'), title: cp.available ? `Copilot CLI ${cp.version || ''}` : cp.error || '' },
     ...localModels().map((m) => ({ key: `yerel:${m.id}`, engine: 'yerel', local: m.id, name: T('Yerel: {name}', { name: m.name }), label: T('Yerel: {name}', { name: m.name }), title: m.model })),
-  ];
+  ].filter(Boolean);
 }
 
 /** Oturum listesinde gösterilen motorlar: işaretlenenler ve (her zaman) açık oturumun motoru */
 function shownEngines() {
-  const valid = new Set(['claude', 'copilot', ...localModels().map((m) => `yerel:${m.id}`)]);
+  const valid = new Set([...(claudeReady() ? ['claude'] : []), 'copilot', ...localModels().map((m) => `yerel:${m.id}`)]);
   const shown = new Set([...state.listEngines].filter((k) => valid.has(k)));
   shown.add(activeEngineKey());
   return shown;
@@ -470,6 +472,8 @@ async function loadEngines(refresh = false) {
   const locals = localModels();
   if (!locals.some((m) => m.id === state.localId)) state.localId = locals[0]?.id || null;
   if (!locals.length && state.engine === 'yerel') state.engine = 'claude';
+  // Claude Code'a giriş yoksa yeni oturumlar yerel modelle açılır (o da yoksa Claude'da kalınır: girişi kendisi ister)
+  if (state.engine === 'claude' && !claudeReady() && locals.length) state.engine = 'yerel';
   applyEngineUi();
 }
 
@@ -539,8 +543,9 @@ function toggleEngineMenu(open = dom.engineMenu.hidden) {
   const box = dom.engineMenu.getBoundingClientRect();
   const over = box.right - (document.documentElement.clientWidth - 8);
   if (over > 0) dom.engineMenu.style.left = `${-Math.min(over, Math.max(0, box.left - 8))}px`;
-  // Copilot "kurulu değil" görünüyorsa menü açılırken yeniden denetlenir: sonradan kurulduysa hemen seçilebilir olur
-  if (!state.engines.copilot?.available) loadEngines(true);
+  // Copilot "kurulu değil" ya da Claude Code girişsiz görünüyorsa menü açılırken yeniden denetlenir: sonradan
+  // kurulduysa / giriş yapıldıysa hemen seçilebilir olur
+  if (!state.engines.copilot?.available || !claudeReady()) loadEngines(true);
 }
 
 /**
@@ -2300,6 +2305,7 @@ function settingsClaude() {
   const token = sInput('', { type: 'password', placeholder: c.hasToken ? T('Kayıtlı (değiştirmek için yenisini yazın)') : '' });
   return [
     el('p', { class: 'links-intro', text: T('Claude Code\'un bağlanacağı gateway adresi ve token. Boş bırakırsanız Claude Code\'un kendi ayarları (~/.claude/settings.json) ya da claude.ai girişi kullanılır. Değişiklik yeni açılan oturumlarda geçerli olur.') }),
+    !claudeReady() && sNote(T('Claude Code\'a giriş yapılmamış, bu yüzden motor seçicide görünmüyor. Giriş için bir terminalde "claude" çalıştırıp /login yazın ya da buraya gateway adresi ve token girin.')),
     sNote(c.baseUrl ? T('Şu an: {url}, token {state}', { url: c.baseUrl, state: c.hasToken ? T('var') : T('yok') }) : T('Şu an Atölye\'de gateway adresi yok; Claude Code\'un kendi ayarları kullanılıyor.')),
     sField(T('Gateway adresi'), url),
     sField('Token', token, T('Token bu bilgisayarda, kurulum klasöründeki .env dosyasında düz metin olarak saklanır.')),
@@ -2307,11 +2313,13 @@ function settingsClaude() {
       el('button', { type: 'button', class: 'btn primary', text: T('Kaydet'), onclick: async () => {
         const r = await sCall('/api/settings/claude', { baseUrl: url.value, token: token.value });
         if (r.status) settingsUi.data.claude = r.status;
+        if (r.ok) await loadEngines(true);
         setNote(r.ok ? T('Kaydedildi. Yeni açılan oturumlarda geçerli olur.') : r.error, r.ok ? 'ok' : 'err');
       } }),
       c.saved && el('button', { type: 'button', class: 'btn ghost', text: T('Kaldır'), onclick: async () => {
         const r = await sCall('/api/settings/claude', null, 'DELETE');
         if (r.status) settingsUi.data.claude = r.status;
+        if (r.ok) await loadEngines(true);
         setNote(r.ok ? T('Kaldırıldı; Claude Code\'un kendi ayarları kullanılacak.') : r.error, r.ok ? 'ok' : 'err');
       } })),
   ];
@@ -4999,11 +5007,11 @@ if (new URLSearchParams(location.search).has('debug')) window.atolyeDebug = { ha
   if (last && (last.engine || 'claude') !== state.engine) last = null;
   if (last && samePath(last.cwd, state.cwd)) { state.liveId = last.liveId; state.sessionId = last.sessionId; state.sessionEngine = last.engine || 'claude'; }
   applyEngineUi();
-  // Son oturum Copilot'tu ama Copilot artık yoksa: hata göstermek yerine Claude ile temiz başla
+  // Son oturum Copilot'tu ama Copilot artık yoksa: hata göstermek yerine Claude (girişsizse yerel model) ile temiz başla
   if (state.sessionEngine === 'copilot' && !state.engines.copilot?.available) {
     state.liveId = null;
     state.sessionId = null;
-    state.sessionEngine = 'claude';
+    state.sessionEngine = state.engine;
     applyEngineUi();
   }
   dom.gatewayInfo.textContent = state.config.gateway
