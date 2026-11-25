@@ -1436,8 +1436,10 @@ function renderEffort(effort) {
   const sel = $('#effortSelect');
   $('#effortWrap').hidden = options.length < 2;
   sel.replaceChildren(
-    ...(effort?.hasDefault ? [el('option', { value: '', text: T('Düşünme: varsayılan') })] : []),
-    ...options.map((o) => el('option', { value: o.value, title: o.description || '', text: T('Düşünme: {level}', { level: EFFORT_NAMES[o.value] ? T(EFFORT_NAMES[o.value]) : o.name }) })));
+    // Kapalıyken yalnızca seviye görünür (yer kazanmak için); açılınca listenin başlığı "Düşünme"dir
+    el('optgroup', { label: T('Düşünme') },
+      ...(effort?.hasDefault ? [el('option', { value: '', text: T('varsayılan') })] : []),
+      ...options.map((o) => el('option', { value: o.value, title: o.description || '', text: EFFORT_NAMES[o.value] ? T(EFFORT_NAMES[o.value]) : o.name }))));
   sel.value = effort?.current || '';
 }
 $('#effortSelect').addEventListener('change', () => {
@@ -1451,14 +1453,15 @@ $('#effortSelect').addEventListener('change', () => {
 const CONTEXT_KEY = 'atolye:copilotContext';
 state.contextChoice = null; // { current, options, restart }
 const contextLabel = (o, choice) => (choice?.restart
-  ? (o.value === 'long_context' ? T('Bağlam: uzun') : T('Bağlam: varsayılan'))
-  : T('Bağlam: {size}', { size: o.name || o.value }));
+  ? (o.value === 'long_context' ? T('uzun') : T('varsayılan'))
+  : o.name || o.value);
 function renderContextChoice(choice) {
   state.contextChoice = choice && Array.isArray(choice.options) && choice.options.length > 1 ? choice : null;
   const sel = $('#contextSelect');
   $('#contextWrap').hidden = !state.contextChoice;
   if (!state.contextChoice) return;
-  sel.replaceChildren(...choice.options.map((o) => el('option', { value: o.value, title: o.description || '', text: contextLabel(o, choice) })));
+  // Kapalıyken yalnızca boyut görünür (ör. 1.1M); açılınca listenin başlığı "Bağlam"dır
+  sel.replaceChildren(el('optgroup', { label: T('Bağlam') }, ...choice.options.map((o) => el('option', { value: o.value, title: o.description || '', text: contextLabel(o, choice) }))));
   sel.value = choice.current || '';
 }
 /** Seçeneklerden "uzun" olanı: Copilot'un adlandırmasıyla long_context ya da listedeki son (en büyük) seçenek */

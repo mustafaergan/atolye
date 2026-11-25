@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Copilot konuşmalarının yerel kopyası (transcript.js) gerçek ~/.atolye/copilot yerine geçici klasöre yazılır
+process.env.ATOLYE_STATE_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-copilot-test-')), 'durum.json');
 process.env.COPILOT_CLI_PATH = fileURLToPath(new URL('./fixtures/fake-copilot.mjs', import.meta.url));
 process.env.ATOLYE_COPILOT_INSTALL_CMD = 'node --version'; // gerçek kurulum yapılmaz
 const { CopilotSession, detectCopilot, toolForUi } = await import('../src/copilot.js');
@@ -166,6 +168,7 @@ test("model listesi Copilot'un kendisinden gelir; seçilen model oturuma uygulan
 });
 
 test('yerel kopya: Copilot geçmişi yeniden göndermese de konuşma görünür; çift mesaj olmaz', async () => {
+  const previous = process.env.ATOLYE_STATE_FILE;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-tr-'));
   process.env.ATOLYE_STATE_FILE = path.join(dir, 'durum.json');
   const transcript = await import('../src/transcript.js');
@@ -197,7 +200,7 @@ test('yerel kopya: Copilot geçmişi yeniden göndermese de konuşma görünür;
   m.close(again);
   transcript.remove(id);
   assert.deepEqual(transcript.read(id), []);
-  delete process.env.ATOLYE_STATE_FILE;
+  process.env.ATOLYE_STATE_FILE = previous;
 });
 
 test('COPILOT_EXTRA_ARGS yalnızca basit seçenekleri kabul eder', async () => {
