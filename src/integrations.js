@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { clients, configFromEnv, envKey, SERVICES } from './atlassian.js';
+import { asLocal, clients, configFromEnv, envKey, SERVICES } from './atlassian.js';
 import { availableTools, callTool, TOOLS } from './mcp-server.js';
 import { validDbUrl } from './database.js';
 
@@ -146,7 +146,8 @@ export function status() {
       // Outlook'ta "bağlı" = kullanıcı etkinleştirmiş; araçları yine de yalnızca yerel LLM oturumlarında sunulur
       // Teams de öyle; erişim anahtarının durumu sunucuda eklenir (bkz. server.js, teams.js)
       // Chrome'da iç kapının adresi ayar dosyasında değil sunucunun ortamındadır; "bağlı" = kullanıcı etkinleştirmiş
-      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : s === 'chrome' ? env.CHROME_ENABLED === '1' : s === 'tomcat' ? env.TOMCAT_ENABLED === '1' : Boolean(configFromEnv(s, env)),
+      // Veritabanları yalnızca yerel oturumda sunulur ama "bağlı" bilgisi kayıtlı ayara göredir
+      connected: s === 'outlook' ? env.OUTLOOK_ENABLED === '1' : s === 'teams' ? env.TEAMS_ENABLED === '1' : s === 'chrome' ? env.CHROME_ENABLED === '1' : s === 'tomcat' ? env.TOMCAT_ENABLED === '1' : Boolean(configFromEnv(s, ['oracle', 'postgres'].includes(s) ? asLocal(env) : env)),
     };
   }
   out.services[BROWSER_SERVER] = browserStatus();
@@ -262,12 +263,12 @@ const OWN_PROCESS = ['oracle'];
 let oneShotImpl = null;
 /** Testler için: alt süreç yerine çağrılacak işlev */
 export function setOneShot(fn) { oneShotImpl = fn; }
-function oneShot(payload, timeoutMs = 90_000) {
-  if (oneShotImpl) return oneShotImpl(payload);
+function oneShot(payload, timeoutMs = 90_000, extraEnv = {}) {
+  if (oneShotImpl) return oneShotImpl(payload, extraEnv);
   return new Promise((resolve) => {
     const fail = (text) => resolve({ ok: false, isError: true, error: text, content: [{ type: 'text', text }] });
     let child;
-    try { child = spawn(process.execPath, [MCP_SCRIPT, '--once'], { env: { ...process.env, ...readEnv() }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); } catch (err) { return fail(err.message); }
+    try { child = spawn(process.execPath, [MCP_SCRIPT, '--once'], { env: { ...process.env, ...readEnv(), ...extraEnv }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); } catch (err) { return fail(err.message); }
     let out = '';
     let errText = '';
     const timer = setTimeout(() => { child.kill(); fail('işlem zamanında bitmedi'); }, timeoutMs);
@@ -287,13 +288,14 @@ function oneShot(payload, timeoutMs = 90_000) {
 export async function test(service) {
   check(service);
   if (OWN_PROCESS.includes(service)) {
-    const r = await oneShot({ op: 'whoami', service });
+    // Sınamayı kullanıcı yapar (sonuç yapay zekâya gitmez): yalnızca yerel oturumda sunulan bağlantılar da sınanır
+    const r = await oneShot({ op: 'whoami', service }, undefined, { ATOLYE_YEREL_OTURUM: '1' });
     if (r.ok) return { ok: true, user: r.user };
     // Oracle istemcisi gerektiren hatalar: arayüz indirme seçeneğini yalnızca bu durumda gösterir
     return { ok: false, error: r.error || 'not-configured', ...(/NJS-116|NJS-138|NJS-112/.test(r.error || '') ? { needsClient: true } : {}) };
   }
   // Sınamayı kullanıcı arayüzden yapar (sonuç yapay zekâya gitmez): Outlook'ta oturum işareti burada verilir
-  const cfg = configFromEnv(service, { ...readEnv(), ...(['outlook', 'tempo'].includes(service) ? { ATOLYE_YEREL_OTURUM: '1' } : {}) });
+  const cfg = configFromEnv(service, asLocal(readEnv()));
   if (!cfg) return { ok: false, error: 'not-configured' };
   try {
     return { ok: true, user: await clients[service].whoami(cfg) };
@@ -306,17 +308,19 @@ export async function test(service) {
  * Arayüzdeki "veri getir": bağlantının yalnızca okuma yapan işlemleri. Veriyi yapay zekâ değil Atölye çeker
  * (kayıtlı bağlantıyla doğrudan REST); sonuç kullanıcının mesajına eklenir. MCP gerektirmez.
  */
-export function readTools(service) {
+export function readTools(service, { local = false } = {}) {
   check(service);
-  return availableTools(readEnv()).filter((t) => TOOLS[t.name].service === service && !TOOLS[t.name].write)
+  // Yalnızca yerel oturumda sunulan bağlantıların (veritabanları) verisi yalnızca yerel oturumda getirilebilir
+  return availableTools(local ? asLocal(readEnv()) : readEnv()).filter((t) => TOOLS[t.name].service === service && !TOOLS[t.name].write)
     .map((t) => ({ name: t.name, description: t.description, properties: t.inputSchema.properties, required: t.inputSchema.required }));
 }
 
-export async function runReadTool(name, args) {
+export async function runReadTool(name, args, { local = false } = {}) {
   const tool = TOOLS[name];
   if (!tool) return { ok: false, text: 'Bilinmeyen işlem' };
   if (tool.write) return { ok: false, text: 'Bu işlem değişiklik yapar; buradan çalıştırılamaz' };
   const input = args && typeof args === 'object' ? args : {};
-  const res = OWN_PROCESS.includes(tool.service) ? await oneShot({ op: 'call', name, args: input }) : await callTool(name, input, readEnv());
+  const extra = local ? { ATOLYE_YEREL_OTURUM: '1' } : {};
+  const res = OWN_PROCESS.includes(tool.service) ? await oneShot({ op: 'call', name, args: input }, undefined, extra) : await callTool(name, input, { ...readEnv(), ...extra });
   return { ok: !res.isError, text: res.content?.[0]?.text || '' };
 }

@@ -234,6 +234,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .s-job { display: inline-flex; color: var(--accent); flex: none; }
 .s-job svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .jobs-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.job-dir { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; color: var(--text-2); }
 .job-row { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
 .job-row.off { opacity: .6; }
 .job-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -252,6 +253,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .job-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .job-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; cursor: pointer; }
 .job-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.job-folder-label { color: var(--text-2); font-size: 12.5px; min-width: 48px; }
 .job-folder-path { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .job-works { display: flex; flex-direction: column; gap: 6px; }
 .job-work-opt { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 8px; cursor: pointer; }

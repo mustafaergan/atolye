@@ -81,8 +81,9 @@ export class AgentSession {
    * @param {string} [opts.permissionMode]
    * @param {(event: object) => void} opts.emit  Arayüze olay gönderir
    */
-  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr', work = 'agent', local = null }) {
+  constructor({ cwd, resume, model, effort, permissionMode, emit, general = false, role, lang = 'tr', work = 'agent', local = null, extraDirs = [] }) {
     this.cwd = cwd;
+    this.extraDirs = Array.isArray(extraDirs) ? extraDirs.filter((d) => typeof d === 'string' && d) : []; // ek çalışma klasörleri
     this.local = local; // yerel LLM ayarı: doluysa istekler o sunucuya ve modele gider (bkz. settings.js)
     this.lang = lang;
     this.general = general;
@@ -114,6 +115,7 @@ export class AgentSession {
       resume: this.resume,
       model: this.model,
       ...(this.effort ? { effort: this.effort } : {}),
+      ...(this.extraDirs.length ? { additionalDirectories: this.extraDirs } : {}),
       permissionMode: this.permissionMode,
       allowDangerouslySkipPermissions: true,
       includePartialMessages: true,

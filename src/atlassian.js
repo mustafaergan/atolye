@@ -25,6 +25,11 @@ function trustSystemCertificates() {
 export const SERVICES = ['jira', 'confluence', 'bitbucket', 'graylog', 'jenkins', 'fortify', 'weblogic', 'sonarqube', 'reportportal', 'outlook', 'teams', 'graylogprod', 'oracle', 'postgres', 'fikirhane', 'chrome', 'tomcat', 'tempo'];
 export const envKey = (service, field) => `${service.toUpperCase()}_${field.toUpperCase()}`;
 
+/** Yalnızca yerel LLM oturumlarında (ATOLYE_YEREL_OTURUM=1) sunulan bağlantılar */
+export const LOCAL_ONLY_SERVICES = ['outlook', 'teams', 'tempo', 'oracle', 'postgres'];
+/** Kullanıcının arayüzden yaptığı işler (sınama, veri getirme) için: yerel oturum işaretli ortam */
+export const asLocal = (env) => ({ ...env, ATOLYE_YEREL_OTURUM: '1' });
+
 /** Ortam değişkenlerinden bağlantı ayarı: { url, email, token } ya da null */
 export function configFromEnv(service, env = process.env) {
   // Outlook bilgisayardaki Outlook'u kullanır: adres ya da anahtar yoktur, yalnızca açık/kapalı.
@@ -60,6 +65,9 @@ export function configFromEnv(service, env = process.env) {
     const jiraCfg = env.ATOLYE_YEREL_OTURUM === '1' && env.TEMPO_ENABLED === '1' ? configFromEnv('jira', env) : null;
     return jiraCfg ? { ...jiraCfg, notes: String(env.TEMPO_NOTES || '') } : null;
   }
+  // Veritabanları (Oracle, PostgreSQL) da yalnızca yerel LLM oturumlarında sunulur (kullanıcı kararı): sorgu sonuçları
+  // canlı veri ve kişisel bilgi içerebilir, yalnızca yerel modele okutulur; Claude Code ve Copilot oturumlarında yoktur.
+  if (LOCAL_ONLY_SERVICES.includes(service) && env.ATOLYE_YEREL_OTURUM !== '1') return null;
   const url = (env[envKey(service, 'url')] || '').trim().replace(/\/+$/, '');
   const token = (env[envKey(service, 'token')] || '').trim();
   if (!url || !token) return null;

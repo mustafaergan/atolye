@@ -3065,14 +3065,14 @@ LINKS.graylogprod = {
   steps: () => [T('Bu, CANLI (prod) ortamın Graylog bağlantısıdır; test ortamı için "Graylog Test" sekmesini kullanın. Yapay zekâ canlı kayıtlara yalnızca okumak için ve siz canlı ortamı sorduğunuzda bakar.'), T('Canlı ortam kayıtları müşteri ya da kişisel bilgi içerebilir ve okunan kayıtlar yapay zekâ hizmetine gönderilir. Kuruluşunuzun bu konudaki kurallarına uyun; mümkünse yalnızca okuma yetkisi olan bir kullanıcının belirtecini kullanın.'), ...LINKS.graylog.steps()],
   examples: () => T('Örnek: "Graylog prod\'da son 15 dakikada uygulama-adi için hata var mı? Varsa test ortamındakiyle karşılaştır".'),
 };
-// Veritabanları (Geliştirici modu): yalnızca okuma; kullanıcı adı ve parola ayrı alanlarda
+// Veritabanları: yalnızca okuma ve yalnızca yerel LLM oturumlarında (bkz. LOCAL_ONLY_TABS); kullanıcı adı ve parola ayrı alanlarda
 LINKS.postgres = {
   name: 'PostgreSQL',
   urlHint: 'postgresql://db.sirket.com:5432/veritabani',
   userLabel: () => T('Kullanıcı adı'),
   userHint: () => T('Mümkünse yalnızca okuma (SELECT) yetkisi olan bir veritabanı kullanıcısı kullanın.'),
   tokenLabel: () => T('Parola'),
-  steps: () => [T('PostgreSQL sunucusunun adresini postgresql://sunucu:5432/veritabani biçiminde yazın. SSL gerekiyorsa sonuna ?sslmode=require ekleyin.'), T('Atölye yalnızca okuma yapar: yalnızca SELECT sorguları kabul edilir, sorgular salt okunur işlem içinde çalışır, en çok 1000 satır ve 30 saniye. Yine de en güvenlisi yalnızca okuma yetkisi olan bir kullanıcıdır; yönetici hesabı kullanmayın.'), T('Parola bilgisayarınızda, Claude Code ve Copilot CLI ayar dosyalarında düz metin olarak saklanır. Sorgu sonuçları yapay zekâ hizmetine gönderilir; canlı veritabanında kişisel veri olabileceğini unutmayın.'), T('"Kaydet ve sına" deyin.')],
+  steps: () => [T('PostgreSQL sunucusunun adresini postgresql://sunucu:5432/veritabani biçiminde yazın. SSL gerekiyorsa sonuna ?sslmode=require ekleyin.'), T('Atölye yalnızca okuma yapar: yalnızca SELECT sorguları kabul edilir, sorgular salt okunur işlem içinde çalışır, en çok 1000 satır ve 30 saniye. Yine de en güvenlisi yalnızca okuma yetkisi olan bir kullanıcıdır; yönetici hesabı kullanmayın.'), T('Yalnızca yerel LLM oturumlarında kullanılır: sorgu sonuçları yalnızca seçtiğiniz yerel modele gider; Claude Code ve GitHub Copilot oturumlarında veritabanı araçları bulunmaz. Parola bilgisayarınızda, ayar dosyalarında düz metin olarak saklanır.'), T('"Kaydet ve sına" deyin.')],
   examples: () => T('Örnek: "PostgreSQL\'de siparis tablosunun kolonlarını göster ve son 1 günde oluşan kayıt sayısını bul".'),
 };
 LINKS.oracle = {
@@ -3081,7 +3081,7 @@ LINKS.oracle = {
   userLabel: () => T('Kullanıcı adı'),
   userHint: () => T('Mümkünse yalnızca okuma (SELECT) yetkisi olan bir veritabanı kullanıcısı kullanın.'),
   tokenLabel: () => T('Parola'),
-  steps: () => [T('Oracle veritabanının adresini sunucu:port/servis-adı biçiminde yazın (ör. db.sirket.com:1521/ORCLPDB1). Uzun TNS tanımı, (DESCRIPTION=...) olarak da yapıştırılabilir. Oracle istemcisi kurmak gerekmez; Oracle 12.1 ve üstü desteklenir.'), T('Atölye yalnızca okuma yapar: yalnızca SELECT sorguları kabul edilir, sorgular salt okunur işlem içinde çalışır, en çok 1000 satır ve 30 saniye. Yine de en güvenlisi yalnızca okuma yetkisi olan bir kullanıcıdır; yönetici hesabı kullanmayın.'), T('Parola bilgisayarınızda, Claude Code ve Copilot CLI ayar dosyalarında düz metin olarak saklanır. Sorgu sonuçları yapay zekâ hizmetine gönderilir; canlı veritabanında kişisel veri olabileceğini unutmayın.'), T('"Kaydet ve sına" deyin.')],
+  steps: () => [T('Oracle veritabanının adresini sunucu:port/servis-adı biçiminde yazın (ör. db.sirket.com:1521/ORCLPDB1). Uzun TNS tanımı, (DESCRIPTION=...) olarak da yapıştırılabilir. Oracle istemcisi kurmak gerekmez; Oracle 12.1 ve üstü desteklenir.'), T('Atölye yalnızca okuma yapar: yalnızca SELECT sorguları kabul edilir, sorgular salt okunur işlem içinde çalışır, en çok 1000 satır ve 30 saniye. Yine de en güvenlisi yalnızca okuma yetkisi olan bir kullanıcıdır; yönetici hesabı kullanmayın.'), T('Yalnızca yerel LLM oturumlarında kullanılır: sorgu sonuçları yalnızca seçtiğiniz yerel modele gider; Claude Code ve GitHub Copilot oturumlarında veritabanı araçları bulunmaz. Parola bilgisayarınızda, ayar dosyalarında düz metin olarak saklanır.'), T('"Kaydet ve sına" deyin.')],
   examples: () => T('Örnek: "Oracle\'da REZERVASYON tablosunu açıkla ve durumu İPTAL olan son 10 kaydı getir".'),
 };
 LINKS.jenkins = {
@@ -3183,7 +3183,7 @@ const ROLES = {
   gelistirici: {
     name: () => T('Geliştirici'),
     work: 'agent',
-    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'oracle', 'postgres', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
+    tabs: ['jira', 'confluence', 'bitbucket', 'graylog', 'graylogprod', 'reportportal', 'testotomasyon', 'jenkins', 'fortify', 'sonarqube', 'weblogic', 'tarayici', 'chrome', 'fikirhane', 'tomcat', 'repo', 'proxy'],
     emptyProject: 'project',
     emptyGeneral: 'general',
   },
@@ -3196,9 +3196,10 @@ ROLES.sahip = { ...ROLES.analist, name: () => T('Proje Sahibi') };
 ROLES.test = { ...ROLES.analist, name: () => T('Test') };
 state.role = 'analist';
 function currentRole() { return ROLES[state.role] || ROLES.analist; }
-// Outlook, Teams ve Tempo her modda ama yalnızca yerel LLM oturumunda vardır (e-postalar, mesajlar ve iş kayıtları yalnızca
-// yerel modele okutulur). Tempo Jira'nın hemen arkasında listelenir; diğerleri tarayıcıdan önce.
-const LOCAL_ONLY_TABS = ['outlook', 'teams'];
+// Outlook, Teams, Tempo ve veritabanları (Oracle, PostgreSQL) her modda ama yalnızca yerel LLM oturumunda vardır
+// (e-postalar, mesajlar, iş kayıtları ve sorgu sonuçları yalnızca yerel modele okutulur). Tempo Jira'nın hemen arkasında
+// listelenir; diğerleri tarayıcıdan önce.
+const LOCAL_ONLY_TABS = ['outlook', 'teams', 'oracle', 'postgres'];
 const withJiraTempo = (tabs) => { const at = tabs.indexOf('jira'); return at < 0 ? [...tabs, 'tempo'] : [...tabs.slice(0, at + 1), 'tempo', ...tabs.slice(at + 1)]; };
 const withOutlook = (tabs) => { const at = tabs.indexOf('tarayici'); return at < 0 ? [...tabs, ...LOCAL_ONLY_TABS] : [...tabs.slice(0, at), ...LOCAL_ONLY_TABS, ...tabs.slice(at)]; };
 const roleTabs = () => (currentEngine() === 'yerel' ? withJiraTempo(withOutlook(currentRole().tabs)) : currentRole().tabs);
@@ -3990,7 +3991,7 @@ function reviewHandoff(summary, info = {}) {
 ICONS.clock = '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>';
 state.jobs = [];
 const jobsDlg = $('#jobsDialog');
-const jobsUi = { view: 'list', list: [], form: null };
+const jobsUi = { view: 'list', list: [], form: null, dir: null };
 const jobOf = (sessionId) => (sessionId ? state.jobs.find((j) => j.sessionId === sessionId) || null : null);
 const JOB_DAYS = [[1, 'Pzt'], [2, 'Sal'], [3, 'Çar'], [4, 'Per'], [5, 'Cum'], [6, 'Cmt'], [0, 'Paz']];
 
@@ -4028,6 +4029,7 @@ function jobStatus(j) {
 async function loadJobs() {
   const r = await fetch('/api/jobs').then((x) => x.json()).catch(() => null);
   jobsUi.list = r?.jobs || [];
+  jobsUi.dir = r?.dir || null;
 }
 async function openJobs() {
   await Promise.all([loadJobs(), links.status ? null : loadLinks()]);
@@ -4043,6 +4045,17 @@ function openJobSession(j) {
   openSession({ sessionId: j.sessionId, liveId: live?.liveId, cwd: j.cwd, engine: j.engine, local: j.local });
 }
 
+/** İşlerin oturumlarının duracağı klasörü sorar (yoksa Atölye oluşturur); seçilirse saklanır ve sol listede açılır */
+async function askJobsDir() {
+  const dir = await pickFolder({ start: jobsUi.dir || '', title: T('İşlerin oturumları hangi klasörde dursun? (ör. D:\\işler — yoksa yolunu yazıp seçin, Atölye oluşturur)'), ok: T('Bu klasörü kullan') });
+  if (!dir) return null;
+  const r = await sCall('/api/jobs/dir', { dir });
+  if (!r.ok) { alert(T('Klasör kullanılamadı: {error}', { error: r.error })); return null; }
+  jobsUi.dir = r.dir;
+  if (!isGeneral(r.dir)) { setCollapsed(pathKey(r.dir), false); addProject(r.dir); }
+  return r.dir;
+}
+
 function renderJobList() {
   $('#jobsTitle').textContent = T('Zamanlanmış işler');
   const act = (text, onclick, attrs = {}) => el('button', { class: 'btn small', type: 'button', text, onclick, ...attrs });
@@ -4052,7 +4065,7 @@ function renderJobList() {
       el('div', { class: 'job-main' },
         el('div', { class: 'job-name' }, engineIcon(j.engine, j.local), el('b', { text: j.name }),
           el('span', { class: `job-work ${j.work}`, text: j.work === 'agent' ? 'Agent' : 'Ask', title: j.work === 'agent' ? T('İzin sormadan dosya düzenleyebilir ve komut çalıştırabilir') : T('Yalnızca okur; dosya değiştirmez') })),
-        el('div', { class: 'job-meta', text: `${jobSchedule(j)} · ${isGeneral(j.cwd) ? T('Klasörsüz sohbet') : folderOf(j.cwd)}`, title: j.cwd }),
+        el('div', { class: 'job-meta', text: [jobSchedule(j), isGeneral(j.cwd) ? T('Klasörsüz sohbet') : folderOf(j.cwd), j.codeDir && T('kod: {name}', { name: folderOf(j.codeDir) })].filter(Boolean).join(' · '), title: [j.cwd, j.codeDir].filter(Boolean).join('\n') }),
         el('div', { class: `job-meta ${st.kind}`, text: st.text })),
       el('div', { class: 'job-actions' },
         act(T('Şimdi çalıştır'), async () => {
@@ -4071,8 +4084,16 @@ function renderJobList() {
   });
   $('#jobsBody').replaceChildren(
     el('p', { class: 'links-intro', text: T('Zamanlanmış işler seçtiğiniz gün ve saatlerde kendiliğinden çalışır; her iş hep kendi oturumunda devam eder (yapay zekâ önceki çalıştırmaları görür). Atölye açık olmalıdır; kapalıyken kaçırılan çalıştırma, o gün içinde açılınca bir kez yapılır.') }),
+    el('div', { class: 'job-dir' },
+      el('span', { text: T('İşlerin klasörü:') }),
+      el('span', { class: 'job-folder-path', text: jobsUi.dir || T('seçilmedi'), title: jobsUi.dir || '' }),
+      el('button', { class: 'btn small', type: 'button', text: jobsUi.dir ? T('Değiştir') : T('Seç'), onclick: async () => { if (await askJobsDir()) renderJobs(); } })),
     ...(rows.length ? rows : [sNote(T('Henüz zamanlanmış iş yok.'))]),
-    el('div', { class: 'links-actions' }, el('button', { class: 'btn primary', type: 'button', text: T('Yeni iş'), onclick: () => editJob(null) })));
+    el('div', { class: 'links-actions' }, el('button', { class: 'btn primary', type: 'button', text: T('Yeni iş'), onclick: async () => {
+      // İlk işte, işlerin oturumlarının duracağı klasör bir kez sorulur (vazgeçilirse iş başına seçilir)
+      if (!jobsUi.dir) await askJobsDir();
+      editJob(null);
+    } })));
 }
 
 /** Seçilen motorda kullanılabilecek kurulu bağlantılar (yerel LLM'de Outlook, Teams, Tempo da gelir) */
@@ -4091,8 +4112,8 @@ function editJob(job) {
   const opts = engineOptions();
   const first = opts.find((o) => o.key === activeEngineKey()) || opts[0];
   jobsUi.form = job
-    ? { ...job, key: job.engine === 'yerel' ? `yerel:${job.local}` : job.engine, links: [...job.links], days: [...job.days], times: [...job.times] }
-    : { id: null, name: '', key: first?.key || 'copilot', links: [], prompt: '', cwd: '', work: 'ask', days: [1, 2, 3, 4, 5], times: ['09:00'], enabled: true };
+    ? { ...job, codeDir: job.codeDir || '', key: job.engine === 'yerel' ? `yerel:${job.local}` : job.engine, links: [...job.links], days: [...job.days], times: [...job.times] }
+    : { id: null, name: '', key: first?.key || 'copilot', links: [], prompt: '', cwd: jobsUi.dir || '', codeDir: '', work: 'ask', days: [1, 2, 3, 4, 5], times: ['09:00'], enabled: true };
   jobsUi.error = '';
   jobsUi.view = 'form';
   renderJobs();
@@ -4129,13 +4150,22 @@ function renderJobForm() {
   prompt.value = f.prompt;
   prompt.oninput = () => { f.prompt = prompt.value; };
 
-  const folder = el('div', { class: 'job-folder' },
-    el('span', { class: 'job-folder-path', text: f.cwd ? (isGeneral(f.cwd) ? T('Klasörsüz sohbet') : f.cwd) : T('Seçilmedi') }),
-    el('button', { class: 'btn small', type: 'button', text: T('Klasör seç…'), onclick: async () => {
-      const dir = await pickFolder({ start: f.cwd && !isGeneral(f.cwd) ? f.cwd : state.cwd, title: T('İşin çalışacağı klasör'), ok: T('Bu klasörü seç') });
-      if (dir) { f.cwd = dir; renderJobForm(); }
+  // İki ayrı yer: oturumun durduğu klasör (varsayılan: işlerin klasörü) ve isteğe bağlı kod klasörü (yapay zekâya ek
+  // çalışma klasörü olarak verilir)
+  if (!f.cwd) f.cwd = jobsUi.dir || state.config.generalDir;
+  const sessionFolder = el('div', { class: 'job-folder' },
+    el('span', { class: 'job-folder-label', text: T('Oturum:') }),
+    el('span', { class: 'job-folder-path', text: isGeneral(f.cwd) ? T('Klasörsüz sohbet') : f.cwd }),
+    jobsUi.dir && !samePath(f.cwd, jobsUi.dir) && el('button', { class: 'btn small', type: 'button', text: T('İşlerin klasörü'), title: jobsUi.dir, onclick: () => { f.cwd = jobsUi.dir; renderJobForm(); } }),
+    !isGeneral(f.cwd) && el('button', { class: 'btn small', type: 'button', text: T('Klasörsüz'), onclick: () => { f.cwd = state.config.generalDir; renderJobForm(); } }));
+  const codeFolder = el('div', { class: 'job-folder' },
+    el('span', { class: 'job-folder-label', text: T('Kod:') }),
+    el('span', { class: 'job-folder-path', text: f.codeDir || T('yok (kodla ilgili değil)') }),
+    el('button', { class: 'btn small', type: 'button', text: f.codeDir ? T('Değiştir') : T('Kod klasörü seç…'), onclick: async () => {
+      const dir = await pickFolder({ start: f.codeDir || state.cwd, title: T('Kodun bulunduğu klasör'), ok: T('Bu klasörü seç') });
+      if (dir) { f.codeDir = dir; renderJobForm(); }
     } }),
-    el('button', { class: 'btn small', type: 'button', text: T('Klasörsüz'), onclick: () => { f.cwd = state.config.generalDir; renderJobForm(); } }));
+    f.codeDir && el('button', { class: 'btn small', type: 'button', text: T('Kaldır'), onclick: () => { f.codeDir = ''; renderJobForm(); } }));
 
   const work = el('div', { class: 'job-works' }, ...[
     ['ask', 'Ask', T('Yalnızca okur ve rapor eder; dosya değiştirmez. İzin sormadan çalışır.')],
@@ -4170,7 +4200,7 @@ function renderJobForm() {
     step(1, T('Hangi yapay zekâ yapsın?'), engineSel, el('small', { class: 'job-hint', text: T('Şu an seçili motordan bağımsızdır.') })),
     step(2, T('Gereken bağlantılar'), linkBox),
     step(3, T('Komut'), prompt),
-    step(4, T('Klasör'), folder, el('small', { class: 'job-hint', text: T('Kodla ilgili bir işse kodun bulunduğu klasörü seçin; iş o klasörde çalışır ve klasör sol listede görünür.') })),
+    step(4, T('Klasörler'), sessionFolder, codeFolder, el('small', { class: 'job-hint', text: T('Oturum işlerin klasöründe durur (pencerenin başındaki "İşlerin klasörü"). Kodla ilgili bir işse kodun bulunduğu klasörü seçin; yapay zekâ oradaki dosyalarla çalışır.') })),
     step(5, T('Çalışma kipi'), work),
     step(6, T('Ne zaman?'), days, times),
     f.id ? el('label', { class: 'job-check' }, enabled, el('span', { text: T('Etkin') })) : null,
@@ -4190,7 +4220,7 @@ async function saveJob() {
     && !confirm(T('Agent kipinde bu iş, siz başında değilken hiçbir işlemde izin sormadan dosya düzenleyebilir, silebilir ve komut çalıştırabilir. Bu riskleri kabul ediyor musunuz?'))) return;
   const body = {
     id: f.id || undefined, name: f.name, engine: o?.engine, local: o?.local || null, links: f.links, linkHint: jobLinkHint(f.links),
-    prompt: f.prompt, cwd: f.cwd, work: f.work, days: f.days, times: f.times.filter(Boolean), enabled: f.enabled !== false,
+    prompt: f.prompt, cwd: f.cwd, codeDir: f.codeDir || '', work: f.work, days: f.days, times: f.times.filter(Boolean), enabled: f.enabled !== false,
   };
   const r = await sCall('/api/jobs', body);
   if (!r.ok) {
@@ -5101,7 +5131,7 @@ const autoFetch = { active: false, service: null, text: '', count: 0, allowed: f
 
 async function loadFetchTools(service) {
   if (!service || fetchTools[service]) return;
-  fetchTools[service] = await fetch(`/api/link-data/tools?service=${service}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
+  fetchTools[service] = await fetch(`/api/link-data/tools?service=${service}${currentEngine() === 'yerel' ? '&local=1' : ''}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
 }
 const fetchLinks = () => activeLinks.filter((id) => (fetchTools[id] || []).length > 0);
 const usesFetchProtocol = () => currentEngine() === 'copilot' && fetchLinks().length > 0;
@@ -5142,7 +5172,7 @@ async function runAutoFetch(req, card) {
   const name = LINKS[fetchServiceOf(req.name)]?.name || req.name;
   const what = Object.entries(req.args).map(([k, v]) => `${k}=${v}`).join(', ') || req.name;
   if (card) { card.classList.add('resolved'); $('.actions', card)?.remove(); card.append(el('div', { class: 'resolved-note', text: T('Veri getiriliyor…') })); }
-  const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: req.name, args: req.args }) })
+  const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: req.name, args: req.args, local: currentEngine() === 'yerel' }) })
     .then((x) => x.json()).catch((e) => ({ ok: false, text: e.message }));
   if (card) $('.resolved-note', card).textContent = r.ok ? T('Getirildi ({n} karakter) ve yapay zekâya gönderildi.', { n: r.text.length }) : T('Getirilemedi: {error}', { error: r.text });
   sendToAi(r.ok
@@ -5188,7 +5218,7 @@ const fetchUi = { tools: null, tool: null, result: null };
 
 async function openFetchDialog() {
   if (!activeLink) return;
-  fetchUi.tools = await fetch(`/api/link-data/tools?service=${activeLink}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
+  fetchUi.tools = await fetch(`/api/link-data/tools?service=${activeLink}${currentEngine() === 'yerel' ? '&local=1' : ''}`).then((r) => r.json()).then((d) => d.tools || []).catch(() => []);
   fetchUi.tool = fetchUi.tools[0]?.name || null;
   fetchUi.result = null;
   renderFetchDialog();
@@ -5228,7 +5258,7 @@ function renderFetchDialog() {
     }
     runBtn.disabled = true;
     runBtn.replaceChildren(el('span', { class: 'btn-spin' }), el('span', { text: T('Getiriliyor…') }));
-    const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: tool.name, args }) })
+    const r = await fetch('/api/link-data/call', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: tool.name, args, local: currentEngine() === 'yerel' }) })
       .then((x) => x.json()).catch((e) => ({ ok: false, text: e.message }));
     runBtn.disabled = false;
     runBtn.textContent = T('Getir');

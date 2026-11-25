@@ -179,7 +179,7 @@ Sol üstteki **Mod** seçicisi arayüzü kullanan kişiye göre düzenler:
 | **Analist** (varsayılan) | Jira, Confluence, Bitbucket, Graylog Test, Graylog Prod, ReportPortal, İlk repom, Proxy | Projeyi sade dille anlatma, iş kurallarını çıkarma, değişiklik etkisi; Claude teknik olmayan dille anlatır ve istenmedikçe bir şeyi değiştirmez |
 | **Proje Sahibi** (Project Owner) | Analistle aynı | Analistle aynı; birden fazla bağlantıyı birlikte ele alma yönergesiyle (ör. Jira + Bitbucket + Confluence) ve yapay zekâ hepsinden veri toplayıp tek bir özet çıkarır; toplu değişikliklerden önce onay ister |
 | **Test** | Analistle aynı | Analistle aynı öneriler; yapay zekâ test edilebilir davranışa odaklanır: test senaryoları, beklenen/gerçekleşen sonuç, yeniden üretme adımları, değişikliğin riskli alanları; hatayı doğrudan kayıt açılabilecek biçimde yazar ve istenmedikçe bir şeyi değiştirmez |
-| **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic, Oracle, PostgreSQL | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
+| **Geliştirici** | Analistteki bağlantılar + Jenkins, Fortify, SonarQube, WebLogic | Test çalıştırma, kod inceleme; Claude kısa ve teknik yanıt verir |
 
 Mesaj kutusunun başındaki **Agent / Ask / Plan** seçicisi yapay zekânın çalışma kipini belirler (Shift+Tab ile değişir):
 **Agent** dosya değiştirebilir ve komut çalıştırabilir (yanındaki izin ayarına göre), **Ask** yalnızca yanıtlar, **Plan**
@@ -445,6 +445,9 @@ Bağlandıktan sonra yeni açılan oturumlarda şunlar sorulabilir: "bana atanm�
     SHA-256 özeti doğrulanır) ve `~/.atolye/oracle-client` altına açar; Microsoft Visual C++ Redistributable (2017+)
     kurulu olmalıdır. Atölye paketi kendisi dağıtmaz. Kitaplık ayrıca `ORACLE_HOME` ve `PATH` içinde aranır; başka yerdeyse
     `.env` içinde `ORACLE_CLIENT_LIB_DIR=<klasör>` ile gösterilir, `ORACLE_THIN=1` her durumda thin kipi zorlar. Yalnızca okuma yetkisi olan bir veritabanı kullanıcısı önerilir.
+    Veritabanları, Outlook ve Teams gibi **yalnızca yerel LLM oturumlarında** (bütün modlarda) sunulur: sorgu sonuçları canlı
+    veri ve kişisel bilgi içerebileceği için yalnızca yerel modele okutulur; Claude Code ve Copilot oturumlarında veritabanı
+    araçları yoktur, "veri getir" de yalnızca yerel oturumda veritabanından okur.
   - **WebLogic** (REST yönetim arayüzü; kullanıcı adı + parola, yalnızca okuma): `weblogic_servers`,
     `weblogic_applications`, `weblogic_deployments`, `weblogic_datasources`. Parola düz metin saklandığı için
     yönetici hesabı yerine "Monitor" rolünde bir kullanıcı kullanın.
@@ -481,7 +484,9 @@ sabah 09:00'da "dünden beri açılan kritik kayıtları özetle"). İş kurulur
 1. **Yapay zekâ**: Claude Code, GitHub Copilot ya da tanımlı bir yerel model (o an seçili motordan bağımsız).
 2. **Bağlantılar**: kurulu bağlantılardan gerekenler (en fazla 4). Yerel model seçilirse Outlook, Teams ve Tempo da listelenir.
 3. **Komut**.
-4. **Klasör**: kodla ilgili bir işse kodun bulunduğu klasör; ya da klasörsüz sohbet. Klasör sol listeye eklenir.
+4. **Klasörler**: iş oturumları **işlerin klasöründe** durur (ör. `D:\işler`; ilk işte bir kez sorulur, yoksa oluşturulur,
+   pencerenin başından değiştirilebilir, sol listede görünür). Kodla ilgili bir işse ayrıca **kod klasörü** seçilir; yapay
+   zekâya ek çalışma klasörü olarak verilir (Claude Code: `additionalDirectories`, Copilot: `--add-dir`).
 5. **Çalışma kipi**: **Ask** yalnızca okur, dosya değiştirmez. **Agent** dosya düzenleyebilir, silebilir ve komut
    çalıştırabilir; siz başında olmadığınız için hiçbir işlemde izin sorulmaz (kaydederken bu risk ayrıca onaylatılır).
 6. **Günler ve saatler** (birden çok saat girilebilir).

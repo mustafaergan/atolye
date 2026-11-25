@@ -30,6 +30,8 @@ export function cleanJob(input = {}, previous = null) {
   if (!prompt) throw fail('prompt');
   const cwd = str(input.cwd, 1000);
   if (!cwd) throw fail('cwd');
+  // Kodun bulunduğu klasör (isteğe bağlı): oturum cwd'de durur, yapay zekâya bu klasör ek çalışma klasörü olarak verilir
+  const codeDir = str(input.codeDir, 1000) || null;
   const days = [...new Set((Array.isArray(input.days) ? input.days : []).map(Number).filter((d) => DAYS.includes(d)))];
   if (!days.length) throw fail('days');
   const times = [...new Set((Array.isArray(input.times) ? input.times : []).map((t) => String(t).trim()).filter((t) => TIME.test(t)))].sort().slice(0, MAX_TIMES);
@@ -42,7 +44,7 @@ export function cleanJob(input = {}, previous = null) {
     id: previous?.id || randomUUID(),
     name, engine, local: local || null, work, links,
     linkHint: str(input.linkHint, 8000), // bağlantı notları (arayüz, kayıt anında üretir; mesajın sonuna eklenir)
-    prompt, cwd, days, times,
+    prompt, cwd, codeDir, days, times,
     enabled: input.enabled !== false,
     // Motor ya da klasör değişirse eski oturum devam ettirilemez: bir sonraki çalıştırmada yenisi açılır
     sessionId: sameTarget ? previous.sessionId || null : null,
@@ -106,7 +108,7 @@ export const isDue = (job, now = Date.now()) => {
   return slot > 0 && Math.max(job.lastRun || 0, job.since || 0) < slot;
 };
 
-const JOB_NOTE = (name) => `This message was sent by the scheduled job "${name}" in Atölye. The user is not at the computer: do not ask questions or wait for confirmation. Do the task with the most reasonable assumptions, then finish with a short summary of what you did and what you found.`;
+const JOB_NOTE = (name, codeDir) => `This message was sent by the scheduled job "${name}" in Atölye. The user is not at the computer: do not ask questions or wait for confirmation. Do the task with the most reasonable assumptions, then finish with a short summary of what you did and what you found.${codeDir ? ` The code this job is about is in the folder ${codeDir} (use absolute paths there).` : ''}`;
 const QUESTION_ANSWER = 'This is a scheduled job and the user is not here to answer. Continue with the most reasonable assumption and mention it in your summary.';
 
 /**
@@ -139,6 +141,7 @@ export function createScheduler({ manager, store, canRun = async () => null, gen
     try {
       entry = (job.sessionId && manager.find({ sessionId: job.sessionId })) || await manager.open({
         engine: job.engine, localId: job.local || undefined, sessionId: job.sessionId || null, cwd: job.cwd,
+        extraDirs: job.codeDir ? [job.codeDir] : [],
         mode: 'default', work: job.work, general: general(job.cwd), lang: 'tr',
       });
     } catch (err) {
@@ -178,7 +181,7 @@ export function createScheduler({ manager, store, canRun = async () => null, gen
     }, []);
     const text = job.linkHint ? `${job.prompt}\n\n${job.linkHint}` : job.prompt;
     try {
-      manager.send(entry, text, [], 'tr', [], job.work, '', JOB_NOTE(job.name));
+      manager.send(entry, text, [], 'tr', [], job.work, '', JOB_NOTE(job.name, job.codeDir));
     } catch (err) {
       finish('error', err?.message || err);
       return { ok: false, error: String(err?.message || err) };

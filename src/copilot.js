@@ -66,8 +66,8 @@ function spawnCopilot(baseArgs, opts, withExtra = true) {
   const args = [...baseArgs, ...(withExtra ? extraArgs() : [])];
   const exe = copilotPath() || 'copilot';
   if (isScript(exe)) return spawn(process.execPath, [exe, ...args], opts);
-  // Windows'ta npm ile kurulan "copilot" bir .cmd dosyasıdır; kabuk üzerinden çalıştırılır
-  if (isWin) return spawn(`"${exe}" ${args.join(' ')}`, { ...opts, shell: true });
+  // Windows'ta npm ile kurulan "copilot" bir .cmd dosyasıdır; kabuk üzerinden çalıştırılır (boşluklu klasör yolları tırnaklanır)
+  if (isWin) return spawn(`"${exe}" ${args.map((a) => (/[\s&|<>^()]/.test(a) ? `"${a}"` : a)).join(' ')}`, { ...opts, shell: true });
   return spawn(exe, args, opts);
 }
 
@@ -237,7 +237,8 @@ export function describeSession(res) {
 
 // ---------- Oturum ----------
 export class CopilotSession {
-  constructor({ cwd, resume, permissionMode, model, effort, context, emit, lang = 'tr', skipReplay = false, work = 'agent' }) {
+  constructor({ cwd, resume, permissionMode, model, effort, context, emit, lang = 'tr', skipReplay = false, work = 'agent', extraDirs = [] }) {
+    this.extraDirs = Array.isArray(extraDirs) ? extraDirs.filter((d) => typeof d === 'string' && d) : []; // ek çalışma klasörleri (--add-dir)
     this.engine = 'copilot';
     this.work = validWork(work); // Agent / Ask / Plan (bkz. workmode.js)
     this.cwd = cwd;
@@ -294,7 +295,7 @@ export class CopilotSession {
 
   async #boot() {
     const t0 = Date.now();
-    const args = ['--acp', '--stdio', ...(this.contextTier === 'long_context' ? ['--context', 'long_context'] : [])];
+    const args = ['--acp', '--stdio', ...(this.contextTier === 'long_context' ? ['--context', 'long_context'] : []), ...this.extraDirs.flatMap((d) => ['--add-dir', d])];
     const child = spawnCopilot(args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: copilotEnv() });
     const conn = new AcpConnection(child, {
       onRequest: (method, params) => this.#onRequest(method, params),

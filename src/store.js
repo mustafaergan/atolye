@@ -44,7 +44,9 @@ function normalize(d = {}) {
   if (d.sessionOrder && typeof d.sessionOrder === 'object') for (const [k, v] of Object.entries(d.sessionOrder)) { const ids = strings(v).slice(0, 500); if (ids.length) sessionOrder[k] = ids; }
   // Zamanlanmış işler (bkz. jobs.js)
   const jobs = (Array.isArray(d.jobs) ? d.jobs : []).map(loadJob).filter(Boolean).slice(0, 50);
-  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, localModels, sessionOrder, jobs };
+  // İşlerin oturumlarının varsayılan klasörü (kullanıcı bir kez seçer; yeni işler orada çalışır)
+  const jobsDir = str(d.jobsDir);
+  return { projects, collapsed: [...new Set(strings(d.collapsed))], cwd: str(d.cwd), selected: str(d.selected), open, engine, engineChosen, role, copilotSessions, localSessions, localModels, sessionOrder, jobs, jobsDir };
 }
 
 export class StateStore {
@@ -82,6 +84,11 @@ export class StateStore {
     else this.data.jobs.push({ ...job });
     this.#save(true);
     return job;
+  }
+  setJobsDir(dir) {
+    this.data.jobsDir = str(dir);
+    this.#save(true);
+    return this.data.jobsDir;
   }
   deleteJob(id) {
     const before = this.data.jobs.length;

@@ -105,8 +105,12 @@ test('Oracle: SET TRANSACTION READ ONLY, maxRows ile sınır; işlem geri alın�
   assert.deepEqual(log.find((x) => x[0] === 'bağ')[1], { sema: 'app', ad: 'sip' });
 });
 
-test('veritabanı araçları yalnızca bağlantı kuruluysa sunulur ve hepsi okuma yapar', async () => {
-  const env = { ORACLE_URL: 'db.example.com:1521/X', ORACLE_EMAIL: 'u', ORACLE_TOKEN: 'p', POSTGRES_URL: 'postgresql://db/veri', POSTGRES_EMAIL: 'u', POSTGRES_TOKEN: 'p' };
+test('veritabanı araçları yalnızca bağlantı kuruluysa ve yerel LLM oturumunda sunulur; hepsi okuma yapar', async () => {
+  const saved = { ORACLE_URL: 'db.example.com:1521/X', ORACLE_EMAIL: 'u', ORACLE_TOKEN: 'p', POSTGRES_URL: 'postgresql://db/veri', POSTGRES_EMAIL: 'u', POSTGRES_TOKEN: 'p' };
+  // Claude Code ve Copilot oturumlarında (yerel oturum işareti yok) veritabanı araçları hiç yoktur
+  assert.deepEqual(availableTools(saved), []);
+  assert.equal((await callTool('postgres_query', { sql: 'select 1' }, saved)).isError, true);
+  const env = { ...saved, ATOLYE_YEREL_OTURUM: '1' };
   const tools = availableTools(env);
   assert.deepEqual(tools.map((t) => t.name), ['oracle_query', 'oracle_list_tables', 'oracle_describe_table', 'postgres_query', 'postgres_list_tables', 'postgres_describe_table']);
   assert.ok(tools.every((t) => t.annotations.readOnlyHint));

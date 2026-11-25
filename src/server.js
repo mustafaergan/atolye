@@ -91,6 +91,7 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
       const stat = await fs.stat(job.cwd).catch(() => null);
       const lang = 'tr';
       if (!stat?.isDirectory()) return msg(lang, 'Klasör bulunamadı: {dir}', { dir: job.cwd });
+      if (job.codeDir && !(await fs.stat(job.codeDir).catch(() => null))?.isDirectory()) return msg(lang, 'Klasör bulunamadı: {dir}', { dir: job.codeDir });
       if (job.engine === 'copilot' && !(await detectCopilot()).available) return 'GitHub Copilot CLI bulunamadı.';
       if (job.engine === 'yerel' && !settings.localConfig(job.local)) return 'Yerel model artık tanımlı değil (Ayarlar > Yerel LLM).';
       if (job.engine === 'claude' && !(await claudeLogin()).loggedIn) return 'Claude Code\'a giriş yapılmamış.';
@@ -612,10 +613,11 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.delete('/api/integrations/:service', wrap(async (req, res) => res.json(integrations.remove(req.params.service))));
   // Bağlantıdan veri getirme: Atölye kayıtlı bağlantıyla doğrudan REST çağrısı yapar (yalnızca okuma)
   app.get('/api/link-data/tools', wrap(async (req, res) => {
-    try { res.json({ tools: integrations.readTools(String(req.query.service || '')) }); } catch { res.json({ tools: [] }); }
+    // local=1: istek yerel LLM oturumundan (veritabanları gibi yalnızca yerel oturumda sunulan bağlantılar için)
+    try { res.json({ tools: integrations.readTools(String(req.query.service || ''), { local: req.query.local === '1' }) }); } catch { res.json({ tools: [] }); }
   }));
   app.post('/api/link-data/call', wrap(async (req, res) => {
-    const r = await integrations.runReadTool(String(req.body?.name || ''), req.body?.args);
+    const r = await integrations.runReadTool(String(req.body?.name || ''), req.body?.args, { local: req.body?.local === true });
     console.log(`[bağlantı] veri getirme ${req.body?.name}: ${r.ok ? `tamam (${r.text.length} karakter)` : r.text.slice(0, 160)}`);
     res.json(r);
   }));
@@ -629,7 +631,18 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   // Hangi yapay zekâ motorları kullanılabilir? (Claude Code her zaman; GitHub Copilot CLI kuruluysa)
   // ---------- Zamanlanmış işler ----------
   const jobView = (j) => ({ ...j, running: scheduler.isRunning(j.id), nextRun: nextRun(j) });
-  app.get('/api/jobs', wrap(async (_req, res) => res.json({ jobs: store.jobs().map(jobView) })));
+  app.get('/api/jobs', wrap(async (_req, res) => res.json({ jobs: store.jobs().map(jobView), dir: store.get().jobsDir || null })));
+  // İşlerin klasörü: yoksa oluşturulur (ör. D:\işler) ve sol listeye eklenir
+  app.post('/api/jobs/dir', wrap(async (req, res) => {
+    const raw = String(req.body?.dir || '').trim();
+    if (!raw) return res.status(400).json({ ok: false, error: 'dir' });
+    const dir = path.resolve(raw);
+    try { await fs.mkdir(dir, { recursive: true }); } catch (err) { return res.status(400).json({ ok: false, error: String(err?.message || err) }); }
+    store.setJobsDir(dir);
+    if (notGeneral(dir)) store.addProject(dir);
+    console.log(`[iş] işlerin klasörü: ${dir}`);
+    res.json({ ok: true, dir });
+  }));
   app.post('/api/jobs', wrap(async (req, res) => {
     const previous = req.body?.id ? store.jobs().find((j) => j.id === req.body.id) : null;
     if (req.body?.id && !previous) return res.status(404).json({ ok: false, error: 'not-found' });

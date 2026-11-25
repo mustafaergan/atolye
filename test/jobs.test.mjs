@@ -147,6 +147,23 @@ test('çalıştırma: motor kullanılamıyorsa hata yazılır; oturum meşgulse 
   }
 });
 
+test('kod klasörü: oturum işin klasöründe açılır, kod klasörü ek çalışma klasörü olarak verilir ve nota yazılır', async () => {
+  const job = { ...cleanJob({ ...base, cwd: 'D:/isler', codeDir: 'C:/kod/proje' }), since: 0 };
+  assert.equal(job.codeDir, 'C:/kod/proje');
+  assert.equal(cleanJob(base).codeDir, null);
+  const store = fakeStore([job]);
+  const m = fakeManager();
+  const s = createScheduler({ manager: m, store, tickMs: 60_000, log: quiet });
+  try {
+    await s.run(job.id);
+    assert.equal(m.opened[0].cwd, 'D:/isler');
+    assert.deepEqual(m.opened[0].extraDirs, ['C:/kod/proje']);
+    assert.match(m.sent[0].note, /C:\/kod\/proje/);
+  } finally {
+    s.stop();
+  }
+});
+
 test('zamanlayıcı: zamanı gelen etkin işler çalışır, gelmeyenler ve kapalılar çalışmaz', async () => {
   const now = at(2026, 11, 23, 9, 1);
   const due = { ...cleanJob(base), since: 0 };
