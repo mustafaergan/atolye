@@ -377,9 +377,11 @@ test('durum: yerel oturumlar işaretlenir; elle sıralama yeni oturumları üstt
   assert.equal(store.localModelOf('y2'), 'm2');
   const list = [{ id: 'yeni' }, { id: 'a' }, { id: 'b' }, { id: 'c' }];
   assert.deepEqual(store.applySessionOrder('C:\\p', list), list);
-  store.setSessionOrder('C:\\p', ['c', 'a', 'b', 'silinmis']);
-  assert.deepEqual(store.applySessionOrder('C:\\P\\', list).map((x) => x.id), ['yeni', 'c', 'a', 'b']);
-  assert.deepEqual(new StateStore(path.join(tmp, 'sira', 'durum.json')).applySessionOrder('C:\\p', list).map((x) => x.id), ['yeni', 'c', 'a', 'b'], 'diske yazılır');
+  // Aynı klasörün farklı yazılışı (Windows'ta büyük/küçük harf ve sondaki ayraç, diğerlerinde sondaki ayraç)
+  const [dir, same] = process.platform === 'win32' ? ['C:\\p', 'C:\\P\\'] : ['/p', '/p/'];
+  store.setSessionOrder(dir, ['c', 'a', 'b', 'silinmis']);
+  assert.deepEqual(store.applySessionOrder(same, list).map((x) => x.id), ['yeni', 'c', 'a', 'b']);
+  assert.deepEqual(new StateStore(path.join(tmp, 'sira', 'durum.json')).applySessionOrder(dir, list).map((x) => x.id), ['yeni', 'c', 'a', 'b'], 'diske yazılır');
 });
 
 test('oturum başlığına gizli yönerge girmez', async () => {

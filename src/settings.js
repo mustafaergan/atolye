@@ -528,7 +528,8 @@ export function addSkill(dir) {
   const d = String(dir || '').trim();
   if (!d || !path.isAbsolute(d) || !fs.existsSync(d) || !fs.statSync(d).isDirectory()) throw fail('no-dir');
   const sources = fs.existsSync(path.join(d, 'SKILL.md')) ? [d]
-    : fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory() && fs.existsSync(path.join(d, e.name, 'SKILL.md'))).map((e) => path.join(d, e.name));
+    // Ada göre sıralı (macOS klasör içeriğini sırasız verir)
+    : fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory() && fs.existsSync(path.join(d, e.name, 'SKILL.md'))).map((e) => e.name).sort((a, b) => a.localeCompare(b)).map((n) => path.join(d, n));
   if (!sources.length) throw fail('no-skill');
   const tracked = readSkills();
   const added = [];
