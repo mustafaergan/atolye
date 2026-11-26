@@ -7,3 +7,7 @@ dist/
 atolye-guncelle.log
 .guncelleme/
 *.eski/
+# macOS kurulumu (atolye.sh)
+.ortam
+.uygulama-penceresi
+.guncelleniyor

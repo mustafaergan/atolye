@@ -44,6 +44,7 @@ export function copilotCandidates(env = process.env, platform = process.platform
     addDir(env.HOME, '.local', 'bin');
     addDir('/usr/local/bin');
     addDir('/opt/homebrew/bin');
+    addDir(p.dirname(execPath));                                 // npm install -g (Atölye'yi çalıştıran Node: nvm, Volta…)
   }
   for (const dir of String(env.PATH || env.Path || '').split(win ? ';' : ':')) addDir(dir.trim());
   return [...new Set(list)].filter((f) => !isShim(f));

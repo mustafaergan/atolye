@@ -2421,6 +2421,17 @@ function settingsApp() {
     };
     return el('label', { class: 'settings-toggle' }, box, el('span', {}, el('strong', { text: label }), hint && el('small', { text: hint })));
   };
+  // Mac kurulumu (atolye.sh): aynı üç seçenek, Mac'teki karşılıklarıyla
+  if (a.supported && a.platform === 'mac') return [
+    toggle('desktopApp', T('Kendi penceresinde aç'), a.desktopAppAvailable
+      ? T('Atölye, Chrome ya da Edge\'in adres çubuğu olmayan uygulama penceresinde açılır; Dock\'taki simgesine sağ tıklayıp "Dock\'ta Tut" ile sabitlenebilir. Kapalıyken varsayılan tarayıcıda açılır.')
+      : T('Bu seçenek için Chrome ya da Edge gerekli; bu Mac\'te bulunamadı.'), !a.desktopApp && !a.desktopAppAvailable),
+    toggle('desktopShortcut', T('Uygulamalar klasöründe Atölye'), T('Launchpad ve Spotlight\'tan açılır, Dock\'a sürüklenebilir.')),
+    toggle('autostart', T('Mac açılışında arka planda başlat'), T('Bilgisayar açıldığında Atölye hazır olur; kapalıysa ilk açılış birkaç saniye sürer.')),
+    el('div', { class: 'links-actions' },
+      el('span', { class: 'settings-version', text: T('Atölye sürümü: {v}', { v: d.version || '?' }) }),
+      el('button', { type: 'button', class: 'btn ghost', text: T('Güncellemeleri denetle'), onclick: () => { settingsDlg.close(); $('#checkUpdateBtn').click(); } })),
+  ];
   return [
     a.supported ? [
       toggle('desktopApp', T('Masaüstü uygulaması olarak aç'), a.desktopApp
@@ -2429,7 +2440,7 @@ function settingsApp() {
           : T('Bu kurulumda masaüstü uygulaması hazırlanamıyor (gerekli dosyalar ya da .NET derleyicisi yok).'), !a.desktopApp && !a.desktopAppAvailable),
       toggle('desktopShortcut', T('Masaüstü kısayolu'), T('Masaüstünde Atölye simgesi durur.')),
       toggle('autostart', T('Windows açılışında arka planda başlat'), T('Bilgisayar açıldığında Atölye hazır olur; kapalıysa ilk açılış birkaç saniye sürer.')),
-    ] : sNote(T('Masaüstü uygulaması, kısayol ve otomatik başlatma seçenekleri yalnızca Windows kurulumunda kullanılabilir.')),
+    ] : sNote(T('Masaüstü uygulaması, kısayol ve otomatik başlatma seçenekleri yalnızca Windows ve Mac kurulumunda kullanılabilir.')),
     el('div', { class: 'links-actions' },
       el('span', { class: 'settings-version', text: T('Atölye sürümü: {v}', { v: d.version || '?' }) }),
       el('button', { type: 'button', class: 'btn ghost', text: T('Güncellemeleri denetle'), onclick: () => { settingsDlg.close(); $('#checkUpdateBtn').click(); } })),

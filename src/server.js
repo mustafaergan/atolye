@@ -597,9 +597,10 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.delete('/api/chrome', wrap(async (_req, res) => { console.log('[bağlantı] chrome kapatıldı'); const r = integrations.setChrome(false); chrome.disconnect(); res.json(r); }));
   app.post('/api/chrome/kod', wrap(async (_req, res) => { console.log('[bağlantı] chrome eşleştirme kodu yenilendi'); res.json({ code: chrome.renewCode() }); }));
   app.post('/api/chrome/klasor', wrap(async (_req, res) => {
-    // Eklenti klasörünü Windows Gezgini'nde açar (Chrome'da "Paketlenmemiş öğe yükle" ile seçilsin diye)
-    if (process.platform === 'win32') spawn('explorer.exe', [CHROME_DIR], { detached: true, stdio: 'ignore' }).unref();
-    res.json({ ok: process.platform === 'win32', dir: CHROME_DIR });
+    // Eklenti klasörünü Windows Gezgini'nde ya da Finder'da açar (Chrome'da "Paketlenmemiş öğe yükle" ile seçilsin diye)
+    const opener = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : null;
+    if (opener) spawn(opener, [CHROME_DIR], { detached: true, stdio: 'ignore' }).unref();
+    res.json({ ok: Boolean(opener), dir: CHROME_DIR });
   }));
   app.post('/ic/chrome', wrap(async (req, res) => {
     const r = await chrome.gateRequest(req.headers.authorization, req.body);

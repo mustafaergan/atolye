@@ -43,8 +43,9 @@ const httpUrl = (value) => {
   }
 };
 
-// ---------- Uygulama seçenekleri (Windows kurulumu: atolye.ps1) ----------
+// ---------- Uygulama seçenekleri (Windows kurulumu: atolye.ps1, macOS kurulumu: atolye.sh; komut adları aynı) ----------
 const PS1 = () => path.join(ROOT, 'atolye.ps1');
+const SH = () => path.join(ROOT, 'atolye.sh');
 const APP_COMMANDS = {
   desktopApp: ['masaustu-ac', 'masaustu-kapat'],
   desktopShortcut: ['kisayol-ac', 'kisayol-kapat'],
@@ -53,16 +54,20 @@ const APP_COMMANDS = {
 
 function defaultRunner(command) {
   return new Promise((resolve) => {
-    const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    execFile(exe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS1(), command],
+    const mac = process.platform === 'darwin';
+    const exe = mac ? '/bin/bash' : path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const args = mac ? [SH(), command] : ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS1(), command];
+    execFile(exe, args,
       { cwd: ROOT, windowsHide: true, timeout: 180_000, encoding: 'utf8', env: { ...process.env, ATOLYE_SORMA: '1', ATOLYE_UTF8: '1' } },
       (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, out: `${stdout || ''}${stderr || ''}` }));
   });
 }
 let runner = defaultRunner;
-/** Testler için: atolye.ps1 yerine çağrılacak işlev */
+/** Testler için: atolye.ps1 / atolye.sh yerine çağrılacak işlev */
 export function setRunner(fn) { runner = fn || defaultRunner; }
-const appSupported = () => runner !== defaultRunner || (process.platform === 'win32' && fs.existsSync(PS1()));
+const appSupported = () => runner !== defaultRunner
+  || (process.platform === 'win32' && fs.existsSync(PS1()))
+  || (process.platform === 'darwin' && fs.existsSync(SH()));
 
 /** Masaüstü uygulaması, kısayol ve otomatik başlatmanın şu anki durumu */
 export async function appStatus() {

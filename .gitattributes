@@ -1,0 +1,2 @@
+# Mac kurulum betiği her yerde LF satır sonuyla kalmalı (CRLF ile bash çalışmaz)
+*.sh text eol=lf

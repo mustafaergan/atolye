@@ -1,0 +1,63 @@
+# macOS kurulumu (atolye.sh) gerçek bir Mac'te sınanır: testler, depodan kurulum, arşivden kurulum, güncelleme ve kaldırma
+name: macOS kurulumu
+on:
+  push:
+    paths: ['atolye.sh', 'src/settings.js', 'src/update.js', 'src/cli.js', 'package.json', '.github/workflows/mac.yml']
+  workflow_dispatch:
+
+jobs:
+  kurulum:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      ATOLYE_KABUL: '1'
+      ATOLYE_SORMA: '1'
+      ATOLYE_UPDATE_CHECK: '0'
+      ATOLYE_ARCHIVE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Testler
+        run: |
+          npm install --no-audit --no-fund --loglevel=error
+          npm test
+
+      - name: Depodan kurulum, başlatma, seçenekler, durdurma
+        run: |
+          bash atolye.sh kur --tarayici-acma
+          bash atolye.sh durum
+          curl -fsS http://127.0.0.1:3210/api/config | head -c 200; echo
+          test -x "$HOME/Applications/Atölye.app/Contents/MacOS/Atolye"
+          plutil -lint "$HOME/Applications/Atölye.app/Contents/Info.plist" "$HOME/Library/LaunchAgents/io.github.mustafaergan.atolye.plist"
+          bash atolye.sh ayarlar
+          bash atolye.sh kisayol-kapat && bash atolye.sh otomatik-kapat && bash atolye.sh masaustu-kapat
+          bash atolye.sh ayarlar | grep -q '"desktopShortcut":false,"autostart":false'
+          bash atolye.sh kisayol-ac
+          bash atolye.sh baslat --tarayici-acma
+          bash atolye.sh durdur
+          ! curl -fsS -m 2 http://127.0.0.1:3210/api/config
+
+      - name: Arşivden kurulum (git olmadan, boşluklu klasör), güncelleme, kaldırma
+        env:
+          ATOLYE_GIT: '0'
+          ATOLYE_KLASOR: ${{ runner.temp }}/Atolye kurulum
+        run: |
+          cp atolye.sh "$RUNNER_TEMP/atolye.sh"
+          bash "$RUNNER_TEMP/atolye.sh" kur --tarayici-acma
+          test -f "$ATOLYE_KLASOR/.kurulu"
+          curl -fsS http://127.0.0.1:3210/api/config | head -c 200; echo
+          ATOLYE_ZORLA=1 bash "$ATOLYE_KLASOR/atolye.sh" guncelle
+          curl -fsS http://127.0.0.1:3210/api/config | head -c 200; echo
+          bash "$ATOLYE_KLASOR/atolye.sh" durum
+          bash "$ATOLYE_KLASOR/atolye.sh" kaldir --evet
+          test ! -e "$ATOLYE_KLASOR"
+          test ! -e "$HOME/Applications/Atölye.app"
+          ! curl -fsS -m 2 http://127.0.0.1:3210/api/config
+
+      - name: Kayıtlar
+        if: always()
+        run: |
+          for f in atolye.log atolye-guncelle.log "$RUNNER_TEMP/Atolye kurulum/atolye.log"; do [ -f "$f" ] && { echo "== $f"; tail -40 "$f"; }; done; true

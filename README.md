@@ -92,6 +92,32 @@ menüsüne eklenir. Kendi simgesi olduğu için **görev çubuğuna sabitlenebil
 Atölye tarayıcıda açılır. Sonradan açıp kapatmak için: `atolye.ps1 masaustu-ac` / `masaustu-kapat`
 (kısayol için `kisayol-ac` / `kisayol-kapat`).
 
+### macOS: tek komutla
+
+Node.js 18.18 ya da üstü kurulu olmalıdır ([nodejs.org](https://nodejs.org) "LTS" kurulum paketi ya da
+`brew install node`). Terminal'de:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/mustafaergan/atolye/main/atolye.sh)"
+```
+
+`atolye.sh`, Windows'taki `atolye.ps1`'in karşılığıdır ve aynı komutları sunar (`kur`, `baslat`, `durdur`,
+`guncelle`, `durum`, `otomatik-ac` / `otomatik-kapat`, `kisayol-ac` / `kisayol-kapat`, `masaustu-ac` /
+`masaustu-kapat`, `kaldir`). Kurulum klasörü `~/Library/Application Support/Atolye`'dir. Yönetici izni gerekmez.
+
+- **İndirme:** Xcode komut satırı araçları (git) varsa depo klonlanır, yoksa son sürüm arşiv olarak indirilir.
+  `guncelle` ikisinde de çalışır; Atölye'nin **Şimdi güncelle** düğmesi de Mac'te bu komutu kullanır.
+- **Uygulamalar klasöründe Atölye:** `~/Applications/Atölye.app`. Launchpad ve Spotlight'tan açılır, Dock'a
+  sürüklenebilir. Bu Mac'te oluşturulduğu için Gatekeeper engellemez (imzalı bir uygulama indirmek gerekmez).
+- **Kendi penceresinde açma:** Chrome ya da Edge varsa Atölye adres çubuğu olmayan uygulama penceresinde açılır;
+  yoksa varsayılan tarayıcı kullanılır.
+- **Mac açılışında başlatma:** `~/Library/LaunchAgents` içinde bir başlatma kaydıyla yapılır.
+- **Ayarlar:** Üç seçenek de Atölye'de **Ayarlar > Uygulama** bölümünden açılıp kapatılabilir.
+- **Mac'te olmayanlar:** Outlook bağlantısı (Windows'taki Outlook uygulamasını kullanır) ve Windows'a özel masaüstü
+  programı. Teams, Jira, Confluence gibi diğer bağlantılar aynı şekilde çalışır.
+
+Kurulum betiği her değişiklikte GitHub Actions'ta gerçek bir Mac'te sınanır (`.github/workflows/mac.yml`).
+
 ### Elle
 
 ```bash

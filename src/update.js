@@ -24,8 +24,10 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-// Windows'ta atolye.ps1 hem git hem paket kurulumunu günceller (paket kurulumunda son sürümü zip olarak indirir)
-const canApply = () => process.platform === 'win32' && fs.existsSync(path.join(ROOT, 'atolye.ps1'));
+// Windows'ta atolye.ps1 hem git hem paket kurulumunu günceller (paket kurulumunda son sürümü zip olarak indirir);
+// macOS'ta atolye.sh aynı işi yapar (git ya da arşiv)
+const canApply = () => (process.platform === 'win32' && fs.existsSync(path.join(ROOT, 'atolye.ps1')))
+  || (process.platform === 'darwin' && fs.existsSync(path.join(ROOT, 'atolye.sh')));
 
 /**
  * Güncellemeyi başlatır: "atolye.ps1 guncelle" son sürümü çeker, paketleri kurar ve Atölye'yi yeniden başlatır.
@@ -33,6 +35,15 @@ const canApply = () => process.platform === 'win32' && fs.existsSync(path.join(R
  */
 export function applyUpdate() {
   if (!canApply()) return { started: false };
+  if (process.platform === 'darwin') {
+    // Araya giren kabuk hemen çıkar: güncelleyici bu sürecin torunu olarak kalmaz (Atölye durdurulurken onunla
+    // birlikte kapatılmasın diye). Çıktı: atolye-guncelle.log
+    const sh = path.join(ROOT, 'atolye.sh').replace(/'/g, `'\\''`);
+    const child = spawn('/bin/bash', ['-c', `nohup /bin/bash '${sh}' guncelle < /dev/null > /dev/null 2>&1 &`],
+      { cwd: ROOT, detached: true, stdio: 'ignore', env: { ...process.env, ATOLYE_SORMA: '1', ATOLYE_GUNCELLEME_KAYDI: '1' } });
+    child.unref();
+    return { started: true };
+  }
   const script = path.join(ROOT, 'atolye.ps1');
   const child = spawn(process.env.ComSpec || 'cmd.exe',
     ['/d', '/s', '/c', `"start "" /min powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script}" guncelle"`],
