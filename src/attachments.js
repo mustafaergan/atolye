@@ -1,6 +1,7 @@
-// Dosya ekleri (görsel dışındakiler): CSV, Excel, metin, JSON, PDF... Dosya bu bilgisayarda ~/.atolye/ekler altına
-// kaydedilir; metne çevrilebilenlerin başı mesaja eklenir, tamamı için yapay zekâya dosyanın yolu verilir (kendi
-// araçlarıyla okuyabilir). Excel (.xlsx) dosyaları ek bir kütüphane olmadan sayfa sayfa CSV'ye çevrilir.
+// Dosya ekleri (görsel dışındakiler): CSV, Excel, Word, PowerPoint, metin, JSON, PDF... Dosya bu bilgisayarda
+// ~/.atolye/ekler altına kaydedilir; metne çevrilebilenlerin başı mesaja eklenir, tamamı için yapay zekâya dosyanın yolu
+// verilir (kendi araçlarıyla okuyabilir). Excel (.xlsx) sayfa sayfa CSV'ye, Word (.docx) ve PowerPoint (.pptx) düz
+// metne ek bir kütüphane olmadan çevrilir.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -131,6 +132,114 @@ export function xlsxSheets(buf) {
   return sheets;
 }
 
+// ---------- Word (.docx) ve PowerPoint (.pptx): ikisi de içinde XML olan zip arşividir ----------
+/** .docx → düz metin: paragraflar satır, tablo hücreleri " | " ile ayrılır */
+export function docxText(buf) {
+  const xml = unzip(buf).get('word/document.xml')?.();
+  if (!xml) throw new Error('Word belgesi bulunamadı');
+  let out = '';
+  let cell = 0; // tablo hücresinde paragraflar boşlukla birleşir; satır sonu, tablo satırının sonudur
+  for (const m of xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<\/w:p>|<w:tab\/>|<w:br\/>|<w:tc(?:\s[^>]*)?>|<\/w:tc>|<\/w:tr>/g)) {
+    const tag = m[0];
+    if (m[1] !== undefined) out += unesc(m[1]);
+    else if (tag === '<w:tab/>') out += '\t';
+    else if (tag.startsWith('<w:tc')) cell++;
+    else if (tag === '</w:tc>') { cell = Math.max(0, cell - 1); out = `${out.trimEnd()} | `; }
+    else if (tag === '</w:tr>') out = `${out.replace(/ \| $/, '')}\n`;
+    else out += cell ? ' ' : '\n';
+  }
+  return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** .pptx → [{ label: 'Slayt N', text }] (slayt sırasıyla) */
+export function pptxSlides(buf) {
+  const zip = unzip(buf);
+  const names = [...zip.keys()].filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => Number(/(\d+)\.xml$/.exec(a)[1]) - Number(/(\d+)\.xml$/.exec(b)[1]));
+  if (!names.length) throw new Error('PowerPoint slaytı bulunamadı');
+  return names.map((n, i) => {
+    let text = '';
+    for (const m of zip.get(n)().matchAll(/<a:t>([\s\S]*?)<\/a:t>|<\/a:p>/g)) text += m[1] !== undefined ? unesc(m[1]) : '\n';
+    return { label: `Slayt ${i + 1}`, text: text.replace(/\n{2,}/g, '\n').trim() };
+  });
+}
+
+// ---------- PDF (elden geldiğince) ----------
+// Kütüphanesiz: sayfa içeriklerindeki metin komutlarından (Tj, TJ) düz yazı toplanır. Yazı tipleri özel kodlama
+// kullanıyorsa (taranmış ya da gömülü yazı tipli PDF'ler) çıkan metin okunmaz; o zaman boş döner.
+const pdfString = (s) => s.replace(/\\([nrtbf()\\]|[0-7]{1,3}|\r?\n)/g, (m, e) => (
+  /^[0-7]/.test(e) ? String.fromCharCode(parseInt(e, 8)) : { n: '\n', r: '', t: '\t', b: '', f: '', '(': '(', ')': ')', '\\': '\\' }[e] ?? ''));
+export function pdfText(buf) {
+  const src = buf.toString('latin1');
+  const out = [];
+  let total = 0;
+  for (const m of src.matchAll(/stream\r?\n/g)) {
+    const start = m.index + m[0].length;
+    const end = src.indexOf('endstream', start);
+    if (end < 0) break;
+    const dict = src.slice(Math.max(0, src.lastIndexOf('<<', m.index)), m.index);
+    let data = buf.subarray(start, end);
+    if (/\/FlateDecode/.test(dict)) {
+      try { data = zlib.inflateSync(data, { finishFlush: zlib.constants.Z_SYNC_FLUSH, maxOutputLength: MAX_UNZIPPED }); } catch { continue; }
+    } else if (/\/Filter/.test(dict)) continue;
+    total += data.length;
+    if (total > MAX_UNZIPPED) break;
+    const t = data.toString('latin1');
+    if (!/\bBT\b/.test(t)) continue;
+    for (const block of t.matchAll(/\bBT\b([\s\S]*?)\bET\b/g)) {
+      let line = '';
+      for (const op of block[1].matchAll(/\(((?:\\[\s\S]|[^\\)])*)\)\s*(?:Tj|'|")|\[((?:\\[\s\S]|[^\]])*)\]\s*TJ|(T\*|\bT[dDm]\b)/g)) {
+        if (op[1] !== undefined) line += pdfString(op[1]);
+        else if (op[2] !== undefined) {
+          for (const p of op[2].matchAll(/\(((?:\\[\s\S]|[^\\)])*)\)|(-?\d+(?:\.\d+)?)/g)) {
+            if (p[1] !== undefined) line += pdfString(p[1]);
+            else if (Number(p[2]) < -200) line += ' '; // geniş boşluk: sözcük arası
+          }
+        } else if (line && !line.endsWith('\n')) line += '\n';
+      }
+      if (line.trim()) out.push(line.trim());
+    }
+  }
+  const text = out.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  // Okunabilir mi? Harf, rakam, boşluk ve noktalama oranı düşükse (özel kodlamalı yazı tipi) metin yok sayılır
+  const readable = (text.match(/[\p{L}\p{N}\s.,;:()\-'"%/]/gu) || []).length;
+  return text.length >= 20 && readable / text.length > 0.85 ? text : '';
+}
+
+/**
+ * Bir dosyanın metne çevrilebilen içeriği: { kind, parts: [{ label, rows?, text }], note }
+ * kind: 'text' | 'sheet' | 'doc' | 'binary'. pdf: true ise PDF'ten de (elden geldiğince) metin çıkarılır.
+ */
+export function extractText(name, buf, { pdf = false } = {}) {
+  const e = ext(name);
+  const out = { kind: 'binary', parts: [], note: '' };
+  try {
+    if (SHEET_EXT.has(e)) {
+      out.kind = 'sheet';
+      out.parts = xlsxSheets(buf).map((s) => ({ label: s.name, rows: s.rows, text: s.csv, sheet: true }));
+    } else if (e === 'xls') {
+      out.note = 'old_xls';
+    } else if (e === 'docx') {
+      out.kind = 'doc';
+      out.parts = [{ label: '', text: docxText(buf) }];
+    } else if (e === 'pptx') {
+      out.kind = 'doc';
+      out.parts = pptxSlides(buf);
+    } else if (e === 'pdf') {
+      const text = pdf ? pdfText(buf) : '';
+      if (text) { out.kind = 'doc'; out.parts = [{ label: '', text }]; }
+      else if (pdf) out.note = 'pdf_unreadable';
+    } else if (TEXT_EXT.has(e) || (!['doc', 'ppt', 'zip', 'ods', 'odt'].includes(e) && looksText(buf))) {
+      out.kind = 'text';
+      out.parts = [{ label: '', text: decodeText(buf) }];
+    }
+  } catch (err) {
+    out.kind = 'binary';
+    out.parts = [];
+    out.note = `unreadable:${err.message}`;
+  }
+  return out;
+}
+
 // ---------- metin ----------
 /** UTF-8 değilse (Excel'in Türkçe Windows'ta kaydettiği CSV'ler gibi) Windows-1254 olarak okunur */
 export function decodeText(buf) {
@@ -173,23 +282,16 @@ export function saveAttachments(files, { dir = attachDir(), now = new Date() } =
     const out = { name, size: buf.length, path: path.join(folder, name), kind: 'binary', parts: [], note: '' };
     if (buf.length > MAX_FILE_BYTES) return { ...out, path: '', note: 'too_big' };
     fs.writeFileSync(out.path, buf);
-    const e = ext(name);
-    try {
-      if (SHEET_EXT.has(e)) {
-        out.kind = 'sheet';
-        for (const s of xlsxSheets(buf)) {
-          const p = path.join(folder, unique(`${path.parse(name).name}.${safeName(s.name)}.csv`));
-          fs.writeFileSync(p, `﻿${s.csv}`);
-          out.parts.push({ label: s.name, rows: s.rows, path: p, text: s.csv });
-        }
-      } else if (e === 'xls') {
-        out.note = 'old_xls';
-      } else if (TEXT_EXT.has(e) || (!['pdf', 'docx', 'pptx', 'zip', 'ods'].includes(e) && looksText(buf))) {
-        out.kind = 'text';
-        out.parts.push({ label: '', path: out.path, text: decodeText(buf) });
-      }
-    } catch (err) {
-      out.note = `unreadable:${err.message}`;
+    // PDF'i sohbetteki yapay zekâ kendi araçlarıyla okur (Atölye'nin kaba çıkarımı yanıltabilir)
+    const x = extractText(name, buf);
+    out.kind = x.kind;
+    out.note = x.note;
+    for (const p of x.parts) {
+      if (p.sheet) {
+        const csv = path.join(folder, unique(`${path.parse(name).name}.${safeName(p.label)}.csv`));
+        fs.writeFileSync(csv, `﻿${p.text}`);
+        out.parts.push({ label: p.label, rows: p.rows, path: csv, text: p.text });
+      } else out.parts.push({ label: p.label, path: out.path, text: p.text, slide: x.kind === 'doc' && Boolean(p.label) });
     }
     return out;
   });
@@ -214,7 +316,8 @@ export function attachmentPrompt(saved, lang = 'tr') {
       const cut = p.text.length > take;
       const text = cut ? p.text.slice(0, p.text.lastIndexOf('\n', take) > take / 2 ? p.text.lastIndexOf('\n', take) : take) : p.text;
       budget -= text.length;
-      if (p.label) out.push(tr ? `  Sayfa "${p.label}" (${p.rows} satır), CSV olarak: ${p.path}` : `  Sheet "${p.label}" (${p.rows} rows), as CSV: ${p.path}`);
+      if (p.slide) out.push(`  ${tr ? p.label : p.label.replace('Slayt', 'Slide')}:`);
+      else if (p.label) out.push(tr ? `  Sayfa "${p.label}" (${p.rows} satır), CSV olarak: ${p.path}` : `  Sheet "${p.label}" (${p.rows} rows), as CSV: ${p.path}`);
       if (!text) { out.push(tr ? '  (içerik mesaja sığmadı; yoldan oku)' : '  (content did not fit; read it from the path)'); continue; }
       out.push('```', text, '```');
       if (cut) out.push(tr ? `  (kısaltıldı: toplam ${p.text.length} karakterin ilk ${text.length} karakteri; tamamı: ${p.path})` : `  (truncated: first ${text.length} of ${p.text.length} characters; full content: ${p.path})`);

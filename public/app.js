@@ -1514,11 +1514,13 @@ dom.modelSelect.addEventListener('change', () => {
 // ---------- Gönderme ----------
 function send() {
   const text = dom.input.value.trim();
-  if (!text && !state.attachments.length) return;
+  if (!text && !state.attachments.some((a) => !a.ref)) return;
   if (text === '/clear' || text === '/new') { newSession(); dom.input.value = ''; autoGrow(); return; }
   // Bağlam taşmışken /compact da aynı sınıra takılır ve takılıp kalır: gönderilmez, taşıma seçenekleri gösterilir
   if (/^\/compact\b/.test(text) && state.contextFull) { dom.input.value = ''; autoGrow(); offerContextRescue(); return; }
-  const images = state.attachments.filter((a) => !a.file).map(({ mediaType, data }) => ({ mediaType, data }));
+  const images = state.attachments.filter((a) => !a.file && !a.ref).map(({ mediaType, data }) => ({ mediaType, data }));
+  // Öğretilen komutun örnek belgelerinden çıkarılmış özet (bkz. runCommand): yapay zekâya gizli not olarak gider
+  const ref = state.attachments.find((a) => a.ref);
   const files = state.attachments.filter((a) => a.file).map(({ name, data }) => ({ name, data }));
   // Mesaj balonu sunucudan "user_prompt" olarak geri gelince çizilir;
   // böylece sayfa yenilenince de aynı sırayla yeniden oluşur.
@@ -1526,7 +1528,7 @@ function send() {
   const outgoing = text && !text.startsWith('/') && !text.includes(T('[veri sonu]')) && usesFetchProtocol() ? `${withFetchProtocol(text)}${activeLinks.filter((id) => !fetchLinks().includes(id)).map((id) => `\n${withOneLinkHint('', id).trim()}`).join('')}` : withLinkHint(text || (files.length ? T('Ekteki dosyaya bak.') : T('Bu görsele bak.')));
   // Başka bir motordan aktarılan özet, bu oturumun ilk mesajıyla birlikte (gizli bağlam olarak) gider
   const carried = state.handoff && state.handoff.liveId === state.liveId && !text.startsWith('/') ? state.handoff : null;
-  wsSend({ type: 'send', text: outgoing, images, work: state.work, ...(files.length ? { files } : {}), ...(carried ? { handoff: carried.text } : {}) });
+  wsSend({ type: 'send', text: outgoing, images, work: state.work, ...(files.length ? { files } : {}), ...(carried ? { handoff: carried.text } : {}), ...(ref && !text.startsWith('/') ? { reference: { name: ref.command, text: ref.text, sources: ref.sources } } : {}) });
   if (carried) { state.handoff = null; $('.handoff-card', dom.messages)?.remove(); notice(T('{from} konuşmasının özeti bu mesajla birlikte gönderildi.', { from: carried.from }), 'info'); }
   dom.input.value = '';
   state.attachments = [];
@@ -1606,6 +1608,19 @@ function fileChip(name, size) {
     el('span', { class: 'file-name', text: name }),
     size ? el('span', { class: 'file-size', text: fileSize(size) }) : null);
 }
+// Komutla gelen belge özeti: dosya gibi görünür, kaldırılabilir; üzerine gelince özetin başı okunur
+function refChip(a) {
+  return el('span', { class: 'file-chip ref', title: `${T('Komutla gelen belge özeti')}${a.sources?.length ? ` (${a.sources.join(', ')})` : ''}\n\n${a.text.slice(0, 600)}${a.text.length > 600 ? '…' : ''}` },
+    el('span', { class: 'file-ext', text: T('özet') }),
+    el('span', { class: 'file-name', text: T('{name} · belge özeti', { name: a.command }) }));
+}
+/** Dosyayı base64 olarak okur */
+const fileData = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(file);
+});
 function addImageFile(file) {
   const image = file.type.startsWith('image/');
   if (image && file.size > 5 * 1024 * 1024) return notice(T("{name} 5 MB'tan büyük, eklenmedi.", { name: file.name }));
@@ -1622,7 +1637,7 @@ function addImageFile(file) {
 }
 function renderAttachments() {
   dom.attachments.replaceChildren(...state.attachments.map((a, i) =>
-    el('div', { class: 'att' }, a.file ? fileChip(a.name, a.size) : el('img', { src: a.url, alt: '' }),
+    el('div', { class: 'att' }, a.ref ? refChip(a) : a.file ? fileChip(a.name, a.size) : el('img', { src: a.url, alt: '' }),
       el('button', { type: 'button', text: '×', 'aria-label': T('Kaldır'), onclick: () => { state.attachments.splice(i, 1); renderAttachments(); } }))));
   updateSendBtn();
 }
@@ -2144,6 +2159,10 @@ async function runCommand(c) {
     setActiveLinks(ids);
     await Promise.all(ids.map((id) => loadFetchTools(id)));
   }
+  // Örnek belgelerden çıkarılmış özet, mesaja ek olarak gider (belgeler her seferinde yeniden okunmaz)
+  state.attachments = state.attachments.filter((a) => !a.ref);
+  if (c.notes) state.attachments.push({ ref: true, command: c.name, text: c.notes, sources: c.sources || [] });
+  renderAttachments();
   dom.input.value = c.fill && !/\s$/.test(c.prompt) ? `${c.prompt} ` : c.prompt;
   autoGrow();
   if (c.fill) { dom.input.focus(); dom.input.setSelectionRange(dom.input.value.length, dom.input.value.length); } else send();
@@ -2164,7 +2183,7 @@ function commandsView(title, ...children) {
   $('#commandsBody').replaceChildren(...children.flat().filter(Boolean));
 }
 function openCommands(view = 'list', data) {
-  if (view === 'teach') renderTeach(data);
+  if (view === 'teach') renderTeach(typeof data === 'string' ? data : data?.text || '', Boolean(data?.keepFiles));
   else if (view === 'edit') renderCommandEdit(data);
   else renderCommandList();
   if (!commandsDlg.open) commandsDlg.showModal();
@@ -2196,7 +2215,7 @@ function commandRow(c) {
   const color = commandColor(c);
   const row = el('div', { class: `command-row${c.hidden ? ' hidden-command' : ''}` },
     el('div', { class: 'c-main' },
-      el('div', { class: `c-name${color ? '' : ' plain'}` }, c.name, c.hidden && el('span', { class: 'c-badge', text: T('gizli') }), c.changed && !c.hidden && el('span', { class: 'c-badge', text: T('değiştirildi') })),
+      el('div', { class: `c-name${color ? '' : ' plain'}` }, c.name, c.hidden && el('span', { class: 'c-badge', text: T('gizli') }), c.changed && !c.hidden && el('span', { class: 'c-badge', text: T('değiştirildi') }), c.notes && el('span', { class: 'c-badge', text: T('belge özeti'), title: (c.sources || []).join(', ') })),
       el('div', { class: 'c-links', text: names.length ? names.join(' + ') : T('Bağlantı kullanmıyor') }),
       el('div', { class: 'c-prompt', text: c.prompt })),
     el('div', { class: 'c-actions' }, actions));
@@ -2216,24 +2235,60 @@ function renderCommandList() {
       el('div', { class: 'command-head', text: T('Hazır komutlar ({role})', { role: r.name() }) }),
       ready.map(commandRow)));
 }
-function renderTeach(text = '') {
+// Komut öğretirken eklenen örnek belgeler (saklanmaz; derlerken özetleri çıkarılır)
+const MAX_TEACH_FILES = 5;
+const teachFiles = [];
+/** Dosya seçtirir, okur ve listeye ekler; sığmayan ya da çok büyük olanlar için not döndürür */
+function pickDocs(list, onChange) {
+  const input = el('input', { type: 'file', multiple: true, hidden: true, accept: '.docx,.pptx,.xlsx,.xlsm,.pdf,.txt,.md,.csv,.tsv,.json,.xml,.html,.htm,.yaml,.yml,.log,.sql' });
+  input.onchange = async () => {
+    const skipped = [];
+    for (const f of [...input.files]) {
+      if (list.length >= MAX_TEACH_FILES || f.size > 10 * 1024 * 1024 || !f.size) { skipped.push(f.name); continue; }
+      try { list.push({ name: f.name, size: f.size, data: await fileData(f) }); } catch { skipped.push(f.name); }
+    }
+    input.remove();
+    onChange(skipped);
+  };
+  document.body.append(input);
+  input.click();
+}
+function docList(list, onChange) {
+  return el('div', { class: 'attachments teach-files' }, list.map((f, i) => el('div', { class: 'att' }, fileChip(f.name, f.size),
+    el('button', { type: 'button', text: '×', 'aria-label': T('Kaldır'), onclick: () => { list.splice(i, 1); onChange(); } }))));
+}
+const skippedNote = (names) => T('Eklenmedi: {names} (en fazla {n} dosya, her biri en fazla 10 MB)', { names: names.join(', '), n: MAX_TEACH_FILES });
+const unreadNote = (names) => T('Şu dosyalardan metin çıkarılamadı, özete girmedi: {names} (taranmış PDF ya da desteklenmeyen biçim olabilir; Word ya da metin olarak eklemeyi deneyin)', { names: names.join(', ') });
+function renderTeach(text = '', keepFiles = false) {
+  if (!keepFiles) teachFiles.length = 0;
   const desc = el('textarea', { rows: '7', placeholder: T('Örnek: Jira numarasını vereceğim. Önce Jira kaydını ve alt görevlerini oku. Sonra Bitbucket\'ta bu numarayla açılmış çekme isteklerini bul. En sonda neyin bittiğini, neyin eksik kaldığını kısaca yaz.') });
   desc.value = text;
   const result = el('div', { class: 'links-result', hidden: true });
+  const files = el('div');
+  const drawFiles = (skipped = []) => {
+    put(files.replaceChildren() || files, docList(teachFiles, () => drawFiles()),
+      teachFiles.length < MAX_TEACH_FILES && el('button', { type: 'button', class: 'btn small', text: T('+ Örnek dosya ekle'), onclick: () => pickDocs(teachFiles, drawFiles) }),
+      skipped.length > 0 && el('small', { class: 'job-hint err', text: skippedNote(skipped) }));
+  };
+  drawFiles();
   const go = el('button', { type: 'button', class: 'btn learn', text: T('Derle') });
   go.onclick = async () => {
     if (!desc.value.trim()) { result.hidden = false; result.className = 'links-result err'; result.textContent = T('Ne yapılmasını istediğinizi anlatın'); return; }
     go.disabled = true;
     result.hidden = false; result.className = 'links-result';
-    result.textContent = T('Derleniyor… Yapay zekâ anlattıklarınızı komuta çeviriyor; bir dakika kadar sürebilir.');
-    const r = await api(`/api/commands/compile?lang=${getLang()}`, { description: desc.value, engine: currentEngine(), cwd: state.cwd, model: state.model || '' }).catch((e) => ({ ok: false, error: e.message }));
+    result.replaceChildren(handoffWaitLine(teachFiles.length
+      ? T('Derleniyor… Yapay zekâ anlattıklarınızı komuta çeviriyor ve eklediğiniz belgelerden özet çıkarıyor; birkaç dakika sürebilir.')
+      : T('Derleniyor… Yapay zekâ anlattıklarınızı komuta çeviriyor; bir dakika kadar sürebilir.')));
+    const r = await api(`/api/commands/compile?lang=${getLang()}`, { description: desc.value, engine: currentEngine(), cwd: state.cwd, model: state.model || '', files: teachFiles.map(({ name, data }) => ({ name, data })) }).catch((e) => ({ ok: false, error: e.message }));
     go.disabled = false;
     if (!r.ok) { result.className = 'links-result err'; result.textContent = r.error || T('Derlenemedi'); return; }
-    openCommands('edit', { ...r.command, description: desc.value });
+    openCommands('edit', { ...r.command, description: desc.value, hadFiles: teachFiles.length > 0 });
   };
   commandsView(T('Komut öğret'),
     el('p', { class: 'links-intro', text: T('Ne yapmasını istiyorsunuz? Kendi cümlelerinizle anlatın: önce şunu yapsın, sonra Jira\'ya gitsin, Bitbucket\'a baksın… Atölye anlattıklarınızı derleyip toparlar; kaydetmeden önce görür ve düzeltirsiniz.') }),
     el('label', { class: 'links-field' }, el('span', { text: T('Ne yapmasını istiyorsunuz?') }), desc),
+    el('div', { class: 'links-field' }, el('span', { text: T('Örnek dosyalar (isteğe bağlı)') }), files,
+      el('small', { class: 'job-hint', text: T('Şablon, örnek rapor gibi belgeler (Word, PowerPoint, Excel, PDF, metin). Dosyalar saklanmaz: Atölye derlerken onlardan bir özet çıkarır; komut her çalıştığında belgeler yeniden okunmaz, bu özet kullanılır.') })),
     result,
     el('div', { class: 'links-actions' }, go, el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => openCommands('list') })));
   setTimeout(() => desc.focus(), 0);
@@ -2266,11 +2321,40 @@ function renderCommandEdit(c) {
   const fill = el('input', { type: 'checkbox' });
   fill.checked = Boolean(c.fill);
   const result = el('div', { class: 'links-result', hidden: true });
-  if (isNew && c.ai === false) { result.hidden = false; result.textContent = T('Yapay zekâ derleyemedi; anlattığınız metin olduğu gibi alındı. Düzenleyip kaydedebilirsiniz.'); }
+  const warn = [];
+  if (isNew && c.ai === false) warn.push(T('Yapay zekâ derleyemedi; anlattığınız metin olduğu gibi alındı. Düzenleyip kaydedebilirsiniz.'));
+  else if (isNew && c.hadFiles && !c.notes && c.sources?.length) warn.push(T('Yapay zekâ belgelerden özet çıkarmadı. Aşağıdan belgeleri yeniden ekleyip özet çıkarabilirsiniz.'));
+  if (c.unread?.length) warn.push(unreadNote(c.unread));
+  if (warn.length) { result.hidden = false; result.textContent = warn.join(' '); }
+  // Örnek belgelerin özeti (yalnızca öğretilen komutlarda): komut her çalıştığında belgeler yerine bu gider
+  let sources = [...(c.sources || [])];
+  const notes = el('textarea', { rows: '8', placeholder: T('Belge özeti yok. Komutun bir şablona ya da örnek belgeye göre çalışması gerekiyorsa belge ekleyip özet çıkarın.') });
+  notes.value = c.notes || '';
+  const notesInfo = el('small', { class: 'job-hint' });
+  const drawInfo = () => { notesInfo.textContent = sources.length && notes.value.trim() ? T('Kaynak: {names}', { names: sources.join(', ') }) : ''; };
+  drawInfo();
+  const digestBtn = el('button', { type: 'button', class: 'btn small', text: T('Belge ekleyip özet çıkar…') });
+  digestBtn.onclick = () => {
+    const picked = [];
+    pickDocs(picked, async (skipped) => {
+      if (!picked.length) { if (skipped.length) { result.hidden = false; result.className = 'links-result err'; result.textContent = skippedNote(skipped); } return; }
+      digestBtn.disabled = true;
+      result.hidden = false; result.className = 'links-result';
+      result.replaceChildren(handoffWaitLine(T('Yapay zekâ belgelerden özet çıkarıyor; birkaç dakika sürebilir.')));
+      const r = await api(`/api/commands/digest?lang=${getLang()}`, { prompt: prompt.value, engine: currentEngine(), cwd: state.cwd, model: state.model || '', files: picked.map(({ name, data }) => ({ name, data })) }).catch((e) => ({ ok: false, error: e.message }));
+      digestBtn.disabled = false;
+      if (!r.ok) { result.className = 'links-result err'; result.textContent = [r.error || T('Özet çıkarılamadı'), r.unread?.length ? unreadNote(r.unread) : ''].filter(Boolean).join(' '); return; }
+      notes.value = r.notes;
+      sources = r.sources || [];
+      drawInfo();
+      result.textContent = [T('Özet çıkarıldı; gözden geçirip kaydedin.'), r.unread?.length ? unreadNote(r.unread) : '', skipped.length ? skippedNote(skipped) : ''].filter(Boolean).join(' ');
+    });
+  };
+  notes.oninput = drawInfo;
   const save = el('button', { type: 'button', class: 'btn learn', text: T('Kaydet') });
   save.onclick = async () => {
     save.disabled = true;
-    const body = { name: name.value, prompt: prompt.value, links: [...chosen], fill: fill.checked, color };
+    const body = { name: name.value, prompt: prompt.value, links: [...chosen], fill: fill.checked, color, ...(c.builtin ? {} : { notes: notes.value, sources }) };
     const r = c.builtin
       ? await saveBuiltin(c, { ...body, name: name.value.trim() === c.defName ? '' : name.value, prompt: prompt.value.trim() === c.defPrompt.trim() ? '' : prompt.value })
       : await api(`/api/commands?lang=${getLang()}`, { id: c.id, ...body }).catch((e) => ({ ok: false, error: e.message }));
@@ -2285,9 +2369,12 @@ function renderCommandEdit(c) {
     el('div', { class: 'links-field' }, el('span', { text: T('Kullanacağı bağlantılar (en fazla {n})', { n: learned.maxLinks }) }), linkRow),
     el('div', { class: 'links-field' }, el('span', { text: T('Düğmenin rengi') }), swatches),
     el('label', { class: 'links-check' }, fill, el('span', { text: T('Göndermeden önce mesaj kutusuna yaz (sonuna Jira numarası gibi bir bilgi ekleyeceğim)') })),
+    !c.builtin && el('div', { class: 'links-field' }, el('span', { text: T('Örnek belgelerin özeti') }), notes,
+      el('div', { class: 'notes-actions' }, digestBtn, notesInfo),
+      el('small', { class: 'job-hint', text: T('Komut her çalıştığında belgeler yerine bu özet yapay zekâya gider (mesaj kutusunda "belge özeti" olarak görünür). Düzeltebilir ya da silebilirsiniz.') })),
     result,
     el('div', { class: 'links-actions' }, save,
-      isNew && el('button', { type: 'button', class: 'btn ghost', text: T('Yeniden anlat'), onclick: () => openCommands('teach', c.description || '') }),
+      isNew && el('button', { type: 'button', class: 'btn ghost', text: T('Yeniden anlat'), onclick: () => openCommands('teach', { text: c.description || '', keepFiles: true }) }),
       el('button', { type: 'button', class: 'btn ghost', text: T('Vazgeç'), onclick: () => openCommands('list') })));
 }
 $('#commandsBtn').onclick = async () => { await loadCommands(); openCommands('list'); };

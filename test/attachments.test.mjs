@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 
-const { saveAttachments, attachmentPrompt, xlsxSheets, decodeText } = await import('../src/attachments.js');
+const { saveAttachments, attachmentPrompt, xlsxSheets, decodeText, docxText, pptxSlides, pdfText, extractText } = await import('../src/attachments.js');
 
 // Küçük bir zip yazıcı (xlsx üretmek için): dosyalar sıkıştırılarak (deflate) eklenir
 function zip(entries) {
@@ -116,4 +116,35 @@ test('30 günden eski ek klasörleri temizlenir, başka klasörlere dokunulmaz',
   saveAttachments([{ name: 'a.txt', data: Buffer.from('x').toString('base64') }], { dir });
   assert.ok(!fs.existsSync(old));
   assert.ok(fs.existsSync(other));
+});
+
+test('Word, PowerPoint ve PDF metne çevrilir; okunamayan PDF boş döner', () => {
+  const docx = zip({ 'word/document.xml': '<w:document><w:body><w:p><w:r><w:t>Başlık &amp; özet</w:t></w:r></w:p>'
+    + '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Alan</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t xml:space="preserve">Değer</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+    + '<w:p><w:r><w:t>Bir</w:t><w:tab/><w:t>iki</w:t></w:r></w:p></w:body></w:document>' });
+  assert.equal(docxText(docx), 'Başlık & özet\nAlan | Değer\nBir\tiki');
+  const pptx = zip({
+    'ppt/slides/slide10.xml': '<p:sld><a:p><a:r><a:t>Onuncu</a:t></a:r></a:p></p:sld>',
+    'ppt/slides/slide2.xml': '<p:sld><a:p><a:r><a:t>İkinci</a:t></a:r></a:p><a:p><a:r><a:t>satır</a:t></a:r></a:p></p:sld>',
+  });
+  assert.deepEqual(pptxSlides(pptx), [{ label: 'Slayt 1', text: 'İkinci\nsatır' }, { label: 'Slayt 2', text: 'Onuncu' }]);
+
+  const content = zlib.deflateSync(Buffer.from('BT /F1 12 Tf 72 700 Td (Rapor sablonu: baslik) Tj T* [(Durum) -300 (alani \\(zorunlu\\))] TJ ET', 'latin1'));
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n4 0 obj << /Length 99 /Filter /FlateDecode >>\nstream\n', 'latin1'), content, Buffer.from('\nendstream\nendobj\n%%EOF', 'latin1')]);
+  assert.equal(pdfText(pdf), 'Rapor sablonu: baslik\nDurum alani (zorunlu)');
+  const garbled = Buffer.from('%PDF-1.4\n<< /Length 9 >>\nstream\nBT (\x01\x02\x03\x04\x05\x06\x07\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b) Tj ET\nendstream\n', 'latin1');
+  assert.equal(pdfText(garbled), '', 'özel kodlamalı yazı tipi: metin yok sayılır');
+
+  assert.equal(extractText('a.pdf', pdf).note, '', 'sohbette PDF çıkarılmaz (yapay zekâ kendisi okur)');
+  assert.equal(extractText('a.pdf', pdf).parts.length, 0);
+  assert.equal(extractText('a.pdf', pdf, { pdf: true }).parts[0].text.startsWith('Rapor'), true);
+  assert.equal(extractText('a.pdf', garbled, { pdf: true }).note, 'pdf_unreadable');
+  assert.match(extractText('bozuk.docx', Buffer.from('zip değil')).note, /^unreadable:/);
+
+  // Sohbet ekinde Word metni mesaja girer
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-ek-'));
+  const [saved] = saveAttachments([{ name: 'not.docx', data: docx.toString('base64') }], { dir });
+  assert.equal(saved.kind, 'doc');
+  assert.match(attachmentPrompt([saved]), /Başlık & özet/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

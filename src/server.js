@@ -211,6 +211,8 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
     : err.code === 'no-prompt' ? msg(lang, 'Komutun ne yapacağını yazın')
       : err.code === 'no-description' ? msg(lang, 'Ne yapılmasını istediğinizi anlatın')
         : err.code === 'not-found' ? msg(lang, 'Bu komut bulunamadı; silinmiş olabilir')
+        : err.code === 'no-docs' ? msg(lang, 'Eklenen dosyalardan metin çıkarılamadı. Word, PowerPoint, Excel, metin ya da metin içeren bir PDF ekleyin.')
+        : err.code === 'no-digest' ? msg(lang, 'Yapay zekâ belgelerden özet çıkaramadı; biraz sonra yeniden deneyin.')
           : err.code === 'too-many' ? msg(lang, 'En fazla {n} komut kaydedilebilir; önce birini silin', { n: commands.MAX_COMMANDS }) : err.message);
   app.get('/api/commands', wrap(async (_req, res) => res.json(commandList())));
   app.post('/api/commands', wrap(async (req, res) => {
@@ -227,13 +229,23 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
   app.delete('/api/commands/builtin', wrap(async (req, res) => { commands.resetBuiltin(String(req.query.key || ''), commandsFile); res.json(commandList()); }));
   app.delete('/api/commands/:id', wrap(async (req, res) => { commands.remove(req.params.id, commandsFile); console.log('[komut] silindi'); res.json(commandList()); }));
   app.post('/api/commands/compile', wrap(async (req, res) => {
-    const { description, engine, cwd, model } = req.body || {};
+    const { description, engine, cwd, model, files } = req.body || {};
     try {
       const dir = typeof cwd === 'string' && cwd && existsSync(cwd) ? cwd : GENERAL_DIR;
-      const c = await commands.compile({ engine: engine === 'copilot' ? 'copilot' : 'claude', cwd: dir, model: typeof model === 'string' && model ? model : undefined, description, lang: req.query.lang });
-      console.log(`[komut] derlendi (${c.ai ? 'yapay zekâ' : 'yedek: tarif olduğu gibi'}): ${c.name}`);
+      const c = await commands.compile({ engine: engine === 'copilot' ? 'copilot' : 'claude', cwd: dir, model: typeof model === 'string' && model ? model : undefined, description, files: Array.isArray(files) ? files : [], lang: req.query.lang });
+      console.log(`[komut] derlendi (${c.ai ? 'yapay zekâ' : 'yedek: tarif olduğu gibi'}${c.unread ? `, ${c.sources.length} belge, özet ${c.notes ? 'var' : 'yok'}` : ''}): ${c.name}`);
       res.json({ ok: true, command: c });
     } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err) }); }
+  }));
+  // Var olan komuta örnek belge: belgelerden yeniden özet çıkarılır (kaydetmeden önce kullanıcı görür)
+  app.post('/api/commands/digest', wrap(async (req, res) => {
+    const { prompt, engine, cwd, model, files } = req.body || {};
+    try {
+      const dir = typeof cwd === 'string' && cwd && existsSync(cwd) ? cwd : GENERAL_DIR;
+      const d = await commands.digest({ engine: engine === 'copilot' ? 'copilot' : 'claude', cwd: dir, model: typeof model === 'string' && model ? model : undefined, prompt, files: Array.isArray(files) ? files : [], lang: req.query.lang });
+      console.log(`[komut] ${d.sources.length} belgeden özet çıkarıldı (${d.notes.length} karakter)`);
+      res.json({ ok: true, ...d });
+    } catch (err) { res.json({ ok: false, error: commandError(req.query.lang, err), unread: err.unread || [] }); }
   }));
 
 
@@ -910,7 +922,11 @@ export async function createServer({ port, host = '127.0.0.1', defaultCwd }) {
             if (files.length) console.log(`[ek] ${files.length} dosya kaydedildi (${files.map((f) => `${f.kind}${f.note ? `:${f.note.split(':')[0]}` : ''}`).join(', ')})`);
             const handoff = typeof m.handoff === 'string' ? m.handoff : '';
             if (handoff.trim()) console.log(`[oturum] ${entry.engine}: başka bir oturumdan özet aktarıldı (${handoff.trim().length} karakter)`);
-            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files, m.work ? validWork(m.work) : undefined, handoff);
+            // Öğretilen komutun örnek belgelerinden çıkarılmış özet: yalnızca yapay zekâya gider (gizli not)
+            const ref = m.reference && typeof m.reference.text === 'string' ? m.reference.text.trim().slice(0, commands.MAX_NOTES) : '';
+            if (ref) console.log(`[komut] belge özeti mesajla gönderildi (${ref.length} karakter)`);
+            const note = ref ? `The command "${String(m.reference.name || '').slice(0, 60)}" that the user ran comes with this summary, made once from example documents the user attached when teaching the command (${(Array.isArray(m.reference.sources) ? m.reference.sources : []).map(String).slice(0, 5).join(', ') || 'documents'}). Use it as the document summary that comes with the command; the documents themselves are not attached:\n\n${ref.replace(/<\/?system-reminder>/gi, '')}` : '';
+            manager.send(entry, String(m.text || ''), Array.isArray(m.images) ? m.images : [], lang, files, m.work ? validWork(m.work) : undefined, handoff, note);
           }
           return;
         case 'interrupt':

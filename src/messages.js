@@ -46,6 +46,8 @@ export const EN = {
   'Komutun ne yapacağını yazın': 'Write what the command should do',
   'Ne yapılmasını istediğinizi anlatın': 'Describe what you want done',
   'Bu komut bulunamadı; silinmiş olabilir': 'This command was not found; it may have been deleted',
+  "Eklenen dosyalardan metin çıkarılamadı. Word, PowerPoint, Excel, metin ya da metin içeren bir PDF ekleyin.": "No text could be extracted from the added files. Add Word, PowerPoint, Excel, text or a PDF that contains text.",
+  "Yapay zekâ belgelerden özet çıkaramadı; biraz sonra yeniden deneyin.": "The AI could not summarize the documents; try again a bit later.",
   'En fazla {n} komut kaydedilebilir; önce birini silin': 'At most {n} commands can be saved; delete one first',
   'Bu klasör bulunamadı. Tam yolu yazın (ör. C:\\dev\\test-otomasyon) ya da önce depoyu indirin.': 'This folder was not found. Enter the full path (e.g. C:\\dev\\test-otomasyon) or download the repository first.',
   'Testleri çalıştıran komutu yazın (ör. mvn test)': 'Enter the command that runs the tests (e.g. mvn test)',

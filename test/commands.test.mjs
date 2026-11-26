@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { list, save, remove, clean, guessLinks, parseCompiled, compile, compileRequest, builtins, saveBuiltin, resetBuiltin, MAX_COMMANDS } from '../src/commands.js';
+import { list, save, remove, clean, guessLinks, parseCompiled, compile, compileRequest, builtins, saveBuiltin, resetBuiltin, MAX_COMMANDS, readDocs, digest } from '../src/commands.js';
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atolye-komut-')), 'alt', 'komutlar.json');
 
@@ -78,4 +78,35 @@ test('hazır komutlar değiştirilir, gizlenir, renklendirilir ve sıfırlanır;
   resetBuiltin('Kodu incele', file);
   assert.deepEqual(builtins(file), {});
   assert.throws(() => saveBuiltin('', { hidden: true }, file), { code: 'not-found' });
+});
+
+test('örnek belgeler: metinleri okunur, özet komutla saklanır, okunamayanlar bildirilir', async () => {
+  const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+  const files = [{ name: 'sablon.md', data: b64('# Rapor\nBaşlık: X\nDurum: Y') }, { name: 'resim.png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 1]).toString('base64') }];
+  const { docs, unread } = readDocs(files);
+  assert.deepEqual(docs.map((d) => d.name), ['sablon.md']);
+  assert.deepEqual(unread, ['resim.png']);
+  assert.match(compileRequest('tr', 'rapor yaz', docs), /"notes"[\s\S]*--- Belge: sablon\.md ---\n# Rapor/);
+  assert.doesNotMatch(compileRequest('tr', 'rapor yaz'), /notes/, 'belge yoksa özet istenmez');
+
+  let asked;
+  const c = await compile({ description: 'Raporu bu şablona göre yaz', files, ask: async (o) => { asked = o; return '{"name":"Rapor","prompt":"Komutla gelen belge özetine göre rapor yaz.","links":[],"fill":false,"notes":"Rapor: Başlık ve Durum alanları"}'; } });
+  assert.match(asked.text, /Durum: Y/);
+  assert.equal(c.notes, 'Rapor: Başlık ve Durum alanları');
+  assert.deepEqual(c.sources, ['sablon.md']);
+  assert.deepEqual(c.unread, ['resim.png']);
+
+  // Saklama: özet ve kaynaklar kalır; özet silinince ikisi de gider
+  const file = tmp();
+  const [saved] = save({ name: c.name, prompt: c.prompt, notes: c.notes, sources: c.sources }, file);
+  assert.equal(list(file)[0].notes, 'Rapor: Başlık ve Durum alanları');
+  save({ id: saved.id, name: 'Rapor', prompt: 'p', notes: '' }, file);
+  assert.equal(list(file)[0].notes, undefined);
+  assert.equal(list(file)[0].sources, undefined);
+
+  // Var olan komut için özet
+  const d = await digest({ prompt: 'p', files, ask: async () => '```\nÖzet metni\n```' });
+  assert.deepEqual(d, { notes: 'Özet metni', sources: ['sablon.md'], unread: ['resim.png'] });
+  await assert.rejects(digest({ prompt: 'p', files: [files[1]] }), { code: 'no-docs' });
+  await assert.rejects(digest({ prompt: 'p', files, ask: async () => '' }), { code: 'no-digest' });
 });

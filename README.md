@@ -25,7 +25,7 @@ Claude Code'u **tarayıcıda, masaüstü uygulamasına benzer bir arayüzle** ku
 - 💬 **Klasörsüz sohbet**: projeye bağlı olmadan soru sorma (ör. ağ/sistem sorunları); oturumlar boş bir klasörde (`~/.atolye/genel`) çalışır, gerekirse izinle komut çalıştırılır
 - 🗃️ **Birden fazla proje**: kenar çubuğunda klasörler alt alta, her birinin altında kendi oturumları; farklı projelerde aynı anda çalışma, her projede tek tıkla yeni oturum, daraltma/kaldırma; liste diskte (`~/.atolye/durum.json`) tutulur, tarayıcı verileri silinse, port değişse ya da bilgisayar yeniden başlasa da korunur
 - 📁 Klasör seçici, `@dosya` önerisi, `/komut` menüsü (`/compact`, `/context`, kendi komutlarınız…)
-- 🖼️ Görsel ve dosya ekleme (yapıştır, sürükle-bırak, dosya seç): CSV, Excel (`.xlsx`, sayfa sayfa CSV'ye çevrilir), metin, JSON, PDF… Dosyalar bu bilgisayarda `~/.atolye/ekler` altına kaydedilir (30 gün sonra silinir); içeriğin başı mesaja eklenir, tamamını yapay zekâ verilen yoldan okur
+- 🖼️ Görsel ve dosya ekleme (yapıştır, sürükle-bırak, dosya seç): CSV, Excel (`.xlsx`, sayfa sayfa CSV'ye çevrilir), Word (`.docx`) ve PowerPoint (`.pptx`, metne çevrilir), metin, JSON, PDF… Dosyalar bu bilgisayarda `~/.atolye/ekler` altına kaydedilir (30 gün sonra silinir); içeriğin başı mesaja eklenir, tamamını yapay zekâ verilen yoldan okur
 - ⏹️ Durdurma (Esc), açık/koyu tema, mobil uyumlu düzen
 
 ## Gereksinimler
@@ -267,6 +267,13 @@ komutlar boş oturum ekranında renkli düğme olarak görünür. Üst çubuktak
 bağlantıları ve renkleri değiştirilebilir ya da komut silinebilir; Atölye ile gelen hazır komutlar da aynı yerden
 düzenlenebilir, renklendirilebilir, gizlenebilir ve istenince ilk hâline döndürülebilir. Komutlar `~/.atolye/komutlar.json` dosyasında saklanır (en fazla
 30 komut, komut başına en fazla 4 bağlantı). Yapay zekâya ulaşılamazsa anlattığınız metin olduğu gibi alınır.
+
+**Komuta örnek belge:** öğretirken **+ Örnek dosya ekle** ile şablon, örnek rapor gibi en fazla 5 belge eklenebilir
+(Word, PowerPoint, Excel, metin; PDF'in metni elden geldiğince çıkarılır, taranmış PDF okunmaz). Dosyalar saklanmaz:
+derlerken yapay zekâ onlardan komutun işine yarayan bir özet çıkarır, siz görüp düzeltirsiniz. Komut her çalıştığında
+belgeler yeniden okunmaz; özet mesaj kutusunda **belge özeti** eki olarak görünür (istenirse kaldırılır) ve yapay zekâya
+gizli not olarak gider. Var olan bir komuta **Komutlar → Düzenle → Belge ekleyip özet çıkar…** ile sonradan belge
+eklenebilir.
 
 Seçim saklanır. Mod değişince yeni bir oturum açılır (anlatım biçimi oturum açılırken belirlenir; Copilot'ta sistem
 yönergesi değiştirilemediği için orada yalnızca görünen bağlantılar ve öneriler değişir). Yeni bir mod (ör. yönetici,
