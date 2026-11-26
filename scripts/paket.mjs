@@ -14,6 +14,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const full = process.argv.includes('--tam');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
+// Tam paket node_modules'u içine alır: yeni klonda önce paketler kurulmalı
+if (full && !fs.existsSync(path.join(ROOT, 'node_modules'))) {
+  console.error(`Tam paket için önce paketleri kurun: bu klasörde "npm ci" çalıştırın, sonra paketlemeyi yeniden deneyin.\n(${path.join(ROOT, 'node_modules')} bulunamadı)`);
+  process.exit(1);
+}
+
 let commit = '';
 try {
   commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
