@@ -305,7 +305,8 @@ wait_update_lock() {
 
 start_server() {
   local cli="$INSTALL_DIR/src/cli.js" i
-  (cd "$HOME" && nohup "$NODE" "$cli" --no-open < /dev/null > "$LOG_FILE" 2>&1 &)
+  # Arka plana yalnızca node gider ve araya giren kabuk hemen çıkar: sunucu bu betiğe bağlı kalmaz
+  ( cd "$HOME" || exit 1; nohup "$NODE" "$cli" --no-open < /dev/null > "$LOG_FILE" 2>&1 & )
   for ((i = 0; i < ${1:-20} * 2; i++)); do
     sleep 0.5
     is_running && return 0
